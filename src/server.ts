@@ -11,7 +11,7 @@ import { WebSocketServer } from 'ws';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = Number(process.env.PORT) || 8080;
+const PORT = Number(process.env.PORT) || 2346;
 
 const require = createRequire(import.meta.url);
 const ghosttyWebMain = require.resolve('ghostty-web') as string;
