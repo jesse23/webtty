@@ -1,23 +1,14 @@
 #!/usr/bin/env bun
 
-import { Glob } from 'bun';
-
-const entrypoints: string[] = [];
-const glob = new Glob('**/*.ts');
-
-for await (const file of glob.scan('./src')) {
-  if (!file.endsWith('.d.ts') && !file.endsWith('.test.ts')) {
-    entrypoints.push(`./src/${file}`);
-  }
-}
+export {};
 
 const result = await Bun.build({
-  entrypoints,
+  entrypoints: ['./src/server.ts'],
   outdir: './dist',
-  root: './src',
+  target: 'node',
   format: 'esm',
   sourcemap: 'external',
-  external: ['./*', '../*'],
+  external: ['@lydell/node-pty', 'ws', 'ghostty-web'],
 });
 
 if (!result.success) {

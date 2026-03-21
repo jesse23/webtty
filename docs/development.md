@@ -26,22 +26,19 @@ Two document types, two purposes:
 | Document | Pattern | Example |
 |----------|---------|---------|
 | SPEC | `{short-title}.md` | `my-new-module.md` |
-| ADR | `{release-id}/{sequence}.{spec-title}.{adr-title}.md` | `2612/001.monorepo-infra.bun-runtime.md` |
+| ADR | `{sequence}.{spec-title}.{adr-title}.md` | `001.server.websocket-protocol.md` |
 
 ```
 docs/
 ├── specs/                # living architecture overviews
 │   └── {short-title}.md
-└── adrs/                 # decision records grouped by release
-    └── {release-id}/     # e.g. 2612, 2706
-        └── {seq}.{spec-title}.{adr-title}.md
+└── adrs/                 # decision records, flat sequence
+    └── {seq}.{spec-title}.{adr-title}.md
 ```
 
-**Sequencing**: ADR numbers are 3-digit, sequential *within a release folder*, starting at `001`. They do not reset per SPEC — a single global sequence per release avoids conflicts when multiple SPECs produce ADRs simultaneously.
+**Sequencing**: ADR numbers are 3-digit, sequential across the entire repo, starting at `001`. They do not reset per SPEC — a single global sequence avoids conflicts when multiple SPECs produce ADRs simultaneously.
 
-**SPEC-title prefix**: The SPEC name embedded in each ADR filename is the modularization axis. It enables filtering by scope (`ls adrs/2612/*.auth.*`) and makes ownership clear at a glance.
-
-**Release folder**: Each release cycle (e.g. `2512`, `2606`, `2612`) gets its own folder — no single folder grows unbounded. Historical decisions are preserved in-place.
+**SPEC-title prefix**: The SPEC name embedded in each ADR filename is the modularization axis. It enables filtering by scope (`ls adrs/*.server.*`) and makes ownership clear at a glance.
 
 ---
 
@@ -115,7 +112,7 @@ If a developer wants to propose a SPEC or ADR independently first, they can subm
 | Scenario | Action |
 |----------|--------|
 | New module or repo-level concern | Write a **SPEC** in `docs/specs/`, then ADRs for each decision |
-| New incremental change you decide to make | Write an **ADR** in `docs/adrs/{release}/` + link from spec |
+| New incremental change you decide to make | Write an **ADR** in `docs/adrs/` + link from spec |
 | Implement a decided feature | Update SPEC's Features table `⬜` → `✅` |
 | Change a previous decision | New ADR with `Superseded` status + update old ADR's status |
 | Reject a considered approach | Revise into a new Proposed ADR with better options, if pursuing the topic further |
