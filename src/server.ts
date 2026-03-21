@@ -75,10 +75,7 @@ const HTML = `<!doctype html>
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
-      await term.open(document.getElementById('terminal'));
-      fitAddon.fit();
-      fitAddon.observeResize();
-      window.addEventListener('resize', () => fitAddon.fit());
+      term.open(document.getElementById('terminal'));
 
       const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
       let ws;
@@ -89,7 +86,12 @@ const HTML = `<!doctype html>
         ws.onclose = () => setTimeout(connect, 2000);
       }
 
-      connect();
+      requestAnimationFrame(() => {
+        fitAddon.fit();
+        fitAddon.observeResize();
+        window.addEventListener('resize', () => fitAddon.fit());
+        connect();
+      });
 
       term.onData((data) => { if (ws?.readyState === WebSocket.OPEN) ws.send(data); });
       term.onResize(({ cols, rows }) => {
