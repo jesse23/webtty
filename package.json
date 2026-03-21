@@ -9,7 +9,7 @@
     "dev": "bun run src/server.ts",
     "dev:bun": "bun run src/server.ts",
     "dev:node": "tsx src/server.ts",
-    "preview": "node dist/server.js",
+    "preview": "bun run dist/server.js",
     "lint": "tsc --noEmit -p tsconfig.lint.json && biome check .",
     "lint:fix": "tsc --noEmit -p tsconfig.lint.json && bunx biome check --write .",
     "build": "bun run scripts/build.ts",
