@@ -5,13 +5,13 @@
 # Branch protection for: main
 #
 #   required_status_checks:
-#     strict: true                        # branch must be up to date before merge
-#     contexts:
-#       - lint
-#       - build
-#       - test
+#     strict: true
+#     contexts: [lint, build, test]
 #
-#   required_pull_request_reviews: null   # no approval required (sole contributor)
+#   required_pull_request_reviews:
+#     required_approving_review_count: 1
+#     dismiss_stale_reviews: true
+#     require_code_owner_reviews: true   # CODEOWNERS: @jesse23 + Copilot
 #
 #   allow_force_pushes: false
 #   allow_deletions: false
