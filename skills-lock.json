@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "architecture-decision-records": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "computedHash": "bffeafc71791924809ca9e24bfe3f18e87b2a060dbe5484468b4ff06c8e693b2"
+    },
+    "create-live-spec": {
+      "source": "./skills/create-live-spec",
+      "sourceType": "local",
+      "computedHash": "9c83b94d12109ef8823e227b0e9e5d58a48eab636cee7da11a1b446098dcb474"
+    }
+  }
+}
