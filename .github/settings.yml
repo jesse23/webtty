@@ -1,0 +1,22 @@
+# GitHub repository settings reference.
+# These rules must be applied manually in GitHub → Settings → Branches.
+# They are documented here so the intended configuration is version-controlled.
+#
+# To apply: Settings → Branches → Add branch ruleset → target "main"
+#
+# Branch protection for: main
+#
+#   required_status_checks:
+#     strict: true                        # branch must be up to date before merge
+#     contexts:
+#       - lint
+#       - build
+#       - test
+#
+#   required_pull_request_reviews:
+#     required_approving_review_count: 1
+#     dismiss_stale_reviews: true         # re-review required after new push
+#     require_code_owner_reviews: true    # enforces CODEOWNERS (jesse23 only)
+#
+#   allow_force_pushes: false
+#   allow_deletions: false
