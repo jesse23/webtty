@@ -8,6 +8,7 @@ const result = await Bun.build({
   target: 'node',
   format: 'esm',
   sourcemap: 'external',
+  external: ['@lydell/node-pty', 'ws', 'ghostty-web'],
 });
 
 if (!result.success) {
