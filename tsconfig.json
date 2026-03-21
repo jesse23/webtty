@@ -9,9 +9,7 @@
     "esModuleInterop": true,
     "isolatedModules": true,
     "sourceMap": true,
-    "paths": {
-      "@lydell/node-pty": ["./node_modules/@lydell/node-pty/node-pty.d.ts"]
-    }
+    "outDir": "./dist"
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]

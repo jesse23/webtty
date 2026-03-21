@@ -3,7 +3,7 @@ import http from 'node:http';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn as ptySpawn } from '@lydell/node-pty';
+import pty from '@lydell/node-pty';
 import type { WebSocket } from 'ws';
 import { WebSocketServer } from 'ws';
 
@@ -144,7 +144,7 @@ function getShell(): string {
 }
 
 const wss = new WebSocketServer({ noServer: true });
-const sessions = new Map<WebSocket, ReturnType<typeof ptySpawn>>();
+const sessions = new Map<WebSocket, ReturnType<typeof pty.spawn>>();
 
 server.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
@@ -161,7 +161,7 @@ wss.on('connection', (ws, req) => {
   const rows = Number.parseInt(url.searchParams.get('rows') ?? '24', 10);
 
   const shell = getShell();
-  const ptyProcess = ptySpawn(shell, [], {
+  const ptyProcess = pty.spawn(shell, [], {
     name: 'xterm-256color',
     cols,
     rows,
