@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import type { WebSocket as WS } from 'ws';
 import { WebSocketServer } from 'ws';
 import { type PtyProcess, spawn as spawnPty } from './pty';
+import { ghosttyWebRootFromMain, mimeType } from './utils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -17,7 +18,7 @@ const require = createRequire(import.meta.url);
 function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   try {
     const ghosttyWebMain = require.resolve('ghostty-web') as string;
-    const ghosttyWebRoot = ghosttyWebMain.replace(/[/\\]dist[/\\].*$/, '');
+    const ghosttyWebRoot = ghosttyWebRootFromMain(ghosttyWebMain);
     const distPath = path.join(ghosttyWebRoot, 'dist');
     const wasmPath = path.join(ghosttyWebRoot, 'ghostty-vt.wasm');
     if (fs.existsSync(path.join(distPath, 'ghostty-web.js')) && fs.existsSync(wasmPath)) {
@@ -139,18 +140,6 @@ const HTML_TEMPLATE = `<!doctype html>
   </body>
 </html>`;
 
-const MIME_TYPES: Record<string, string> = {
-  '.html': 'text/html',
-  '.js': 'application/javascript',
-  '.mjs': 'application/javascript',
-  '.css': 'text/css',
-  '.json': 'application/json',
-  '.wasm': 'application/wasm',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon',
-};
-
 const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const pathname = url.pathname;
@@ -176,8 +165,7 @@ const httpServer = http.createServer((req, res) => {
 });
 
 function serveFile(filePath: string, res: http.ServerResponse): void {
-  const ext = path.extname(filePath);
-  const contentType = MIME_TYPES[ext] ?? 'application/octet-stream';
+  const contentType = mimeType(filePath);
   fs.readFile(filePath, (err, data) => {
     if (err) {
       res.writeHead(404);
