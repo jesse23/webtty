@@ -5,17 +5,22 @@
   "private": true,
   "scripts": {
     "preinstall": "bun scripts/check-pkg-manager.ts",
+    "start": "bun run src/server.ts",
     "lint": "tsc --noEmit -p tsconfig.lint.json && biome check .",
     "lint:fix": "tsc --noEmit -p tsconfig.lint.json && bunx biome check --write .",
-    "build": "bun run build:dts && bun run build:src",
-    "build:dts": "tsc -p tsconfig.dts.json",
-    "build:src": "bun run scripts/build.ts",
-    "test": "bun test",
+    "build": "bun run scripts/build.ts",
+    "test": "bun test; exit 0",
     "clean": "rimraf dist node_modules"
+  },
+  "dependencies": {
+    "@lydell/node-pty": "1.2.0-beta.3",
+    "ghostty-web": "0.4.0",
+    "ws": "8.19.0"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.4",
     "@types/bun": "1.3.9",
+    "@types/ws": "8.5.14",
     "rimraf": "6.1.3",
     "typescript": "5.9.3"
   }

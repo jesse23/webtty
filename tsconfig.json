@@ -8,10 +8,10 @@
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "isolatedModules": true,
-    "declaration": true,
-    "declarationMap": true,
     "sourceMap": true,
-    "outDir": "./dist"
+    "paths": {
+      "@lydell/node-pty": ["./node_modules/@lydell/node-pty/node-pty.d.ts"]
+    }
   },
   "include": ["src"],
   "exclude": ["node_modules", "dist"]
