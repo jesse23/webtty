@@ -39,104 +39,62 @@ const HTML_TEMPLATE = `<!doctype html>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>wtty</title>
     <style>
-      * {
-        margin: 0;
-        padding: 0;
-        box-sizing: border-box;
-      }
+      * { margin: 0; padding: 0; box-sizing: border-box; }
 
-      body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-        min-height: 100vh;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 40px 20px;
-      }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #282A36; }
 
       .terminal-window {
+        display: flex;
+        flex-direction: column;
         width: 100%;
-        max-width: 1000px;
-        background: #1e1e1e;
-        border-radius: 12px;
-        box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-        overflow: hidden;
+        height: 100%;
       }
 
       .title-bar {
-        background: #2d2d2d;
-        padding: 12px 16px;
+        flex-shrink: 0;
+        background: #21222C;
+        padding: 8px 16px;
         display: flex;
         align-items: center;
         gap: 12px;
-        border-bottom: 1px solid #1a1a1a;
+        border-bottom: 1px solid #191A21;
       }
 
-      .traffic-lights {
-        display: flex;
-        gap: 8px;
-      }
-
-      .light {
-        width: 12px;
-        height: 12px;
-        border-radius: 50%;
-      }
-
-      .light.red { background: #ff5f56; }
+      .traffic-lights { display: flex; gap: 8px; }
+      .light { width: 12px; height: 12px; border-radius: 50%; }
+      .light.red    { background: #ff5f56; }
       .light.yellow { background: #ffbd2e; }
-      .light.green { background: #27c93f; }
+      .light.green  { background: #27c93f; }
 
-      .title {
-        color: #e5e5e5;
-        font-size: 13px;
-        font-weight: 500;
-        letter-spacing: 0.3px;
-      }
+      .title { color: #F8F8F2; font-size: 13px; font-weight: 500; }
 
       .connection-status {
         margin-left: auto;
         font-size: 11px;
-        color: #888;
+        color: #6272A4;
         display: flex;
         align-items: center;
         gap: 6px;
       }
 
-      .status-dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #888;
-      }
-
-      .status-dot.connected { background: #27c93f; }
-      .status-dot.disconnected { background: #ff5f56; }
-      .status-dot.connecting { background: #ffbd2e; animation: pulse 1s infinite; }
+      .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #6272A4; }
+      .status-dot.connected    { background: #50FA7B; }
+      .status-dot.disconnected { background: #FF5555; }
+      .status-dot.connecting   { background: #F1FA8C; animation: pulse 1s infinite; }
 
       @keyframes pulse {
         0%, 100% { opacity: 1; }
-        50% { opacity: 0.5; }
+        50%       { opacity: 0.5; }
       }
 
       .terminal-content {
-        height: 600px;
-        padding: 16px;
-        background: #1e1e1e;
-        position: relative;
+        flex: 1;
+        padding: 8px;
+        background: #282A36;
         overflow: hidden;
       }
 
-      .terminal-content canvas {
-        display: block;
-      }
-
-      @media (max-width: 768px) {
-        .terminal-content {
-          height: 500px;
-        }
-      }
+      .terminal-content canvas { display: block; }
     </style>
   </head>
   <body>
@@ -163,11 +121,31 @@ const HTML_TEMPLATE = `<!doctype html>
       const term = new Terminal({
         cols: 80,
         rows: 24,
-        fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
+        cursorBlink: true,
         fontSize: 14,
+        fontFamily: "'FiraMono Nerd Font', Menlo, Monaco, 'Courier New', monospace",
+        scrollback: 10000,
         theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
+          background:   '#282A36',
+          foreground:   '#F8F8F2',
+          cursor:       '#F8F8F2',
+          selection:    '#44475A',
+          black:        '#21222C',
+          red:          '#FF5555',
+          green:        '#50FA7B',
+          yellow:       '#F1FA8C',
+          blue:         '#BD93F9',
+          purple:       '#FF79C6',
+          cyan:         '#8BE9FD',
+          white:        '#F8F8F2',
+          brightBlack:  '#6272A4',
+          brightRed:    '#FF6E6E',
+          brightGreen:  '#69FF94',
+          brightYellow: '#FFFFA5',
+          brightBlue:   '#D6ACFF',
+          brightPurple: '#FF92DF',
+          brightCyan:   '#A4FFFF',
+          brightWhite:  '#FFFFFF',
         },
       });
 
@@ -401,5 +379,5 @@ process.on('SIGINT', () => {
 });
 
 httpServer.listen(HTTP_PORT, () => {
-  console.log(`wtty listening on http://localhost:${HTTP_PORT}`);
+  console.log(`listening on http://localhost:${HTTP_PORT}`);
 });
