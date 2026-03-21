@@ -3,7 +3,7 @@
 export {};
 
 const result = await Bun.build({
-  entrypoints: ['./src/server.ts'],
+  entrypoints: ['./src/server.ts', './src/cli.ts'],
   outdir: './dist',
   target: 'node',
   format: 'esm',
