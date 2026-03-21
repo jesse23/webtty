@@ -15,8 +15,11 @@ interface PtyProcess {
   kill(): void;
 }
 
+const USE_BUN_TERMINAL = !!process.versions.bun;
+console.log(`pty: ${USE_BUN_TERMINAL ? 'Bun.Terminal' : 'node-pty'}`);
+
 function spawnPty(shell: string, cols: number, rows: number): PtyProcess {
-  if (process.versions.bun) {
+  if (USE_BUN_TERMINAL) {
     const proc = Bun.spawn([shell], {
       terminal: {
         cols,
@@ -482,6 +485,5 @@ process.on('SIGINT', () => {
 });
 
 httpServer.listen(HTTP_PORT, () => {
-  const ptyBackend = process.versions.bun ? 'Bun.Terminal' : 'node-pty';
-  console.log(`wtty listening on http://localhost:${HTTP_PORT} (pty: ${ptyBackend})`);
+  console.log(`wtty listening on http://localhost:${HTTP_PORT}`);
 });
