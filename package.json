@@ -17,14 +17,14 @@
     "clean": "rimraf dist node_modules"
   },
   "dependencies": {
-    "@lydell/node-pty": "1.1.0",
+    "@lydell/node-pty": "1.2.0-beta.3",
     "ghostty-web": "0.4.0-next.14.g6a1a50d",
-    "ws": "8.18.3"
+    "ws": "8.20.0"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.4",
-    "@types/bun": "1.3.9",
-    "@types/ws": "8.5.14",
+    "@biomejs/biome": "2.4.8",
+    "@types/bun": "1.3.11",
+    "@types/ws": "8.18.1",
     "rimraf": "6.1.3",
     "tsx": "4.21.0",
     "typescript": "5.9.3"
