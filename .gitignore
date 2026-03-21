@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+
+# Other package manager lockfiles
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Build outputs
+dist/
+
+# npm publish artifacts
+*.tgz
+
+# Logs
+*.log
+
+# AI tooling (local-only agent state)
+.agents/
+.claude/
+.sisyphus/
