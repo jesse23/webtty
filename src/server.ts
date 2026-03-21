@@ -41,78 +41,13 @@ const HTML_TEMPLATE = `<!doctype html>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
-      html, body { width: 100%; height: 100%; overflow: hidden; background: #282A36; }
+      html, body, #terminal { width: 100%; height: 100%; overflow: hidden; background: #282A36; }
 
-      .terminal-window {
-        display: flex;
-        flex-direction: column;
-        width: 100%;
-        height: 100%;
-      }
-
-      .title-bar {
-        flex-shrink: 0;
-        background: #21222C;
-        padding: 8px 16px;
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        border-bottom: 1px solid #191A21;
-      }
-
-      .traffic-lights { display: flex; gap: 8px; }
-      .light { width: 12px; height: 12px; border-radius: 50%; }
-      .light.red    { background: #ff5f56; }
-      .light.yellow { background: #ffbd2e; }
-      .light.green  { background: #27c93f; }
-
-      .title { color: #F8F8F2; font-size: 13px; font-weight: 500; }
-
-      .connection-status {
-        margin-left: auto;
-        font-size: 11px;
-        color: #6272A4;
-        display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-
-      .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #6272A4; }
-      .status-dot.connected    { background: #50FA7B; }
-      .status-dot.disconnected { background: #FF5555; }
-      .status-dot.connecting   { background: #F1FA8C; animation: pulse 1s infinite; }
-
-      @keyframes pulse {
-        0%, 100% { opacity: 1; }
-        50%       { opacity: 0.5; }
-      }
-
-      .terminal-content {
-        flex: 1;
-        padding: 8px;
-        background: #282A36;
-        overflow: hidden;
-      }
-
-      .terminal-content canvas { display: block; }
+      #terminal canvas { display: block; }
     </style>
   </head>
   <body>
-    <div class="terminal-window">
-      <div class="title-bar">
-        <div class="traffic-lights">
-          <div class="light red"></div>
-          <div class="light yellow"></div>
-          <div class="light green"></div>
-        </div>
-        <span class="title">wtty</span>
-        <div class="connection-status">
-          <div class="status-dot connecting" id="status-dot"></div>
-          <span id="status-text">Connecting...</span>
-        </div>
-      </div>
-      <div class="terminal-content" id="terminal"></div>
-    </div>
+    <div id="terminal"></div>
 
     <script type="module">
       import { init, Terminal, FitAddon } from '/dist/ghostty-web.js';
@@ -157,24 +92,15 @@ const HTML_TEMPLATE = `<!doctype html>
       fitAddon.fit();
       fitAddon.observeResize();
 
-      const statusDot = document.getElementById('status-dot');
-      const statusText = document.getElementById('status-text');
-
-      function setStatus(status, text) {
-        statusDot.className = 'status-dot ' + status;
-        statusText.textContent = text;
-      }
-
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsUrl = protocol + '//' + window.location.host + '/ws?cols=' + term.cols + '&rows=' + term.rows;
       let ws;
 
       function connect() {
-        setStatus('connecting', 'Connecting...');
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
-          setStatus('connected', 'Connected');
+          console.log('[wtty] connected');
         };
 
         ws.onmessage = (event) => {
@@ -182,13 +108,13 @@ const HTML_TEMPLATE = `<!doctype html>
         };
 
         ws.onclose = () => {
-          setStatus('disconnected', 'Disconnected');
+          console.log('[wtty] disconnected, reconnecting in 2s...');
           term.write('\\r\\n\\x1b[31mConnection closed. Reconnecting in 2s...\\x1b[0m\\r\\n');
           setTimeout(connect, 2000);
         };
 
         ws.onerror = () => {
-          setStatus('disconnected', 'Error');
+          console.error('[wtty] websocket error');
         };
       }
 
@@ -209,32 +135,6 @@ const HTML_TEMPLATE = `<!doctype html>
       window.addEventListener('resize', () => {
         fitAddon.fit();
       });
-
-      if (window.visualViewport) {
-        const terminalContent = document.querySelector('.terminal-content');
-        const terminalWindow = document.querySelector('.terminal-window');
-        const originalHeight = terminalContent.style.height;
-        const body = document.body;
-
-        window.visualViewport.addEventListener('resize', () => {
-          const keyboardHeight = window.innerHeight - window.visualViewport.height;
-          if (keyboardHeight > 100) {
-            body.style.padding = '0';
-            body.style.alignItems = 'flex-start';
-            terminalWindow.style.borderRadius = '0';
-            terminalWindow.style.maxWidth = '100%';
-            terminalContent.style.height = (window.visualViewport.height - 60) + 'px';
-            window.scrollTo(0, 0);
-          } else {
-            body.style.padding = '40px 20px';
-            body.style.alignItems = 'center';
-            terminalWindow.style.borderRadius = '12px';
-            terminalWindow.style.maxWidth = '1000px';
-            terminalContent.style.height = originalHeight || '600px';
-          }
-          fitAddon.fit();
-        });
-      }
     </script>
   </body>
 </html>`;
