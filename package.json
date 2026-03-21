@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@lydell/node-pty": "1.1.0",
-    "ghostty-web": "0.2.1",
+    "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "ws": "8.18.3"
   },
   "devDependencies": {
