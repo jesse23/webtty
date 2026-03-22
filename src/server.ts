@@ -144,6 +144,18 @@ const httpServer = http.createServer((req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const pathname = url.pathname;
 
+  if (req.method === 'POST' && pathname === '/api/server/stop') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('stopping');
+    for (const [ws, session] of sessions.entries()) {
+      session.pty.kill();
+      ws.close();
+    }
+    wss.close();
+    httpServer.close(() => process.exit(0));
+    return;
+  }
+
   if (pathname === '/' || pathname === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(HTML_TEMPLATE);
@@ -266,6 +278,6 @@ process.on('SIGINT', () => {
   process.exit(0);
 });
 
-httpServer.listen(HTTP_PORT, () => {
-  console.log(`listening on http://localhost:${HTTP_PORT}`);
+httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
+  console.log(`listening on http://127.0.0.1:${HTTP_PORT}`);
 });

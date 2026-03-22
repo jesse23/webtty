@@ -1,20 +1,31 @@
 {
   "name": "wtty",
-  "version": "0.0.0",
+  "version": "0.0.0-development",
   "description": "Web TTY for running CLI/TUI applications in a browser tab, across platforms",
-  "private": true,
+  "bin": {
+    "wtty": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
+    "clean": "rimraf dist node_modules",
     "preinstall": "bun scripts/check-pkg-manager.ts",
-    "dev": "bun run src/server.ts",
-    "dev:node": "tsx src/server.ts",
-    "preview": "bun run dist/server.js",
-    "preview:node": "node dist/server.js",
     "lint": "tsc --noEmit -p tsconfig.lint.json && biome check .",
     "lint:fix": "tsc --noEmit -p tsconfig.lint.json && bunx biome check --write .",
-    "build": "bun run scripts/build.ts",
     "test": "bun test",
-    "clean": "rimraf dist node_modules"
+    "build": "bun run scripts/build.ts",
+    "dev": "bun run src/server.ts",
+    "prod": "bun run dist/server.js",
+    "dev:node": "tsx src/server.ts",
+    "prod:node": "node dist/server.js",
+    "wtty": "bun run dist/cli.js",
+    "prepack": "bun scripts/clean-pkg-scripts.ts strip",
+    "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.3",
@@ -26,6 +37,7 @@
     "@types/bun": "1.3.11",
     "@types/ws": "8.18.1",
     "rimraf": "6.1.3",
+    "semantic-release": "25.0.3",
     "tsx": "4.21.0",
     "typescript": "5.9.3"
   }

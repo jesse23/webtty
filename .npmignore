@@ -1,0 +1,19 @@
+# source
+src/
+scripts/
+
+# config
+tsconfig*.json
+biome.json
+.releaserc.json
+Makefile
+
+# publish backup
+package.json.bak
+
+# docs
+docs/
+
+# misc
+.github/
+.agents/

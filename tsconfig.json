@@ -5,10 +5,7 @@
     "moduleResolution": "bundler",
     "strict": true,
     "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "esModuleInterop": true,
-    "isolatedModules": true,
-    "sourceMap": true,
+    "verbatimModuleSyntax": true,
     "noEmit": true
   },
   "include": ["src"],

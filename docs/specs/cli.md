@@ -21,5 +21,5 @@ The CLI communicates with the server exclusively over HTTP to localhost — no U
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Server lifecycle | `wtty start`, `wtty stop`, `wtty restart`, `wtty status` — daemon control via PID file + HTTP | — | ⬜ |
+| Server lifecycle | `wtty start`, `wtty stop`, `wtty restart`, `wtty status` — daemon control via PID file + HTTP | [ADR 002](../adrs/002.cli.start-stop.md) | ⬜ |
 | Session management | `wtty session create/list/kill` — thin wrappers over the session REST API | — | ⬜ |
