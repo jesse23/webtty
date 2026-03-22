@@ -279,5 +279,5 @@ process.on('SIGINT', () => {
 });
 
 httpServer.listen(HTTP_PORT, '127.0.0.1', () => {
-  console.log(`listening on http://localhost:${HTTP_PORT}`);
+  console.log(`listening on http://127.0.0.1:${HTTP_PORT}`);
 });
