@@ -3,7 +3,7 @@
 import fs from 'node:fs';
 
 const PKG_PATH = 'package.json';
-const BACKUP_PATH = 'package.json.publish-backup';
+const BACKUP_PATH = 'package.json.bak';
 const command = process.argv[2];
 
 if (command === 'strip') {

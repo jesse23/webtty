@@ -9,7 +9,7 @@ biome.json
 Makefile
 
 # publish backup
-package.json.publish-backup
+package.json.bak
 
 # docs
 docs/
