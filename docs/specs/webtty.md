@@ -7,7 +7,7 @@
 
 ## Description
 
-wtty is a web TTY that lets you run CLI/TUI applications in a browser tab, on any platform. Point a browser at a running webtty server and you get a full terminal — colors, cursor, resize, keyboard input — backed by a real PTY on the host machine.
+webtty is a web TTY that lets you run CLI/TUI applications in a browser tab, on any platform. Point a browser at a running webtty server and you get a full terminal — colors, cursor, resize, keyboard input — backed by a real PTY on the host machine.
 
 The goal is the same as ttyd and GoTTY: zero client-side installation, full TUI support, cross-platform. webtty uses `ghostty-web` as the terminal renderer (WASM-backed, same API as xterm.js) and `@lydell/node-pty` for cross-platform PTY support.
 
@@ -21,7 +21,7 @@ The goal is the same as ttyd and GoTTY: zero client-side installation, full TUI 
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Bootstrap | Port `ghostty-web` demo into webtty — full-screen terminal in a browser tab, single server, hardcoded config | [001](../adrs/001.wtty.bootstrap.md) | ⬜ |
+| Bootstrap | Port `ghostty-web` demo into webtty — full-screen terminal in a browser tab, single server, hardcoded config | [001](../adrs/001.webtty.bootstrap.md) | ⬜ |
 | Config file | Load shell, port, font, theme from a config file (`~/.webtty/config.json`) | — | ⬜ |
 | Named sessions | Session registry keyed by ID; create/locate via `/ws?session=<id>`; PTY survives WebSocket disconnect | — | ⬜ |
 | Session REST API | `GET /api/sessions`, `POST /api/sessions`, `DELETE /api/sessions/:id` | — | ⬜ |

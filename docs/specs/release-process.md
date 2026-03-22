@@ -6,7 +6,7 @@
 
 Automated release pipeline for webtty using semantic-release. Conventional commit prefixes in PR titles drive version bumps post-merge to `main`. semantic-release determines the version, publishes to npm, creates a GitHub Release with release notes, and pushes a git tag. No manual versioning, no release commits, no extra files. Git tags are the sole version record.
 
-wtty targets developers who already have Node.js or Bun installed. Distribution is via `npx webtty` — no binary downloads needed.
+webtty targets developers who already have Node.js or Bun installed. Distribution is via `npx webtty` — no binary downloads needed.
 
 ## Principles
 

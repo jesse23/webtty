@@ -1,6 +1,6 @@
 # Agent Guide
 
-This is `wtty` — a web TTY for running CLI/TUI applications in a browser tab, across platforms.
+This is `webtty` — a web TTY for running CLI/TUI applications in a browser tab, across platforms.
 
 ## Process
 
@@ -9,7 +9,7 @@ Follow [docs/development.md](docs/development.md) — Spec & ADR Driven Developm
 ## Repo Structure
 
 ```
-wtty/
+webtty/
 ├── docs/
 │   ├── specs/                   # living architecture specs
 │   └── adrs/                    # architecture decision records

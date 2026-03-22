@@ -19,6 +19,6 @@ The UI has no build step in the initial slices — plain HTML + `<script type="m
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, reconnect on disconnect | [001](../adrs/001.wtty.bootstrap.md) | ⬜ |
+| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, reconnect on disconnect | [001](../adrs/001.webtty.bootstrap.md) | ⬜ |
 | Session manager | List sessions, open in new tab, create new session, kill session | — | ⬜ |
 | Server control | Restart and stop server from the UI (calls server control API) | — | ⬜ |
