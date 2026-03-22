@@ -9,6 +9,9 @@
     "dist"
   ],
   "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "clean": "rimraf dist node_modules",
     "preinstall": "bun scripts/check-pkg-manager.ts",
