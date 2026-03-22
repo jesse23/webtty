@@ -21,8 +21,8 @@
     "dev:node": "tsx src/server.ts",
     "prod:node": "node dist/server.js",
     "wtty": "bun run dist/cli.js",
-    "prepublishOnly": "bun scripts/clean-pkg-scripts.ts strip",
-    "postpublish": "bun scripts/clean-pkg-scripts.ts restore"
+    "prepack": "bun scripts/clean-pkg-scripts.ts strip",
+    "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.3",

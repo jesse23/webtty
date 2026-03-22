@@ -7,6 +7,12 @@ const BACKUP_PATH = 'package.json.bak';
 const command = process.argv[2];
 
 if (command === 'strip') {
+  if (fs.existsSync(BACKUP_PATH)) {
+    console.error(
+      'Error: package.json.bak already exists — a previous publish may have failed. Run restore first.',
+    );
+    process.exit(1);
+  }
   const original = fs.readFileSync(PKG_PATH, 'utf8');
   fs.writeFileSync(BACKUP_PATH, original);
 
