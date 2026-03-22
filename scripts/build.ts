@@ -9,7 +9,7 @@ const result = await Bun.build({
   format: 'esm',
   sourcemap: 'external',
   external: ['@lydell/node-pty', 'ws', 'ghostty-web'],
-  banner: '#!/usr/bin/env node',
+  banner: '#!/usr/bin/env node\n',
 });
 
 if (!result.success) {
