@@ -87,7 +87,7 @@ jobs:
       - name: Publish to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: bunx clean-publish
+        run: npm publish
 ```
 
 ## Configuration
