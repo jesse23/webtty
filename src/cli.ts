@@ -15,7 +15,7 @@ if (command === 'start') {
   const isTs = __filename.endsWith('.ts');
   const serverEntry = path.resolve(__dirname, isTs ? 'server.ts' : 'server.js');
   if (!fs.existsSync(serverEntry)) {
-    console.error(`wtty: server entry not found at ${serverEntry}`);
+    console.error(`webtty: server entry not found at ${serverEntry}`);
     process.exit(1);
   }
   const child = spawn(process.execPath, [serverEntry], {
@@ -24,20 +24,20 @@ if (command === 'start') {
     env: { ...process.env, PORT: String(PORT) },
   });
   child.unref();
-  console.log('wtty started');
+  console.log('webtty started');
 } else if (command === 'stop') {
   try {
     const res = await fetch(`${BASE_URL}/api/server/stop`, { method: 'POST' });
     if (res.ok) {
-      console.log('wtty stopped');
+      console.log('webtty stopped');
     } else {
-      console.error(`wtty stop failed (status: ${res.status})`);
+      console.error(`webtty stop failed (status: ${res.status})`);
       process.exit(1);
     }
   } catch {
-    console.log('wtty is not running');
+    console.log('webtty is not running');
   }
 } else {
-  console.error('Usage: wtty start | wtty stop');
+  console.error('Usage: webtty start | webtty stop');
   process.exit(1);
 }

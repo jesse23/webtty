@@ -1,5 +1,5 @@
 # GitHub repository settings reference.
-# These rules must be applied manually via: gh api repos/jesse23/wtty/branches/main/protection
+# These rules must be applied manually via: gh api repos/jesse23/webtty/branches/main/protection
 # They are documented here so the intended configuration is version-controlled.
 #
 # Branch protection for: main

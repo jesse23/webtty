@@ -38,7 +38,7 @@ const HTML_TEMPLATE = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>wtty</title>
+    <title>webtty</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -101,7 +101,7 @@ const HTML_TEMPLATE = `<!doctype html>
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
-          console.log('[wtty] connected');
+          console.log('[webtty] connected');
         };
 
         ws.onmessage = (event) => {
@@ -109,13 +109,13 @@ const HTML_TEMPLATE = `<!doctype html>
         };
 
         ws.onclose = () => {
-          console.log('[wtty] disconnected, reconnecting in 2s...');
+          console.log('[webtty] disconnected, reconnecting in 2s...');
           term.write('\\r\\n\\x1b[31mConnection closed. Reconnecting in 2s...\\x1b[0m\\r\\n');
           setTimeout(connect, 2000);
         };
 
         ws.onerror = () => {
-          console.error('[wtty] websocket error');
+          console.error('[webtty] websocket error');
         };
       }
 
@@ -258,7 +258,7 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
   const R = '\x1b[0m';
   ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
   ws.send(
-    `${C}║${R}  ${G}Welcome to wtty!${R}                                            ${C}║${R}\r\n`,
+    `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
   );
   ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
   ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);

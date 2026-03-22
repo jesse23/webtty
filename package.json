@@ -1,9 +1,10 @@
 {
-  "name": "wtty",
+  "name": "webtty",
   "version": "0.0.0-development",
   "description": "Web TTY for running CLI/TUI applications in a browser tab, across platforms",
   "bin": {
-    "wtty": "./dist/cli.js"
+    "webtty": "dist/cli.js",
+    "wtty": "dist/cli.js"
   },
   "files": [
     "dist"
@@ -23,7 +24,7 @@
     "prod": "bun run dist/server.js",
     "dev:node": "tsx src/server.ts",
     "prod:node": "node dist/server.js",
-    "wtty": "bun run dist/cli.js",
+    "webtty": "bun run dist/cli.js",
     "prepack": "bun scripts/clean-pkg-scripts.ts strip",
     "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },

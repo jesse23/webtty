@@ -81,7 +81,7 @@ describe('cli', () => {
   test('start launches the server', async () => {
     const { stdout, exitCode } = await runCli(port, 'start');
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('wtty started');
+    expect(stdout).toBe('webtty started');
     const running = await waitForServer(baseUrl);
     expect(running).toBe(true);
   });
@@ -89,7 +89,7 @@ describe('cli', () => {
   test('stop shuts down the server', async () => {
     const { stdout, exitCode } = await runCli(port, 'stop');
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('wtty stopped');
+    expect(stdout).toBe('webtty stopped');
     await waitForServerDown(baseUrl);
     await expect(fetch(`${baseUrl}/`)).rejects.toThrow();
   });
@@ -97,6 +97,6 @@ describe('cli', () => {
   test('stop when not running reports not running', async () => {
     const { stdout, exitCode } = await runCli(port, 'stop');
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('wtty is not running');
+    expect(stdout).toBe('webtty is not running');
   });
 });

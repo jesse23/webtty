@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "wtty",
+      "name": "webtty",
       "dependencies": {
         "@lydell/node-pty": "1.2.0-beta.3",
         "ghostty-web": "0.4.0-next.14.g6a1a50d",
