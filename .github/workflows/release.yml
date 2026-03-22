@@ -12,11 +12,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - run: apt-get update && apt-get install -y --no-install-recommends git
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - run: apt-get update && apt-get install -y --no-install-recommends git
+      - run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
       - run: bun install --frozen-lockfile
       - run: bun run build
       - name: Release
