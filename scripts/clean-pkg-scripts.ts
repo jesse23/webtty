@@ -15,9 +15,16 @@ if (command === 'strip') {
   delete pkg.devDependencies;
   fs.writeFileSync(PKG_PATH, `${JSON.stringify(pkg, null, 2)}\n`);
 } else if (command === 'restore') {
-  const original = fs.readFileSync(BACKUP_PATH, 'utf8');
-  fs.writeFileSync(PKG_PATH, original);
-  fs.unlinkSync(BACKUP_PATH);
+  try {
+    const original = fs.readFileSync(BACKUP_PATH, 'utf8');
+    fs.writeFileSync(PKG_PATH, original);
+    fs.unlinkSync(BACKUP_PATH);
+  } catch (err) {
+    console.error(
+      'Warning: failed to restore package.json from backup — restore manually if needed.',
+      err,
+    );
+  }
 } else {
   console.error('Usage: clean-pkg-scripts.ts strip | restore');
   process.exit(1);
