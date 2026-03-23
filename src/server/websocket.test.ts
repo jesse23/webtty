@@ -144,6 +144,8 @@ describe('websocket', () => {
     );
     await waitForMessages(m2, 1);
 
+    await Bun.sleep(2500);
+
     const before1 = m1.length;
     const before2 = m2.length;
 
@@ -188,6 +190,7 @@ describe('websocket', () => {
 
     ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }));
 
+    await Bun.sleep(2500);
     const before = messages.length;
     ws.send('echo resize-ok\n');
     await waitForMessages(messages, before + 1);

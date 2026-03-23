@@ -1,7 +1,7 @@
 import type http from 'node:http';
 import type { WebSocket as WS } from 'ws';
 import { WebSocketServer } from 'ws';
-import { spawnPtyForSession } from './pty';
+import { spawnForSession } from '../pty';
 import { SCROLLBACK_MAX, sessionRegistry, setLastUsedId } from './session';
 
 export function createWebSocketServer(httpServer: http.Server): WebSocketServer {
@@ -42,7 +42,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
     setLastUsedId(id);
 
     if (!session.pty) {
-      session.pty = spawnPtyForSession(cols, rows);
+      session.pty = spawnForSession(cols, rows);
 
       session.pty.onData((data: string) => {
         session.scrollback = (session.scrollback + data).slice(-SCROLLBACK_MAX);
