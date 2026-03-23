@@ -1,0 +1,25 @@
+# SPEC: Client
+
+**Author:** jesse23
+**Last Updated:** 2026-03-22
+
+---
+
+## Description
+
+The webtty browser client is served by the webtty server and runs entirely in the browser. It has two surfaces: a terminal view (full-viewport, one session per tab) and a session manager (list, create, open, kill sessions, and control the server).
+
+The client has no build step in the initial slices — plain HTML + `<script type="module">` importing `ghostty-web` assets served by the server itself. A bundler can be introduced later if the client grows beyond a handful of files.
+
+**Why ghostty-web over xterm.js?** ghostty-web is the reference implementation for this project, already available locally, and shares the same `Terminal` / `FitAddon` API shape as xterm.js. xterm.js is the safer long-term bet (wider ecosystem, VS Code backing) but ghostty-web is sufficient for the initial slices and avoids an early dependency decision.
+
+**Why no framework (React/Vue) yet?** The session manager is simple enough (a table + buttons) that a framework adds more complexity than it removes. Revisit when the client grows.
+
+## Features
+
+| Feature | Description | ADR | Done? |
+|---------|-------------|-----|-------|
+| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, reconnect on disconnect | [001](../adrs/001.webtty.bootstrap.md) | ✅ |
+| Session support | `<url>/s/:id` opens a named session; `<url>` redirects to the last-used session or creates a new one with a generated readable name (e.g. `main`) if none exists | [ADR 005](../adrs/005.client.session-support.md) | ✅ |
+| Session manager | List sessions, open in new tab, create new session, kill session | — | ⬜ |
+| Server control | Restart and stop server from the client (calls server control API) | — | ⬜ |
