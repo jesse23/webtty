@@ -19,11 +19,14 @@ const require = createRequire(import.meta.url);
 // Session registry
 // ---------------------------------------------------------------------------
 
+const SCROLLBACK_MAX = 256 * 1024;
+
 interface Session {
   id: string;
   createdAt: number;
-  pty: PtyProcess | null; // null until first WebSocket connect
-  ws: WS | null; // currently connected WebSocket, if any
+  pty: PtyProcess | null;
+  ws: WS | null;
+  scrollback: string;
 }
 
 const sessionRegistry = new Map<string, Session>();
@@ -42,7 +45,7 @@ function generateId(): string {
 }
 
 function createSession(id: string): Session {
-  const session: Session = { id, createdAt: Date.now(), pty: null, ws: null };
+  const session: Session = { id, createdAt: Date.now(), pty: null, ws: null, scrollback: '' };
   sessionRegistry.set(id, session);
   return session;
 }
@@ -458,6 +461,7 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
     session.pty = spawnPtyForSession(cols, rows);
 
     session.pty.onData((data: string) => {
+      session.scrollback = (session.scrollback + data).slice(-SCROLLBACK_MAX);
       if (session.ws && session.ws.readyState === session.ws.OPEN) {
         session.ws.send(data, { binary: false });
       }
@@ -474,24 +478,28 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
       }
       session.pty = null;
     });
+
+    const C = '\x1b[1;36m';
+    const G = '\x1b[1;32m';
+    const Y = '\x1b[1;33m';
+    const R = '\x1b[0m';
+    ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
+    ws.send(
+      `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
+    );
+    ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
+    ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);
+    ws.send(
+      `${C}║${R}  Try: ${Y}ls${R}, ${Y}cd${R}, ${Y}top${R}, ${Y}vim${R}, or any command!                      ${C}║${R}\r\n`,
+    );
+    ws.send(`${C}╚══════════════════════════════════════════════════════════════╝${R}\r\n\r\n`);
+    session.pty?.write('\n');
+  } else {
+    if (session.scrollback) {
+      ws.send(session.scrollback, { binary: false });
+    }
+    session.pty.resize(cols, rows);
   }
-
-  const C = '\x1b[1;36m';
-  const G = '\x1b[1;32m';
-  const Y = '\x1b[1;33m';
-  const R = '\x1b[0m';
-  ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
-  ws.send(
-    `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
-  );
-  ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
-  ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);
-  ws.send(
-    `${C}║${R}  Try: ${Y}ls${R}, ${Y}cd${R}, ${Y}top${R}, ${Y}vim${R}, or any command!                      ${C}║${R}\r\n`,
-  );
-  ws.send(`${C}╚══════════════════════════════════════════════════════════════╝${R}\r\n\r\n`);
-
-  session.pty?.write('\n');
 
   ws.on('message', (data: Buffer) => {
     const message = data.toString('utf8');
