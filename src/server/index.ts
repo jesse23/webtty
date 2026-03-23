@@ -27,7 +27,7 @@ const httpServer = http.createServer((req, res) => {
   });
 });
 
-const wss = createWebSocketServer(httpServer, config);
+const wss = createWebSocketServer(httpServer);
 
 process.on('SIGINT', () => {
   console.log('\n\nShutting down...');

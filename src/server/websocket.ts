@@ -1,11 +1,11 @@
 import type http from 'node:http';
 import type { WebSocket as WS } from 'ws';
 import { WebSocketServer } from 'ws';
-import type { Config } from '../config';
+import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
 import { sessionRegistry, setLastUsedId } from './session';
 
-export function createWebSocketServer(httpServer: http.Server, config: Config): WebSocketServer {
+export function createWebSocketServer(httpServer: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   httpServer.on('upgrade', (req, socket, head) => {
@@ -55,6 +55,7 @@ export function createWebSocketServer(httpServer: http.Server, config: Config): 
     setLastUsedId(id);
 
     if (!session.pty) {
+      const config = loadConfig();
       session.pty = spawnForSession(cols, rows, config.shell, config.term, config.colorTerm);
 
       session.pty.onData((data: string) => {
