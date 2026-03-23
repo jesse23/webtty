@@ -22,5 +22,6 @@ branches:
         required_approving_review_count: 1
         dismiss_stale_reviews: true
         require_code_owner_reviews: true
+      enforce_admins: false
       allow_force_pushes: false
       allow_deletions: false
