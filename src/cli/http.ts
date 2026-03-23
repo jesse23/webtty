@@ -19,12 +19,19 @@ export async function isServerRunning(): Promise<boolean> {
 }
 
 export async function startServer(): Promise<void> {
-  const isTs = __filename.endsWith('.ts');
+  // When running from source (e.g. `bun run src/cli/index.ts` during development),
+  // __filename ends with .ts and Bun is the runtime, so we can point at the .ts
+  // server entry directly. Built output always lands in .js, so Node is never
+  // asked to execute TypeScript. In production isTs is always false.
+  const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+  const isTs = isBun && __filename.endsWith('.ts');
   const serverEntry = path.resolve(__dirname, isTs ? '../server/index.ts' : '../server/index.js');
   if (!fs.existsSync(serverEntry)) {
     console.error(`webtty: server entry not found at ${serverEntry}`);
     process.exit(1);
   }
+  // Reuse the current runtime (bun, node, etc.) to spawn the server so the
+  // server always runs under the same runtime as the CLI.
   const child = spawn(process.execPath, [serverEntry], {
     detached: true,
     stdio: 'ignore',

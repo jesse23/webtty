@@ -20,10 +20,8 @@
     "lint:fix": "tsc --noEmit -p tsconfig.lint.json && bunx biome check --write .",
     "test": "bun test",
     "build": "bun run scripts/build.ts",
-    "dev": "bun run src/server/index.ts",
-    "prod": "bun run dist/server/index.js",
-    "dev:node": "tsx src/server/index.ts",
-    "prod:node": "node dist/server/index.js",
+    "server": "bun run dist/server/index.js",
+    "server:node": "node dist/server/index.js",
     "webtty": "bun run dist/cli/index.js",
     "prepack": "bun scripts/clean-pkg-scripts.ts strip",
     "postpack": "bun scripts/clean-pkg-scripts.ts restore"
