@@ -1,7 +1,7 @@
 # SPEC: webtty
 
 **Author:** jesse23
-**Last Updated:** 2026-03-21
+**Last Updated:** 2026-03-22
 
 ---
 
@@ -17,15 +17,56 @@ The goal is the same as ttyd and GoTTY: zero client-side installation, full TUI 
 
 **Persona:** Developers who want shell or TUI app access from any browser tab.
 
+## Sessions
+
+Sessions are PTY instances keyed by ID. Each session has a unique ID and a running PTY process. Sessions survive WebSocket disconnects but not server restarts (memory-only — webtty defers long-lived persistence to `tmux`/`screen`).
+
+New sessions use the shell from `~/.webtty/config.json`. No per-session command override.
+
+### Session data model
+
+```typescript
+interface Session {
+  id: string;         // URL-safe identifier (user-supplied or auto-generated)
+  createdAt: number;  // Unix timestamp ms
+  connected: boolean; // Whether a WebSocket client is currently attached
+}
+```
+
+### Session ID rules
+
+Session IDs appear directly in the URL path (`/s/:id`), so they must be valid URL path segments:
+
+- Allowed characters: `a-z`, `0-9`, `-`, `_`, `.`
+- No uppercase, no spaces, no slashes, no percent-encoding required
+- Length: 1–64 characters
+- Auto-generated IDs: 8-character lowercase hex (e.g. `a3f2c1d0`)
+
+## REST API
+
+### Session endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/sessions` | List all sessions; connection refused = server not running |
+| `POST` | `/api/sessions` | Create session; body `{ id? }`; auto-generates ID if omitted; `409` if ID exists; validates ID rules |
+| `GET` | `/api/sessions/:id` | Get single session; `404` if absent |
+| `PATCH` | `/api/sessions/:id` | Rename session; body `{ id }`; `409` if new ID exists; `404` if session absent; validates ID rules |
+| `DELETE` | `/api/sessions/:id` | Kill PTY, close connected WebSocket, remove session; `204` or `404` |
+
+### Server endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/server/stop` | Graceful shutdown — kills all PTYs, closes WebSocket server, exits |
+
 ## Features
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
 | Bootstrap | Port `ghostty-web` demo into webtty — full-screen terminal in a browser tab, single server, hardcoded config | [001](../adrs/001.webtty.bootstrap.md) | ⬜ |
 | Config file | Load shell, port, font, theme from a config file (`~/.webtty/config.json`) | — | ⬜ |
-| Named sessions | Session registry keyed by ID; create/locate via `/ws?session=<id>`; PTY survives WebSocket disconnect | — | ⬜ |
-| Session REST API | `GET /api/sessions`, `POST /api/sessions`, `DELETE /api/sessions/:id` | — | ⬜ |
-| Server control API | `POST /api/server/restart`, `POST /api/server/stop` | — | ⬜ |
-| Health endpoint | `GET /health` — returns 200 + uptime/version; used by CLI for daemon lifecycle checks | — | ⬜ |
-| UI | Browser interface for terminal, session management, and server control | — | ⬜ |
-| CLI | `webtty` binary for server lifecycle and session management | — | ⬜ |
+| In-memory registry | Server-side map of `id → { session, pty }`; sessions survive WS disconnect, not server restart | — | ⬜ |
+| Default session | `/` and `/ws` (no session param) use `id = "default"` | — | ⬜ |
+| Session URL | `GET /s/:id` — creates session if absent, reconnects if present; same SPA shell | — | ⬜ |
+| Session management | CRUD + rename over HTTP — see REST API above | [ADR 004](../adrs/004.webtty.session-api.md) | ⬜ |
