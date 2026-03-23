@@ -19,7 +19,10 @@ export async function isServerRunning(): Promise<boolean> {
 }
 
 export async function startServer(): Promise<void> {
-  // Bun can run .ts directly; Node requires the built .js output.
+  // When running from source (e.g. `bun run src/cli/index.ts` during development),
+  // __filename ends with .ts and Bun is the runtime, so we can point at the .ts
+  // server entry directly. Built output always lands in .js, so Node is never
+  // asked to execute TypeScript. In production isTs is always false.
   const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
   const isTs = isBun && __filename.endsWith('.ts');
   const serverEntry = path.resolve(__dirname, isTs ? '../server/index.ts' : '../server/index.js');
