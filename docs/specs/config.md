@@ -57,42 +57,24 @@ config ready
 ```jsonc
 {
   // Server
-  "port": 2346,
+  "port": 2346,                 // HTTP listen port; env PORT takes precedence
 
   // Shell
-  "shell": "/bin/zsh",        // default: $SHELL on Unix, %COMSPEC% on Windows
+  "shell": "/bin/zsh",          // shell for new sessions; default: $SHELL on Unix, %COMSPEC% on Windows
 
   // Terminal
-  "cols": 80,
-  "rows": 24,
-  "scrollback": 10000,        // lines in the terminal UI display buffer
-  "scrollbackBuffer": 262144, // server-side PTY replay buffer in bytes (256 KB default)
-  "cursorBlink": true,
-  "fontSize": 14,
-  "fontFamily": "'FiraMono Nerd Font', Menlo, Monaco, 'Courier New', monospace",
+  "cols": 80,                   // initial terminal width in columns
+  "rows": 24,                   // initial terminal height in rows
+  "scrollback": 262144,         // PTY history buffer in bytes (256 KB); used for server-side replay on reload/reconnect
+  "cursorBlink": true,          // whether the cursor blinks
+  "fontSize": 14,               // font size in px
+  "fontFamily": "'FiraMono Nerd Font', Menlo, Monaco, 'Courier New', monospace",  // CSS font-family stack
 
-  // Theme (Dracula defaults)
+  // Theme — Dracula by default; any hex color values accepted
   "theme": {
     "background":   "#282A36",
     "foreground":   "#F8F8F2",
-    "cursor":       "#F8F8F2",
-    "selection":    "#44475A",
-    "black":        "#21222C",
-    "red":          "#FF5555",
-    "green":        "#50FA7B",
-    "yellow":       "#F1FA8C",
-    "blue":         "#BD93F9",
-    "purple":       "#FF79C6",
-    "cyan":         "#8BE9FD",
-    "white":        "#F8F8F2",
-    "brightBlack":  "#6272A4",
-    "brightRed":    "#FF6E6E",
-    "brightGreen":  "#69FF94",
-    "brightYellow": "#FFFFA5",
-    "brightBlue":   "#D6ACFF",
-    "brightPurple": "#FF92DF",
-    "brightCyan":   "#A4FFFF",
-    "brightWhite":  "#FFFFFF"
+    // ... all 16 ANSI colors + cursor + selection
   }
 }
 ```

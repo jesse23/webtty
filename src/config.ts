@@ -5,7 +5,7 @@ import path from 'node:path';
 export interface Config {
   port: number;
   shell: string;
-  scrollbackBuffer: number;
+  scrollback: number;
 }
 
 export const CONFIG_DIR = path.join(os.homedir(), '.config', 'webtty');
@@ -17,7 +17,7 @@ export const DEFAULTS: Config = {
     process.platform === 'win32'
       ? (process.env.COMSPEC ?? 'cmd.exe')
       : (process.env.SHELL ?? '/bin/bash'),
-  scrollbackBuffer: 256 * 1024,
+  scrollback: 256 * 1024,
 };
 
 export function loadConfig(): Config {
@@ -44,10 +44,7 @@ export function loadConfig(): Config {
   return {
     port: typeof partial.port === 'number' ? partial.port : DEFAULTS.port,
     shell: typeof partial.shell === 'string' ? partial.shell : DEFAULTS.shell,
-    scrollbackBuffer:
-      typeof partial.scrollbackBuffer === 'number'
-        ? partial.scrollbackBuffer
-        : DEFAULTS.scrollbackBuffer,
+    scrollback: typeof partial.scrollback === 'number' ? partial.scrollback : DEFAULTS.scrollback,
   };
 }
 
