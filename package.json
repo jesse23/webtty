@@ -3,8 +3,8 @@
   "version": "0.0.0-development",
   "description": "Web TTY for running CLI/TUI applications in a browser tab, across platforms",
   "bin": {
-    "webtty": "dist/cli.js",
-    "wtty": "dist/cli.js"
+    "webtty": "dist/cli/index.js",
+    "wtty": "dist/cli/index.js"
   },
   "files": [
     "dist"
@@ -20,16 +20,17 @@
     "lint:fix": "tsc --noEmit -p tsconfig.lint.json && bunx biome check --write .",
     "test": "bun test",
     "build": "bun run scripts/build.ts",
-    "dev": "bun run src/server.ts",
-    "prod": "bun run dist/server.js",
-    "dev:node": "tsx src/server.ts",
-    "prod:node": "node dist/server.js",
-    "webtty": "bun run dist/cli.js",
+    "dev": "bun run src/server/index.ts",
+    "prod": "bun run dist/server/index.js",
+    "dev:node": "tsx src/server/index.ts",
+    "prod:node": "node dist/server/index.js",
+    "webtty": "bun run dist/cli/index.js",
     "prepack": "bun scripts/clean-pkg-scripts.ts strip",
     "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.3",
+    "commander": "14.0.0",
     "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "ws": "8.20.0"
   },
