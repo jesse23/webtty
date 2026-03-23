@@ -84,6 +84,7 @@ export function render(sessionId: string): string {
           }
           if (event.code === 1001) {
             term.write('\\r\\n\\x1b[33mServer stopped.\\x1b[0m\\r\\n');
+            setTimeout(() => window.close(), 500);
             return;
           }
           console.log('[webtty] disconnected, reconnecting in 2s...');
