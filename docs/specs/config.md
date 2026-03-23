@@ -20,23 +20,23 @@ webtty reads configuration from `~/.config/webtty/config.json`. The file is the 
 
 ```
 webtty server starts
-        │
-        ▼
-config file exists? ──────────────────────┐
-   │                                      │
-  yes                                     no
-   │                                      │
-   ▼                                      ▼
+   │
+   ▼
+config file exists? ────────────────────┐
+   │                                    │
+  yes                                   no
+   │                                    │
+   ▼                                    ▼
 read + parse JSON ◄──────── write defaults to file
    │
    ▼
-valid JSON? ──────────────────────┐
-   │                              │
-  yes                             no
-   │                              │
-   ▼                              ▼
-merge with defaults          error: print
-(unknown keys ignored)       path, exit
+valid JSON? ────────────────────────────┐
+   │                                    │
+  yes                                   no
+   │                                    │
+   ▼                                    ▼
+merge with defaults                error: print
+(unknown keys ignored)             path, exit
    │
    ▼
 apply env overrides
@@ -51,6 +51,51 @@ config ready
 - **Invalid JSON**: hard error with a clear message pointing to the file path. webtty does not attempt to repair or overwrite a corrupt file.
 - **Unknown keys**: silently ignored (forward-compatibility — a config written by a newer version works with an older binary).
 - **Env overrides**: applied after the file is loaded, never written back to the file.
+
+## Schema
+
+```jsonc
+{
+  // Server
+  "port": 2346,
+
+  // Shell
+  "shell": "/bin/zsh",        // default: $SHELL on Unix, %COMSPEC% on Windows
+
+  // Terminal
+  "cols": 80,
+  "rows": 24,
+  "scrollback": 10000,        // lines in the terminal UI display buffer
+  "scrollbackBuffer": 262144, // server-side PTY replay buffer in bytes (256 KB default)
+  "cursorBlink": true,
+  "fontSize": 14,
+  "fontFamily": "'FiraMono Nerd Font', Menlo, Monaco, 'Courier New', monospace",
+
+  // Theme (Dracula defaults)
+  "theme": {
+    "background":   "#282A36",
+    "foreground":   "#F8F8F2",
+    "cursor":       "#F8F8F2",
+    "selection":    "#44475A",
+    "black":        "#21222C",
+    "red":          "#FF5555",
+    "green":        "#50FA7B",
+    "yellow":       "#F1FA8C",
+    "blue":         "#BD93F9",
+    "purple":       "#FF79C6",
+    "cyan":         "#8BE9FD",
+    "white":        "#F8F8F2",
+    "brightBlack":  "#6272A4",
+    "brightRed":    "#FF6E6E",
+    "brightGreen":  "#69FF94",
+    "brightYellow": "#FFFFA5",
+    "brightBlue":   "#D6ACFF",
+    "brightPurple": "#FF92DF",
+    "brightCyan":   "#A4FFFF",
+    "brightWhite":  "#FFFFFF"
+  }
+}
+```
 
 ## Features
 
