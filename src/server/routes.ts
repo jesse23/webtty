@@ -1,6 +1,6 @@
 import type http from 'node:http';
 import path from 'node:path';
-import type { Config } from '../config';
+import { type Config, loadConfig } from '../config';
 import { render } from './client';
 import {
   createSession,
@@ -200,7 +200,7 @@ export async function handleRequest(
       return;
     }
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(render(id, config));
+    res.end(render(id, loadConfig()));
     return;
   }
 

@@ -28,29 +28,40 @@ config file exists? ────────────────────
    │                                    │
    ▼                                    ▼
 read + parse JSON ◄──────── write defaults to file
+   │                              │ write fails?
+   ▼                              ▼
+valid JSON? ──────── no ──► warn + use defaults in memory
    │
    ▼
-valid JSON? ────────────────────────────┐
-   │                                    │
-  yes                                   no
-   │                                    │
-   ▼                                    ▼
-merge with defaults                error: print
-(unknown keys ignored)             path, exit
+merge with defaults
+(unknown keys ignored)
    │
    ▼
 apply env overrides
 (PORT > config.port, etc.)
    │
    ▼
-config ready
+config ready (port/host locked for server lifetime)
+```
+
+```
+browser tab reloads  (GET /s/:id)
+   │
+   ▼
+loadConfig() — re-read file from disk
+   │
+   ▼
+render HTML with fresh appearance settings
+(cols, rows, fontSize, fontFamily, cursorBlink, scrollback, theme)
 ```
 
 - **First run**: defaults are written to disk so the user has a file to edit.
 - **Subsequent runs**: file is read and merged with defaults — missing keys fall back to defaults, so adding new config keys in future versions is non-breaking.
+- **Write failure on first run**: warns to stderr, continues with in-memory defaults (no crash).
 - **Invalid JSON**: hard error with a clear message pointing to the file path. webtty does not attempt to repair or overwrite a corrupt file.
 - **Unknown keys**: silently ignored (forward-compatibility — a config written by a newer version works with an older binary).
 - **Env overrides**: applied after the file is loaded, never written back to the file.
+- **Hot config reload**: `port` and `host` are locked for the server lifetime (changing them requires a restart). All appearance settings (`cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink`, `scrollback`, `theme`) and `shell`/`term` for *new* sessions take effect on the next browser tab reload — no server restart needed.
 
 ## Schema
 
@@ -118,3 +129,4 @@ config ready
 | `scrollback` | PTY history buffer size in bytes | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
 | Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink` injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
 | `theme` | Terminal color palette injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
+| Hot config reload | Appearance settings re-read from disk on every tab reload; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ⬜ |
