@@ -88,6 +88,11 @@ describe('server — routes', () => {
     expect(body).toContain('"main"');
   });
 
+  test('GET /s/:id returns 404 for unknown session', async () => {
+    const res = await fetch(`${baseUrl}/s/does-not-exist`);
+    expect(res.status).toBe(404);
+  });
+
   test('GET /api/sessions returns array', async () => {
     const res = await fetch(`${baseUrl}/api/sessions`);
     expect(res.status).toBe(200);

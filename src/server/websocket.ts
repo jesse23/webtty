@@ -8,7 +8,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
   const wss = new WebSocketServer({ noServer: true });
 
   httpServer.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
     if (url.pathname.match(/^\/ws\/([^/]+)$/)) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else {
@@ -17,14 +17,20 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
   });
 
   wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
-    const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
     const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
     if (!wsMatch) {
       ws.close();
       return;
     }
 
-    const id = decodeURIComponent(wsMatch[1]);
+    let id: string;
+    try {
+      id = decodeURIComponent(wsMatch[1]);
+    } catch {
+      ws.close(1008, 'Bad Request');
+      return;
+    }
     const cols = Number.parseInt(url.searchParams.get('cols') ?? '80', 10);
     const rows = Number.parseInt(url.searchParams.get('rows') ?? '24', 10);
 

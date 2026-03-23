@@ -1,4 +1,5 @@
 import type http from 'node:http';
+import path from 'node:path';
 import {
   createSession,
   generateId,
@@ -11,11 +12,25 @@ import {
 import { spaShell } from './spa';
 import { serveFile } from './static';
 
+const MAX_BODY = 64 * 1024;
+
+function decodeId(raw: string): string | null {
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    return null;
+  }
+}
+
 export function readJson(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = '';
     req.on('data', (chunk) => {
       body += chunk;
+      if (body.length > MAX_BODY) {
+        req.destroy();
+        reject(Object.assign(new Error('payload too large'), { status: 413 }));
+      }
     });
     req.on('end', () => {
       try {
@@ -35,7 +50,7 @@ export async function handleRequest(
   wasmPath: string,
   onStop: () => void,
 ): Promise<void> {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
   const pathname = url.pathname;
 
   if (req.method === 'POST' && pathname === '/api/server/stop') {
@@ -57,9 +72,10 @@ export async function handleRequest(
       let body: { id?: string };
       try {
         body = (await readJson(req)) as { id?: string };
-      } catch {
-        res.writeHead(400);
-        res.end('invalid JSON');
+      } catch (err) {
+        const status = (err as { status?: number }).status === 413 ? 413 : 400;
+        res.writeHead(status);
+        res.end(status === 413 ? 'Payload Too Large' : 'invalid JSON');
         return;
       }
 
@@ -83,7 +99,12 @@ export async function handleRequest(
 
   const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
   if (sessionMatch) {
-    const id = decodeURIComponent(sessionMatch[1]);
+    const id = decodeId(sessionMatch[1]);
+    if (!id) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
 
     if (req.method === 'GET') {
       const session = sessionRegistry.get(id);
@@ -101,9 +122,10 @@ export async function handleRequest(
       let body: { id?: string };
       try {
         body = (await readJson(req)) as { id?: string };
-      } catch {
-        res.writeHead(400);
-        res.end('invalid JSON');
+      } catch (err) {
+        const status = (err as { status?: number }).status === 413 ? 413 : 400;
+        res.writeHead(status);
+        res.end(status === 413 ? 'Payload Too Large' : 'invalid JSON');
         return;
       }
 
@@ -169,14 +191,28 @@ export async function handleRequest(
 
   const spaMatch = pathname.match(/^\/s\/([^/]+)$/);
   if (req.method === 'GET' && spaMatch) {
-    const id = decodeURIComponent(spaMatch[1]);
+    const id = decodeId(spaMatch[1]);
+    if (!id || !isValidId(id) || !sessionRegistry.has(id)) {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end(spaShell(id));
     return;
   }
 
   if (pathname.startsWith('/dist/')) {
-    serveFile(`${distPath}/${pathname.slice(6)}`, res);
+    const filePath = path.resolve(distPath, pathname.slice(6));
+    if (
+      !filePath.startsWith(path.resolve(distPath) + path.sep) &&
+      filePath !== path.resolve(distPath)
+    ) {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
+    serveFile(filePath, res);
     return;
   }
 

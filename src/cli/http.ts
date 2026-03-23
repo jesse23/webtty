@@ -43,7 +43,10 @@ export async function startServer(): Promise<void> {
 
 export function openBrowser(url: string): void {
   if (process.env.WEBTTY_NO_OPEN === '1') return;
-  const cmd =
-    process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-  spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+  if (process.platform === 'win32') {
+    spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+  } else {
+    const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
+    spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+  }
 }
