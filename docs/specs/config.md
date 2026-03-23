@@ -18,6 +18,8 @@ webtty reads configuration from `~/.config/webtty/config.jsonc`. The file suppor
 
 ## Lifecycle
 
+### Server startup
+
 ```
 webtty server starts
    │
@@ -27,11 +29,18 @@ config file exists? ────────────────────
   yes                                   no
    │                                    │
    ▼                                    ▼
-read + parse JSON ◄──────── write defaults to file
-   │                              │ write fails?
-   ▼                              ▼
-valid JSON? ──────── no ──► warn + use defaults in memory
+read + parse JSONC              write defaults to file
+   │                                    │
+   │                              write fails?
+   │                                    │
+   │                            warn to stderr +
+   │                            use defaults in memory ──► port/host locked
+   ▼
+valid JSON?
    │
+  no ──► hard error: print path, exit
+   │
+  yes
    ▼
 merge with defaults
 (unknown keys ignored)
@@ -41,27 +50,51 @@ apply env overrides
 (PORT > config.port, etc.)
    │
    ▼
-config ready (port/host locked for server lifetime)
+port/host locked for server lifetime
 ```
 
+### Browser tab load / reload  (`GET /s/:id`)
+
 ```
-browser tab reloads  (GET /s/:id)
+browser requests /s/:id
    │
    ▼
 loadConfig() — re-read file from disk
    │
    ▼
-render HTML with fresh appearance settings
-(cols, rows, fontSize, fontFamily, cursorBlink, scrollback, theme)
+render HTML with fresh appearance settings injected:
+cols, rows, fontSize, fontFamily, cursorBlink, scrollback, theme
 ```
+
+### New PTY spawn  (first WebSocket connection to a session)
+
+```
+WebSocket connects to /ws/:id
+   │
+   ▼
+session has no running PTY?
+   │
+  yes
+   ▼
+loadConfig() — re-read file from disk
+   │
+   ▼
+spawn PTY with fresh: shell, term, colorTerm, scrollback
+```
+
+### Rules
 
 - **First run**: defaults are written to disk so the user has a file to edit.
 - **Subsequent runs**: file is read and merged with defaults — missing keys fall back to defaults, so adding new config keys in future versions is non-breaking.
 - **Write failure on first run**: warns to stderr, continues with in-memory defaults (no crash).
 - **Invalid JSON**: hard error with a clear message pointing to the file path. webtty does not attempt to repair or overwrite a corrupt file.
 - **Unknown keys**: silently ignored (forward-compatibility — a config written by a newer version works with an older binary).
-- **Env overrides**: applied after the file is loaded, never written back to the file.
-- **Hot config reload**: `port` and `host` are locked for the server lifetime (changing them requires a restart). All appearance settings (`cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink`, `scrollback`, `theme`) and `shell`/`term` for *new* sessions take effect on the next browser tab reload — no server restart needed.
+- **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
+- **Hot config reload**:
+  - `port` / `host` — locked at startup (server socket already bound; restart required).
+  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink`, `scrollback`, `theme` — re-read on every tab reload.
+  - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
+  - An already-running session is never affected mid-flight.
 
 ## Schema
 
@@ -74,9 +107,9 @@ render HTML with fresh appearance settings
   "host": "127.0.0.1",
 
   // Shell
-  // Shell for new sessions; defaults to $SHELL / %COMSPEC% if omitted
+  // Shell for new sessions; defaults to $COMSPEC / cmd.exe on Windows, $SHELL / /bin/bash on Unix
   // "shell": "/bin/zsh",
-  // $TERM env var passed to the shell
+  // $TERM env var passed to the shell; defaults to $TERM from environment
   // "term": "xterm-256color",
 
   // Terminal
@@ -124,9 +157,9 @@ render HTML with fresh appearance settings
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
 | Config lifecycle | First-run write + subsequent load, merge with defaults, env overrides | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| `port` / `host` | Override HTTP listen port and bind address | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
-| `shell` / `term` | Override shell and `$TERM` env var for new sessions | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
-| `scrollback` | PTY history buffer size in bytes | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
-| Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink` injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
-| `theme` | Terminal color palette injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ⬜ |
-| Hot config reload | Appearance settings re-read from disk on every tab reload; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ⬜ |
+| `port` / `host` | Override HTTP listen port and bind address | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| `shell` / `term` / `colorTerm` | Override shell and `$TERM` / `$COLORTERM` env vars for new PTY sessions | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| `scrollback` | PTY history buffer size in bytes; shared between server-side replay and client-side line buffer | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink` injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| `theme` | Terminal color palette injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| Hot config reload | Appearance re-read on tab reload; shell/PTY settings re-read on new PTY spawn; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ✅ |

@@ -41,7 +41,9 @@ export interface Config {
   theme: Theme;
 }
 
-const CONFIG_PATH = path.join(os.homedir(), '.config', 'webtty', 'config.jsonc');
+function getConfigPath(): string {
+  return path.join(os.homedir(), '.config', 'webtty', 'config.jsonc');
+}
 
 export const DEFAULT_THEME: Theme = {
   background: '#282A36',
@@ -85,12 +87,12 @@ export const DEFAULT_CONFIG: Config = {
 };
 
 export function loadConfig(): Config {
-  if (!fs.existsSync(CONFIG_PATH)) {
+  if (!fs.existsSync(getConfigPath())) {
     try {
       saveConfig(DEFAULT_CONFIG);
     } catch (err) {
       console.warn(
-        `webtty: failed to write default config to ${CONFIG_PATH}: ${(err as Error).message}`,
+        `webtty: failed to write default config to ${getConfigPath()}: ${(err as Error).message}`,
       );
       return { ...DEFAULT_CONFIG };
     }
@@ -98,16 +100,16 @@ export function loadConfig(): Config {
 
   let raw: string;
   try {
-    raw = fs.readFileSync(CONFIG_PATH, 'utf8');
+    raw = fs.readFileSync(getConfigPath(), 'utf8');
   } catch (err) {
-    throw new Error(`webtty: failed to read config at ${CONFIG_PATH}: ${(err as Error).message}`);
+    throw new Error(`webtty: failed to read config at ${getConfigPath()}: ${(err as Error).message}`);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(stripJsonComments(raw));
   } catch {
-    throw new Error(`webtty: invalid JSON in config file ${CONFIG_PATH}`);
+    throw new Error(`webtty: invalid JSON in config file ${getConfigPath()}`);
   }
 
   const p = parsed as Partial<Config>;
@@ -129,7 +131,7 @@ export function loadConfig(): Config {
 
 export function saveConfig(_config: Config): void {
   const th = DEFAULT_THEME;
-  fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+  fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
   const content = [
     '{',
     '  // Server',
@@ -184,5 +186,5 @@ export function saveConfig(_config: Config): void {
     '}',
     '',
   ].join('\n');
-  fs.writeFileSync(CONFIG_PATH, content, 'utf8');
+  fs.writeFileSync(getConfigPath(), content, 'utf8');
 }

@@ -29,4 +29,47 @@ describe('clientShell', () => {
     const html = render('my-session', DEFAULT_CONFIG);
     expect(html).toContain('/ws/');
   });
+
+  test('injects fontSize into terminal options', () => {
+    const html = render('s', { ...DEFAULT_CONFIG, fontSize: 20 });
+    expect(html).toContain('fontSize: 20');
+  });
+
+  test('injects fontFamily into terminal options', () => {
+    const html = render('s', { ...DEFAULT_CONFIG, fontFamily: 'Menlo' });
+    expect(html).toContain('fontFamily: "Menlo"');
+  });
+
+  test('injects cols and rows into terminal options', () => {
+    const html = render('s', { ...DEFAULT_CONFIG, cols: 120, rows: 40 });
+    expect(html).toContain('cols: 120');
+    expect(html).toContain('rows: 40');
+  });
+
+  test('injects cursorBlink into terminal options', () => {
+    const html = render('s', { ...DEFAULT_CONFIG, cursorBlink: false });
+    expect(html).toContain('cursorBlink: false');
+  });
+
+  test('injects scrollback as line count derived from bytes', () => {
+    const html = render('s', { ...DEFAULT_CONFIG, scrollback: 8000 });
+    expect(html).toContain(`scrollback: ${Math.ceil(8000 / 80)}`);
+  });
+
+  test('injects theme background color into CSS', () => {
+    const html = render('s', {
+      ...DEFAULT_CONFIG,
+      theme: { ...DEFAULT_CONFIG.theme, background: '#FF0000' },
+    });
+    expect(html).toContain('#FF0000');
+  });
+
+  test('injects full theme object into terminal options', () => {
+    const html = render('s', {
+      ...DEFAULT_CONFIG,
+      theme: { ...DEFAULT_CONFIG.theme, foreground: '#AABBCC' },
+    });
+    expect(html).toContain('"foreground"');
+    expect(html).toContain('#AABBCC');
+  });
 });
