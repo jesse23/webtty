@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import stripJsonComments from 'strip-json-comments';
 
 export interface Theme {
   background?: string;
@@ -42,7 +41,7 @@ export interface Config {
 }
 
 function getConfigPath(): string {
-  return path.join(os.homedir(), '.config', 'webtty', 'config.jsonc');
+  return path.join(os.homedir(), '.config', 'webtty', 'config.json');
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -102,12 +101,14 @@ export function loadConfig(): Config {
   try {
     raw = fs.readFileSync(getConfigPath(), 'utf8');
   } catch (err) {
-    throw new Error(`webtty: failed to read config at ${getConfigPath()}: ${(err as Error).message}`);
+    throw new Error(
+      `webtty: failed to read config at ${getConfigPath()}: ${(err as Error).message}`,
+    );
   }
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(stripJsonComments(raw));
+    parsed = JSON.parse(raw);
   } catch {
     throw new Error(`webtty: invalid JSON in config file ${getConfigPath()}`);
   }
@@ -130,61 +131,14 @@ export function loadConfig(): Config {
 }
 
 export function saveConfig(_config: Config): void {
-  const th = DEFAULT_THEME;
   fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
-  const content = [
-    '{',
-    '  // Server',
-    '  // HTTP listen port; env PORT takes precedence',
-    '  "port": 2346,',
-    '  // Bind address; use "0.0.0.0" for remote access',
-    '  "host": "127.0.0.1"',
-    '',
-    '  // Shell',
-    '  // Shell for new sessions; defaults to $COMSPEC / cmd.exe on Windows, $SHELL / /bin/bash on Unix',
-    '  // "shell": "/bin/zsh",',
-    '  // $TERM env var passed to the shell; defaults to $TERM from environment',
-    '  // "term": "xterm-256color",',
-    '',
-    '  // Terminal',
-    '  // PTY history buffer in bytes; used for server-side replay on reload/reconnect',
-    '  // "scrollback": 262144,',
-    '  // Initial terminal width in columns',
-    '  // "cols": 80,',
-    '  // Initial terminal height in rows',
-    '  // "rows": 24,',
-    '  // Whether the cursor blinks',
-    '  // "cursorBlink": true,',
-    '  // Font size in px',
-    '  // "fontSize": 14,',
-    '  // CSS font-family stack',
-    '  // "fontFamily": "\'FiraMono Nerd Font\', Menlo, Monaco, \'Courier New\', monospace",',
-    '',
-    '  // Theme — terminal color palette, Dracula by default',
-    '  // "theme": {',
-    `  //   "background":   "${th.background}",  // terminal background`,
-    `  //   "foreground":   "${th.foreground}",  // default text color`,
-    `  //   "cursor":       "${th.cursor}",  // cursor color`,
-    `  //   "selection":    "${th.selection}",  // selection highlight`,
-    `  //   "black":        "${th.black}",  // ANSI 0`,
-    `  //   "red":          "${th.red}",  // ANSI 1`,
-    `  //   "green":        "${th.green}",  // ANSI 2`,
-    `  //   "yellow":       "${th.yellow}",  // ANSI 3`,
-    `  //   "blue":         "${th.blue}",  // ANSI 4`,
-    `  //   "purple":       "${th.purple}",  // ANSI 5`,
-    `  //   "cyan":         "${th.cyan}",  // ANSI 6`,
-    `  //   "white":        "${th.white}",  // ANSI 7`,
-    `  //   "brightBlack":  "${th.brightBlack}",  // ANSI 8`,
-    `  //   "brightRed":    "${th.brightRed}",  // ANSI 9`,
-    `  //   "brightGreen":  "${th.brightGreen}",  // ANSI 10`,
-    `  //   "brightYellow": "${th.brightYellow}",  // ANSI 11`,
-    `  //   "brightBlue":   "${th.brightBlue}",  // ANSI 12`,
-    `  //   "brightPurple": "${th.brightPurple}",  // ANSI 13`,
-    `  //   "brightCyan":   "${th.brightCyan}",  // ANSI 14`,
-    `  //   "brightWhite":  "${th.brightWhite}"   // ANSI 15`,
-    '  // }',
-    '}',
-    '',
-  ].join('\n');
+  const content = JSON.stringify(
+    {
+      port: DEFAULT_CONFIG.port,
+      host: DEFAULT_CONFIG.host,
+    },
+    null,
+    2,
+  );
   fs.writeFileSync(getConfigPath(), content, 'utf8');
 }

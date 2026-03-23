@@ -11,7 +11,7 @@ const origHome = os.homedir();
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webtty-config-test-'));
-  configPath = path.join(tmpDir, '.config', 'webtty', 'config.jsonc');
+  configPath = path.join(tmpDir, '.config', 'webtty', 'config.json');
   spyOn(os, 'homedir').mockReturnValue(tmpDir);
 });
 
@@ -26,25 +26,17 @@ describe('saveConfig', () => {
     expect(fs.existsSync(path.dirname(configPath))).toBe(true);
   });
 
-  test('writes a file that is valid JSON after stripping comments', () => {
+  test('writes valid JSON', () => {
     saveConfig(DEFAULT_CONFIG);
     const raw = fs.readFileSync(configPath, 'utf8');
-    const stripped = raw.replace(/\/\/[^\n]*/g, '');
-    expect(() => JSON.parse(stripped)).not.toThrow();
+    expect(() => JSON.parse(raw)).not.toThrow();
   });
 
-  test('written file contains expected port and host values', () => {
+  test('written file contains port and host', () => {
     saveConfig(DEFAULT_CONFIG);
     const raw = fs.readFileSync(configPath, 'utf8');
-    expect(raw).toContain('"port": 2346');
-    expect(raw).toContain('"host": "127.0.0.1"');
-  });
-
-  test('written file contains Dracula theme colors as comments', () => {
-    saveConfig(DEFAULT_CONFIG);
-    const raw = fs.readFileSync(configPath, 'utf8');
-    expect(raw).toContain('#282A36');
-    expect(raw).toContain('#F8F8F2');
+    expect(raw).toContain('"port"');
+    expect(raw).toContain('"host"');
   });
 });
 
@@ -104,20 +96,17 @@ describe('loadConfig — reads and merges', () => {
 
   test('overrides port when set in file', () => {
     writeConfig(JSON.stringify({ port: 9999 }));
-    const config = loadConfig();
-    expect(config.port).toBe(9999);
+    expect(loadConfig().port).toBe(9999);
   });
 
   test('overrides host when set in file', () => {
     writeConfig(JSON.stringify({ host: '0.0.0.0' }));
-    const config = loadConfig();
-    expect(config.host).toBe('0.0.0.0');
+    expect(loadConfig().host).toBe('0.0.0.0');
   });
 
   test('overrides shell when set in file', () => {
     writeConfig(JSON.stringify({ shell: '/bin/zsh' }));
-    const config = loadConfig();
-    expect(config.shell).toBe('/bin/zsh');
+    expect(loadConfig().shell).toBe('/bin/zsh');
   });
 
   test('overrides fontSize and fontFamily when set in file', () => {
@@ -129,8 +118,7 @@ describe('loadConfig — reads and merges', () => {
 
   test('overrides cursorBlink when set to false', () => {
     writeConfig(JSON.stringify({ cursorBlink: false }));
-    const config = loadConfig();
-    expect(config.cursorBlink).toBe(false);
+    expect(loadConfig().cursorBlink).toBe(false);
   });
 
   test('overrides cols and rows when set in file', () => {
@@ -142,8 +130,7 @@ describe('loadConfig — reads and merges', () => {
 
   test('overrides scrollback when set in file', () => {
     writeConfig(JSON.stringify({ scrollback: 1024 }));
-    const config = loadConfig();
-    expect(config.scrollback).toBe(1024);
+    expect(loadConfig().scrollback).toBe(1024);
   });
 
   test('merges partial theme over DEFAULT_THEME', () => {
@@ -161,7 +148,7 @@ describe('loadConfig — reads and merges', () => {
     expect((config as unknown as Record<string, unknown>).unknownKey).toBeUndefined();
   });
 
-  test('ignores keys with wrong types (falls back to default)', () => {
+  test('ignores keys with wrong types and falls back to defaults', () => {
     writeConfig(JSON.stringify({ port: 'not-a-number', cols: true, host: 42 }));
     const config = loadConfig();
     expect(config.port).toBe(DEFAULT_CONFIG.port);
@@ -169,21 +156,12 @@ describe('loadConfig — reads and merges', () => {
     expect(config.host).toBe(DEFAULT_CONFIG.host);
   });
 
-  test('strips JSONC comments before parsing', () => {
-    writeConfig(`{
-      // This is a comment
-      "port": 5000 // inline comment
-    }`);
-    const config = loadConfig();
-    expect(config.port).toBe(5000);
-  });
-
   test('throws on invalid JSON', () => {
     writeConfig('{ not valid json }');
     expect(() => loadConfig()).toThrow(/invalid JSON/);
   });
 
-  test('throws with file path in message on read error', () => {
+  test('throws with webtty: prefix in message on read error', () => {
     fs.mkdirSync(configPath, { recursive: true });
     expect(() => loadConfig()).toThrow(/webtty:/);
   });

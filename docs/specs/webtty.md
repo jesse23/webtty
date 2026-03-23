@@ -87,5 +87,5 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | Default session | `GET /` redirects to last-used session, or creates `main` and redirects if none exists | — | ✅ |
 | Session URL | `GET /s/:id` — serves browser client for the named session; reconnects if session already has a PTY | — | ✅ |
 | Session management | CRUD + rename over HTTP — see REST API above | [ADR 004](../adrs/004.webtty.session-api.md) | ✅ |
-| Config file | Load shell, port, font, theme from a config file (`~/.config/webtty/config.jsonc`) | [ADR 008](../adrs/008.webtty.config.md) | ⬜ | → [config spec](config.md) |
+| Config file | Load shell, port, font, theme from a config file (`~/.config/webtty/config.json`) | [ADR 008](../adrs/008.webtty.config.md) | ⬜ | → [config spec](config.md) |
 | Session client | Multiple browser tabs can attach to the same session simultaneously; reload replays scrollback; typing `exit` closes all tabs | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
