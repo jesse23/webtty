@@ -154,7 +154,12 @@ function spaShell(sessionId: string): string {
           term.write(event.data);
         };
 
-        ws.onclose = () => {
+        ws.onclose = (event) => {
+          if (event.code === 4001) {
+            term.write('\\r\\n\\x1b[31mSession removed.\\x1b[0m\\r\\n');
+            setTimeout(() => window.close(), 2000);
+            return;
+          }
           console.log('[webtty] disconnected, reconnecting in 2s...');
           term.write('\\r\\n\\x1b[31mConnection closed. Reconnecting in 2s...\\x1b[0m\\r\\n');
           setTimeout(connect, 2000);
@@ -346,10 +351,10 @@ const httpServer = http.createServer(async (req, res) => {
         res.end('Not Found');
         return;
       }
-      session.pty?.kill();
-      session.ws?.close();
       sessionRegistry.delete(id);
       if (lastUsedId === id) lastUsedId = null;
+      session.ws?.close(4001, 'session deleted');
+      session.pty?.kill();
       res.writeHead(204);
       res.end();
       return;
@@ -436,9 +441,11 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
   const cols = Number.parseInt(url.searchParams.get('cols') ?? '80', 10);
   const rows = Number.parseInt(url.searchParams.get('rows') ?? '24', 10);
 
-  // Ensure session exists in registry (implicit create on WS connect)
-  if (!sessionRegistry.has(id)) createSession(id);
-  const session = sessionRegistry.get(id) ?? createSession(id);
+  if (!sessionRegistry.has(id)) {
+    ws.close(4001, 'session deleted');
+    return;
+  }
+  const session = sessionRegistry.get(id) as Session;
 
   // Attach WebSocket
   session.ws = ws;
@@ -454,8 +461,13 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
 
     session.pty.onExit(({ exitCode }) => {
       if (ws.readyState === ws.OPEN) {
-        ws.send(`\r\n\x1b[33mShell exited (code: ${exitCode})\x1b[0m\r\n`);
-        ws.close();
+        const sessionStillExists = sessionRegistry.has(session.id);
+        if (sessionStillExists) {
+          ws.send(`\r\n\x1b[33mShell exited (code: ${exitCode})\x1b[0m\r\n`);
+          ws.close();
+        } else {
+          ws.close(4001, 'session deleted');
+        }
       }
       session.pty = null;
     });
