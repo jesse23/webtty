@@ -19,9 +19,9 @@ export async function isServerRunning(): Promise<boolean> {
 }
 
 export async function startServer(): Promise<void> {
-  // Detect whether we're running from source (.ts) or built output (.js) and
-  // resolve the matching server entry accordingly.
-  const isTs = __filename.endsWith('.ts');
+  // Bun can run .ts directly; Node requires the built .js output.
+  const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+  const isTs = isBun && __filename.endsWith('.ts');
   const serverEntry = path.resolve(__dirname, isTs ? '../server/index.ts' : '../server/index.js');
   if (!fs.existsSync(serverEntry)) {
     console.error(`webtty: server entry not found at ${serverEntry}`);

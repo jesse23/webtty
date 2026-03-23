@@ -21,7 +21,7 @@ webtty/
 Always build and stop the old server before testing:
 
 ```
-bun run build && bun run webtty stop 
+bun run build && bun run webtty stop
 ```
 
 ## Rules
