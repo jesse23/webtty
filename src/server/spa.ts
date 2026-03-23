@@ -79,7 +79,7 @@ export function spaShell(sessionId: string): string {
         ws.onclose = (event) => {
           if (event.code === 4001) {
             term.write('\\r\\n\\x1b[31mSession removed.\\x1b[0m\\r\\n');
-            setTimeout(() => window.close(), 2000);
+            setTimeout(() => window.close(), 500);
             return;
           }
           console.log('[webtty] disconnected, reconnecting in 2s...');
