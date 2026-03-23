@@ -19,7 +19,7 @@ The UI has no build step in the initial slices — plain HTML + `<script type="m
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, reconnect on disconnect | [001](../adrs/001.webtty.bootstrap.md) | ⬜ |
-| Session support | `<url>/s/:id` opens a named session; `<url>` redirects to the last-used session or creates a new one with a generated readable name (e.g. `main`) if none exists | [ADR 005](../adrs/005.ui.session-support.md) | ⬜ |
+| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, reconnect on disconnect | [001](../adrs/001.webtty.bootstrap.md) | ✅ |
+| Session support | `<url>/s/:id` opens a named session; `<url>` redirects to the last-used session or creates a new one with a generated readable name (e.g. `main`) if none exists | [ADR 005](../adrs/005.ui.session-support.md) | ✅ |
 | Session manager | List sessions, open in new tab, create new session, kill session | — | ⬜ |
 | Server control | Restart and stop server from the UI (calls server control API) | — | ⬜ |

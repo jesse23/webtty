@@ -33,6 +33,6 @@ The CLI communicates with the server exclusively over HTTP to localhost — no U
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Server lifecycle | `webtty start` / `stop` — fork, detect, and terminate the server over HTTP | [ADR 002](../adrs/002.cli.start-stop.md) | ⬜ |
-| Session management | `webtty run` / `ls` / `rm` / `rename` — create, list, remove, and rename sessions via the REST API | [ADR 006](../adrs/006.cli.session-management.md) | ⬜ |
+| Server lifecycle | `webtty start` / `stop` — fork, detect, and terminate the server over HTTP | [ADR 002](../adrs/002.cli.start-stop.md) | ✅ |
+| Session management | `webtty run` / `ls` / `rm` / `rename` — create, list, remove, and rename sessions via the REST API | [ADR 006](../adrs/006.cli.session-management.md) | ✅ |
 | Server restart | `webtty restart` — stop then start; `POST /api/server/restart` on server side | — | ⬜ |
