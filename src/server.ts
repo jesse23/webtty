@@ -148,6 +148,7 @@ function spaShell(sessionId: string): string {
 
         ws.onopen = () => {
           console.log('[webtty] connected to session ' + sessionId);
+          ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
         };
 
         ws.onmessage = (event) => {
@@ -447,46 +448,50 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
   }
   const session = sessionRegistry.get(id) as Session;
 
-  // Attach WebSocket
+  if (session.ws && session.ws !== ws && session.ws.readyState === session.ws.OPEN) {
+    session.ws.close(4000, 'replaced by new connection');
+  }
   session.ws = ws;
   lastUsedId = id;
 
-  // Create PTY if this is the first connect, otherwise reuse
   if (!session.pty) {
     session.pty = spawnPtyForSession(cols, rows);
 
     session.pty.onData((data: string) => {
-      if (ws.readyState === ws.OPEN) ws.send(data, { binary: false });
+      if (session.ws && session.ws.readyState === session.ws.OPEN) {
+        session.ws.send(data, { binary: false });
+      }
     });
 
     session.pty.onExit(({ exitCode }) => {
-      if (ws.readyState === ws.OPEN) {
-        const sessionStillExists = sessionRegistry.has(session.id);
-        if (sessionStillExists) {
-          ws.send(`\r\n\x1b[33mShell exited (code: ${exitCode})\x1b[0m\r\n`);
-          ws.close();
+      if (session.ws && session.ws.readyState === session.ws.OPEN) {
+        if (sessionRegistry.has(session.id)) {
+          session.ws.send(`\r\n\x1b[33mShell exited (code: ${exitCode})\x1b[0m\r\n`);
+          session.ws.close();
         } else {
-          ws.close(4001, 'session deleted');
+          session.ws.close(4001, 'session deleted');
         }
       }
       session.pty = null;
     });
-
-    const C = '\x1b[1;36m';
-    const G = '\x1b[1;32m';
-    const Y = '\x1b[1;33m';
-    const R = '\x1b[0m';
-    ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
-    ws.send(
-      `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
-    );
-    ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
-    ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);
-    ws.send(
-      `${C}║${R}  Try: ${Y}ls${R}, ${Y}cd${R}, ${Y}top${R}, ${Y}vim${R}, or any command!                      ${C}║${R}\r\n`,
-    );
-    ws.send(`${C}╚══════════════════════════════════════════════════════════════╝${R}\r\n\r\n`);
   }
+
+  const C = '\x1b[1;36m';
+  const G = '\x1b[1;32m';
+  const Y = '\x1b[1;33m';
+  const R = '\x1b[0m';
+  ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
+  ws.send(
+    `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
+  );
+  ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
+  ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);
+  ws.send(
+    `${C}║${R}  Try: ${Y}ls${R}, ${Y}cd${R}, ${Y}top${R}, ${Y}vim${R}, or any command!                      ${C}║${R}\r\n`,
+  );
+  ws.send(`${C}╚══════════════════════════════════════════════════════════════╝${R}\r\n\r\n`);
+
+  session.pty?.write('\n');
 
   ws.on('message', (data: Buffer) => {
     const message = data.toString('utf8');
