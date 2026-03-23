@@ -1,17 +1,27 @@
-# GitHub repository settings reference.
-# These rules must be applied manually via: gh api repos/jesse23/webtty/branches/main/protection
-# They are documented here so the intended configuration is version-controlled.
-#
-# Branch protection for: main
-#
-#   required_status_checks:
-#     strict: true
-#     contexts: [lint, build, test]
-#
-#   required_pull_request_reviews:
-#     required_approving_review_count: 1
-#     dismiss_stale_reviews: true
-#     require_code_owner_reviews: true
-#
-#   allow_force_pushes: false
-#   allow_deletions: false
+# Managed by the Probot Settings app: https://github.com/apps/settings
+# Changes merged to main are automatically applied to the repository.
+
+repository:
+  allow_squash_merge: true
+  allow_merge_commit: false
+  allow_rebase_merge: false
+  squash_merge_commit_title: PR_TITLE
+  squash_merge_commit_message: PR_BODY
+  delete_branch_on_merge: true
+
+branches:
+  - name: main
+    protection:
+      required_status_checks:
+        strict: true
+        contexts:
+          - lint
+          - build
+          - test
+      required_pull_request_reviews:
+        required_approving_review_count: 1
+        dismiss_stale_reviews: true
+        require_code_owner_reviews: true
+      enforce_admins: false
+      allow_force_pushes: false
+      allow_deletions: false
