@@ -82,11 +82,28 @@ config ready
   // CSS font-family stack
   // "fontFamily": "'FiraMono Nerd Font', Menlo, Monaco, 'Courier New', monospace",
 
-  // Theme — Dracula by default; any hex color values accepted
+  // Theme — terminal color palette, Dracula by default
   // "theme": {
-  //   "background": "#282A36",
-  //   "foreground": "#F8F8F2",
-  //   // ... all 16 ANSI colors + cursor + selection
+  //   "background":   "#282A36",  // terminal background
+  //   "foreground":   "#F8F8F2",  // default text color
+  //   "cursor":       "#F8F8F2",  // cursor color
+  //   "selection":    "#44475A",  // selection highlight
+  //   "black":        "#21222C",  // ANSI 0
+  //   "red":          "#FF5555",  // ANSI 1
+  //   "green":        "#50FA7B",  // ANSI 2
+  //   "yellow":       "#F1FA8C",  // ANSI 3
+  //   "blue":         "#BD93F9",  // ANSI 4
+  //   "purple":       "#FF79C6",  // ANSI 5
+  //   "cyan":         "#8BE9FD",  // ANSI 6
+  //   "white":        "#F8F8F2",  // ANSI 7
+  //   "brightBlack":  "#6272A4",  // ANSI 8
+  //   "brightRed":    "#FF6E6E",  // ANSI 9
+  //   "brightGreen":  "#69FF94",  // ANSI 10
+  //   "brightYellow": "#FFFFA5",  // ANSI 11
+  //   "brightBlue":   "#D6ACFF",  // ANSI 12
+  //   "brightPurple": "#FF92DF",  // ANSI 13
+  //   "brightCyan":   "#A4FFFF",  // ANSI 14
+  //   "brightWhite":  "#FFFFFF"   // ANSI 15
   // }
 }
 ```
