@@ -19,15 +19,15 @@ The CLI communicates with the server exclusively over HTTP to localhost — no U
 
 ## Commands
 
-| Command | Description | Done? |
-|---------|-------------|-------|
-| `webtty start` | Fork server, wait for `GET /api/sessions` to respond | ⬜ |
-| `webtty stop` | `POST /api/server/stop` — server cleans up and exits | ⬜ |
-| `webtty ls` | `GET /api/sessions` — print server status (running/stopped) and all sessions (id, connected); connection refused = stopped | ⬜ |
-| `webtty run [id]` | `POST /api/sessions` — create session, auto-generates ID if omitted, then opens the session URL in the default browser | ⬜ |
-| `webtty rm <id>` | `DELETE /api/sessions/:id` — kill session and its PTY | ⬜ |
-| `webtty rename <id> <new-id>` | `PATCH /api/sessions/:id` — rename a session; session URL updates to reflect new id | ⬜ |
-| `webtty restart` | Stop + start | ⬜ |
+| Command | Description |
+|---------|-------------|
+| `webtty start` | Fork server, wait for `GET /api/sessions` to respond |
+| `webtty stop` | `POST /api/server/stop` — server cleans up and exits |
+| `webtty ls` | `GET /api/sessions` — print server status (running/stopped) and all sessions (id, connected); connection refused = stopped |
+| `webtty run [id]` | Start server if not running; create session (auto-generates ID if omitted) or reuse if ID exists; open session URL in the default browser |
+| `webtty rm <id>` | `DELETE /api/sessions/:id` — kill session and its PTY |
+| `webtty rename <id> <new-id>` | `PATCH /api/sessions/:id` — rename a session; session URL updates to reflect new id |
+| `webtty restart` | Stop + start |
 
 ## Features
 
