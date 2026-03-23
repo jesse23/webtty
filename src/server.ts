@@ -15,6 +15,46 @@ const HTTP_PORT = Number(process.env.PORT) || 2346;
 
 const require = createRequire(import.meta.url);
 
+// ---------------------------------------------------------------------------
+// Session registry
+// ---------------------------------------------------------------------------
+
+interface Session {
+  id: string;
+  createdAt: number;
+  pty: PtyProcess | null; // null until first WebSocket connect
+  ws: WS | null; // currently connected WebSocket, if any
+}
+
+const sessionRegistry = new Map<string, Session>();
+let lastUsedId: string | null = null;
+
+const ID_RE = /^[a-z0-9\-_.]{1,64}$/;
+
+function isValidId(id: string): boolean {
+  return ID_RE.test(id);
+}
+
+function generateId(): string {
+  return Math.floor(Math.random() * 0xffffffff)
+    .toString(16)
+    .padStart(8, '0');
+}
+
+function createSession(id: string): Session {
+  const session: Session = { id, createdAt: Date.now(), pty: null, ws: null };
+  sessionRegistry.set(id, session);
+  return session;
+}
+
+function sessionToJson(s: Session) {
+  return { id: s.id, createdAt: s.createdAt, connected: s.ws !== null };
+}
+
+// ---------------------------------------------------------------------------
+// ghostty-web asset resolution
+// ---------------------------------------------------------------------------
+
 function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   try {
     const ghosttyWebMain = require.resolve('ghostty-web') as string;
@@ -33,12 +73,17 @@ function findGhosttyWeb(): { distPath: string; wasmPath: string } {
 
 const { distPath, wasmPath } = findGhosttyWeb();
 
-const HTML_TEMPLATE = `<!doctype html>
+// ---------------------------------------------------------------------------
+// SPA shell — session ID injected so the browser-side JS can read it
+// ---------------------------------------------------------------------------
+
+function spaShell(sessionId: string): string {
+  return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>webtty</title>
+    <title>webtty — ${sessionId}</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -93,15 +138,16 @@ const HTML_TEMPLATE = `<!doctype html>
       fitAddon.fit();
       fitAddon.observeResize();
 
+      const sessionId = ${JSON.stringify(sessionId)};
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const wsUrl = protocol + '//' + window.location.host + '/ws?cols=' + term.cols + '&rows=' + term.rows;
       let ws;
 
       function connect() {
+        const wsUrl = protocol + '//' + window.location.host + '/ws/' + sessionId + '?cols=' + term.cols + '&rows=' + term.rows;
         ws = new WebSocket(wsUrl);
 
         ws.onopen = () => {
-          console.log('[webtty] connected');
+          console.log('[webtty] connected to session ' + sessionId);
         };
 
         ws.onmessage = (event) => {
@@ -139,28 +185,201 @@ const HTML_TEMPLATE = `<!doctype html>
     </script>
   </body>
 </html>`;
+}
 
-const httpServer = http.createServer((req, res) => {
+// ---------------------------------------------------------------------------
+// PTY helpers
+// ---------------------------------------------------------------------------
+
+function spawnPtyForSession(cols: number, rows: number): PtyProcess {
+  const shell =
+    process.platform === 'win32'
+      ? (process.env.COMSPEC ?? 'cmd.exe')
+      : (process.env.SHELL ?? '/bin/bash');
+  return spawnPty(shell, cols, rows);
+}
+
+// ---------------------------------------------------------------------------
+// JSON body parser helper
+// ---------------------------------------------------------------------------
+
+function readJson(req: http.IncomingMessage): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+    });
+    req.on('end', () => {
+      try {
+        resolve(body ? JSON.parse(body) : {});
+      } catch {
+        reject(new Error('invalid JSON'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+// ---------------------------------------------------------------------------
+// HTTP server
+// ---------------------------------------------------------------------------
+
+const httpServer = http.createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
   const pathname = url.pathname;
+
+  // --- Server control -------------------------------------------------------
 
   if (req.method === 'POST' && pathname === '/api/server/stop') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('stopping');
-    for (const [ws, session] of sessions.entries()) {
-      session.pty.kill();
-      ws.close();
+    for (const session of sessionRegistry.values()) {
+      session.pty?.kill();
+      session.ws?.close();
     }
     wss.close();
     httpServer.close(() => process.exit(0));
     return;
   }
 
-  if (pathname === '/' || pathname === '/index.html') {
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(HTML_TEMPLATE);
+  // --- Session REST API -----------------------------------------------------
+
+  if (pathname === '/api/sessions') {
+    if (req.method === 'GET') {
+      const list = [...sessionRegistry.values()].map(sessionToJson);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(list));
+      return;
+    }
+
+    if (req.method === 'POST') {
+      let body: { id?: string };
+      try {
+        body = (await readJson(req)) as { id?: string };
+      } catch {
+        res.writeHead(400);
+        res.end('invalid JSON');
+        return;
+      }
+
+      const id = body.id ?? generateId();
+      if (!isValidId(id)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `invalid id: ${id}` }));
+        return;
+      }
+      if (sessionRegistry.has(id)) {
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `session already exists: ${id}` }));
+        return;
+      }
+      const session = createSession(id);
+      res.writeHead(201, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sessionToJson(session)));
+      return;
+    }
+  }
+
+  // /api/sessions/:id
+  const sessionMatch = pathname.match(/^\/api\/sessions\/([^/]+)$/);
+  if (sessionMatch) {
+    const id = decodeURIComponent(sessionMatch[1]);
+
+    if (req.method === 'GET') {
+      const session = sessionRegistry.get(id);
+      if (!session) {
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sessionToJson(session)));
+      return;
+    }
+
+    if (req.method === 'PATCH') {
+      let body: { id?: string };
+      try {
+        body = (await readJson(req)) as { id?: string };
+      } catch {
+        res.writeHead(400);
+        res.end('invalid JSON');
+        return;
+      }
+
+      const session = sessionRegistry.get(id);
+      if (!session) {
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
+
+      const newId = body.id;
+      if (!newId) {
+        res.writeHead(400);
+        res.end('missing id');
+        return;
+      }
+      if (!isValidId(newId)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `invalid id: ${newId}` }));
+        return;
+      }
+      if (sessionRegistry.has(newId)) {
+        res.writeHead(409, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `session already exists: ${newId}` }));
+        return;
+      }
+      sessionRegistry.delete(id);
+      session.id = newId;
+      sessionRegistry.set(newId, session);
+      if (lastUsedId === id) lastUsedId = newId;
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sessionToJson(session)));
+      return;
+    }
+
+    if (req.method === 'DELETE') {
+      const session = sessionRegistry.get(id);
+      if (!session) {
+        res.writeHead(404);
+        res.end('Not Found');
+        return;
+      }
+      session.pty?.kill();
+      session.ws?.close();
+      sessionRegistry.delete(id);
+      if (lastUsedId === id) lastUsedId = null;
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+  }
+
+  // --- Browser routes -------------------------------------------------------
+
+  // GET / — redirect to last-used or create 'main' and redirect
+  if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
+    let targetId = lastUsedId ?? null;
+    if (!targetId || !sessionRegistry.has(targetId)) {
+      if (!sessionRegistry.has('main')) createSession('main');
+      targetId = 'main';
+    }
+    res.writeHead(302, { Location: `/s/${targetId}` });
+    res.end();
     return;
   }
+
+  // GET /s/:id — serve SPA shell
+  const spaMatch = pathname.match(/^\/s\/([^/]+)$/);
+  if (req.method === 'GET' && spaMatch) {
+    const id = decodeURIComponent(spaMatch[1]);
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end(spaShell(id));
+    return;
+  }
+
+  // --- Static assets --------------------------------------------------------
 
   if (pathname.startsWith('/dist/')) {
     serveFile(path.join(distPath, pathname.slice(6)), res);
@@ -189,21 +408,16 @@ function serveFile(filePath: string, res: http.ServerResponse): void {
   });
 }
 
-const sessions = new Map<WS, { pty: PtyProcess }>();
-
-function createPtySession(cols: number, rows: number): PtyProcess {
-  const shell =
-    process.platform === 'win32'
-      ? (process.env.COMSPEC ?? 'cmd.exe')
-      : (process.env.SHELL ?? '/bin/bash');
-  return spawnPty(shell, cols, rows);
-}
+// ---------------------------------------------------------------------------
+// WebSocket — /ws/:id
+// ---------------------------------------------------------------------------
 
 const wss = new WebSocketServer({ noServer: true });
 
 httpServer.on('upgrade', (req, socket, head) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
-  if (url.pathname === '/ws') {
+  const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
+  if (wsMatch) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   } else {
     socket.destroy();
@@ -212,22 +426,55 @@ httpServer.on('upgrade', (req, socket, head) => {
 
 wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host}`);
+  const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
+  if (!wsMatch) {
+    ws.close();
+    return;
+  }
+
+  const id = decodeURIComponent(wsMatch[1]);
   const cols = Number.parseInt(url.searchParams.get('cols') ?? '80', 10);
   const rows = Number.parseInt(url.searchParams.get('rows') ?? '24', 10);
 
-  const ptyProcess = createPtySession(cols, rows);
-  sessions.set(ws, { pty: ptyProcess });
+  // Ensure session exists in registry (implicit create on WS connect)
+  if (!sessionRegistry.has(id)) createSession(id);
+  const session = sessionRegistry.get(id) ?? createSession(id);
 
-  ptyProcess.onData((data: string) => {
-    if (ws.readyState === ws.OPEN) ws.send(data, { binary: false });
-  });
+  // Attach WebSocket
+  session.ws = ws;
+  lastUsedId = id;
 
-  ptyProcess.onExit(({ exitCode }) => {
-    if (ws.readyState === ws.OPEN) {
-      ws.send(`\r\n\x1b[33mShell exited (code: ${exitCode})\x1b[0m\r\n`);
-      ws.close();
-    }
-  });
+  // Create PTY if this is the first connect, otherwise reuse
+  if (!session.pty) {
+    session.pty = spawnPtyForSession(cols, rows);
+
+    session.pty.onData((data: string) => {
+      if (ws.readyState === ws.OPEN) ws.send(data, { binary: false });
+    });
+
+    session.pty.onExit(({ exitCode }) => {
+      if (ws.readyState === ws.OPEN) {
+        ws.send(`\r\n\x1b[33mShell exited (code: ${exitCode})\x1b[0m\r\n`);
+        ws.close();
+      }
+      session.pty = null;
+    });
+
+    const C = '\x1b[1;36m';
+    const G = '\x1b[1;32m';
+    const Y = '\x1b[1;33m';
+    const R = '\x1b[0m';
+    ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
+    ws.send(
+      `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
+    );
+    ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
+    ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);
+    ws.send(
+      `${C}║${R}  Try: ${Y}ls${R}, ${Y}cd${R}, ${Y}top${R}, ${Y}vim${R}, or any command!                      ${C}║${R}\r\n`,
+    );
+    ws.send(`${C}╚══════════════════════════════════════════════════════════════╝${R}\r\n\r\n`);
+  }
 
   ws.on('message', (data: Buffer) => {
     const message = data.toString('utf8');
@@ -235,44 +482,32 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
       try {
         const msg = JSON.parse(message) as { type: string; cols: number; rows: number };
         if (msg.type === 'resize') {
-          ptyProcess.resize(msg.cols, msg.rows);
+          session.pty?.resize(msg.cols, msg.rows);
           return;
         }
       } catch {
         // fall through
       }
     }
-    ptyProcess.write(message);
+    session.pty?.write(message);
   });
 
   ws.on('close', () => {
-    sessions.get(ws)?.pty.kill();
-    sessions.delete(ws);
+    if (session.ws === ws) session.ws = null;
   });
 
   ws.on('error', () => {});
-
-  const C = '\x1b[1;36m';
-  const G = '\x1b[1;32m';
-  const Y = '\x1b[1;33m';
-  const R = '\x1b[0m';
-  ws.send(`${C}╔══════════════════════════════════════════════════════════════╗${R}\r\n`);
-  ws.send(
-    `${C}║${R}  ${G}Welcome to webtty!${R}                                            ${C}║${R}\r\n`,
-  );
-  ws.send(`${C}║${R}                                                              ${C}║${R}\r\n`);
-  ws.send(`${C}║${R}  You have a real shell session with full PTY support.        ${C}║${R}\r\n`);
-  ws.send(
-    `${C}║${R}  Try: ${Y}ls${R}, ${Y}cd${R}, ${Y}top${R}, ${Y}vim${R}, or any command!                      ${C}║${R}\r\n`,
-  );
-  ws.send(`${C}╚══════════════════════════════════════════════════════════════╝${R}\r\n\r\n`);
 });
+
+// ---------------------------------------------------------------------------
+// Graceful shutdown on SIGINT
+// ---------------------------------------------------------------------------
 
 process.on('SIGINT', () => {
   console.log('\n\nShutting down...');
-  for (const [ws, session] of sessions.entries()) {
-    session.pty.kill();
-    ws.close();
+  for (const session of sessionRegistry.values()) {
+    session.pty?.kill();
+    session.ws?.close();
   }
   wss.close();
   process.exit(0);
