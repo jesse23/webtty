@@ -12,7 +12,7 @@ const httpServer = http.createServer((req, res) => {
   handleRequest(req, res, distPath, wasmPath, () => {
     for (const session of sessionRegistry.values()) {
       session.pty?.kill();
-      for (const client of session.clients) client.close();
+      for (const client of session.clients) client.close(4001, 'server stopped');
     }
     wss.close();
     httpServer.close(() => process.exit(0));
@@ -25,7 +25,7 @@ process.on('SIGINT', () => {
   console.log('\n\nShutting down...');
   for (const session of sessionRegistry.values()) {
     session.pty?.kill();
-    for (const client of session.clients) client.close();
+    for (const client of session.clients) client.close(4001, 'server stopped');
   }
   wss.close();
   process.exit(0);
