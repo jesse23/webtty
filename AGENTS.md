@@ -16,6 +16,14 @@ webtty/
 └── README.md
 ```
 
+## Development Workflow
+
+Always build and stop the old server before testing:
+
+```
+bun run build && bun run webtty stop 
+```
+
 ## Rules
 
 - **Match existing patterns** — read 2-3 similar files before writing new ones.
