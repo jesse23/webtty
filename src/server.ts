@@ -25,7 +25,7 @@ interface Session {
   id: string;
   createdAt: number;
   pty: PtyProcess | null;
-  ws: WS | null;
+  clients: Set<WS>;
   scrollback: string;
 }
 
@@ -45,13 +45,19 @@ function generateId(): string {
 }
 
 function createSession(id: string): Session {
-  const session: Session = { id, createdAt: Date.now(), pty: null, ws: null, scrollback: '' };
+  const session: Session = {
+    id,
+    createdAt: Date.now(),
+    pty: null,
+    clients: new Set(),
+    scrollback: '',
+  };
   sessionRegistry.set(id, session);
   return session;
 }
 
 function sessionToJson(s: Session) {
-  return { id: s.id, createdAt: s.createdAt, connected: s.ws !== null };
+  return { id: s.id, createdAt: s.createdAt, connected: s.clients.size > 0 };
 }
 
 // ---------------------------------------------------------------------------
@@ -244,7 +250,7 @@ const httpServer = http.createServer(async (req, res) => {
     res.end('stopping');
     for (const session of sessionRegistry.values()) {
       session.pty?.kill();
-      session.ws?.close();
+      for (const client of session.clients) client.close();
     }
     wss.close();
     httpServer.close(() => process.exit(0));
@@ -357,7 +363,7 @@ const httpServer = http.createServer(async (req, res) => {
       }
       sessionRegistry.delete(id);
       if (lastUsedId === id) lastUsedId = null;
-      session.ws?.close(4001, 'session deleted');
+      for (const client of session.clients) client.close(4001, 'session deleted');
       session.pty?.kill();
       res.writeHead(204);
       res.end();
@@ -451,10 +457,7 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
   }
   const session = sessionRegistry.get(id) as Session;
 
-  if (session.ws && session.ws !== ws && session.ws.readyState === session.ws.OPEN) {
-    session.ws.close(4000, 'replaced by new connection');
-  }
-  session.ws = ws;
+  session.clients.add(ws);
   lastUsedId = id;
 
   if (!session.pty) {
@@ -462,15 +465,19 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
 
     session.pty.onData((data: string) => {
       session.scrollback = (session.scrollback + data).slice(-SCROLLBACK_MAX);
-      if (session.ws && session.ws.readyState === session.ws.OPEN) {
-        session.ws.send(data, { binary: false });
+      for (const client of session.clients) {
+        if (client.readyState === client.OPEN) {
+          client.send(data, { binary: false });
+        }
       }
     });
 
     session.pty.onExit(() => {
       sessionRegistry.delete(session.id);
-      if (session.ws && session.ws.readyState === session.ws.OPEN) {
-        session.ws.close(4001, 'shell exited');
+      for (const client of session.clients) {
+        if (client.readyState === client.OPEN) {
+          client.close(4001, 'shell exited');
+        }
       }
       session.pty = null;
     });
@@ -514,7 +521,7 @@ wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
   });
 
   ws.on('close', () => {
-    if (session.ws === ws) session.ws = null;
+    session.clients.delete(ws);
   });
 
   ws.on('error', () => {});
@@ -528,7 +535,7 @@ process.on('SIGINT', () => {
   console.log('\n\nShutting down...');
   for (const session of sessionRegistry.values()) {
     session.pty?.kill();
-    session.ws?.close();
+    for (const client of session.clients) client.close();
   }
   wss.close();
   process.exit(0);

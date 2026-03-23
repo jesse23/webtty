@@ -70,4 +70,4 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | Default session | `/` and `/ws` (no session param) use `id = "default"` | — | ⬜ |
 | Session URL | `GET /s/:id` — creates session if absent, reconnects if present; same SPA shell | — | ⬜ |
 | Session management | CRUD + rename over HTTP — see REST API above | [ADR 004](../adrs/004.webtty.session-api.md) | ⬜ |
-| Tab reload | Reloading a tab reconnects to the existing session and replays scrollback; typing `exit` closes the tab | [ADR 007](../adrs/007.webtty.reload.md) | ⬜ |
+| Session client | Multiple browser tabs can attach to the same session simultaneously; reload replays scrollback; typing `exit` closes all tabs | [ADR 007](../adrs/007.webtty.session-client.md) | ⬜ |
