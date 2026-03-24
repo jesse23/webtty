@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,11 +18,7 @@ export async function isServerRunning(): Promise<boolean> {
   }
 }
 
-export async function startServer(): Promise<void> {
-  // When running from source (e.g. `bun run src/cli/index.ts` during development),
-  // __filename ends with .ts and Bun is the runtime, so we can point at the .ts
-  // server entry directly. Built output always lands in .js, so Node is never
-  // asked to execute TypeScript. In production isTs is always false.
+export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn): Promise<void> {
   const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
   const isTs = isBun && __filename.endsWith('.ts');
   const serverEntry = path.resolve(__dirname, isTs ? '../server/index.ts' : '../server/index.js');
@@ -30,16 +26,14 @@ export async function startServer(): Promise<void> {
     console.error(`webtty: server entry not found at ${serverEntry}`);
     process.exit(1);
   }
-  // Reuse the current runtime (bun, node, etc.) to spawn the server so the
-  // server always runs under the same runtime as the CLI.
-  const child = spawn(process.execPath, [serverEntry], {
+  const child = _spawn(process.execPath, [serverEntry], {
     detached: true,
     stdio: 'ignore',
     env: { ...process.env, PORT: String(PORT) },
   });
   child.unref();
 
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (await isServerRunning()) return;
     await new Promise((r) => setTimeout(r, 100));
@@ -63,12 +57,12 @@ export async function stopServer(baseUrl: string = BASE_URL, timeoutMs = 5000): 
   }
 }
 
-export function openBrowser(url: string): void {
+export function openBrowser(url: string, _spawn = childProcess.spawn): void {
   if (process.env.WEBTTY_NO_OPEN === '1') return;
   if (process.platform === 'win32') {
-    spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
+    _spawn('cmd.exe', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref();
   } else {
     const cmd = process.platform === 'darwin' ? 'open' : 'xdg-open';
-    spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
+    _spawn(cmd, [url], { detached: true, stdio: 'ignore' }).unref();
   }
 }
