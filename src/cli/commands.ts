@@ -102,6 +102,10 @@ export function registerCommands(program: Command): void {
       }
       if (res.status === 204) {
         console.log(`removed ${id}`);
+        if (res.headers.get('x-sessions-remaining') === '0') {
+          await stopServer();
+          console.log('no sessions remaining — webtty stopped');
+        }
       } else if (res.status === 404) {
         console.error(`session ${id} not found`);
         process.exit(1);

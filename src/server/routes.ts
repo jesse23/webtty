@@ -173,7 +173,7 @@ export async function handleRequest(
       sessionRegistry.delete(id);
       if (lastUsedId === id) setLastUsedId(null);
       closeSession(session);
-      res.writeHead(204);
+      res.writeHead(204, { 'X-Sessions-Remaining': String(sessionRegistry.size) });
       res.end();
       return;
     }
