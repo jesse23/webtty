@@ -21,7 +21,7 @@ The goal is the same as ttyd and GoTTY: zero client-side installation, full TUI 
 
 Sessions are PTY instances keyed by ID. Each session has a unique ID and a running PTY process. Sessions survive WebSocket disconnects but not server restarts (memory-only — webtty defers long-lived persistence to `tmux`/`screen`).
 
-New sessions use the user's default shell from the environment (`$SHELL` on POSIX, `%COMSPEC%` on Windows). No per-session command override.
+New sessions use the shell configured in `~/.config/webtty/config.json` (defaults to `$SHELL` on POSIX, `%COMSPEC%` on Windows). No per-session command override.
 
 ### Session data model
 
@@ -36,10 +36,10 @@ interface Session {
 ### Session lifecycle
 
 ```
-                    WS connect                   WS connect (more clients)
-                   (PTY spawns)                  (scrollback replayed)
-                       │                                │
-  POST /api/sessions   │      all clients disconnect    │
+                    WS connect                WS connect (more clients)
+                   (PTY spawns)               (scrollback replayed)
+                       │                             │
+  POST /api/sessions   │   all clients disconnect    │
   ────────────────► [idle] ◄──────────────────── [active] ──► [active]
                        │                            │         clients: 1..N
                        │                            │
@@ -50,8 +50,6 @@ interface Session {
 ```
 
 Sessions survive client disconnects — the PTY keeps running while idle. Multiple clients can attach to the same session simultaneously; PTY output is broadcast to all.
-
-
 
 Session IDs appear directly in the URL path (`/s/:id`), so they must be valid URL path segments:
 
@@ -82,10 +80,10 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Bootstrap | Port `ghostty-web` demo into webtty — full-screen terminal in a browser tab, single server, hardcoded config | [001](../adrs/001.webtty.bootstrap.md) | ⬜ |
+| Bootstrap | Port `ghostty-web` demo into webtty — full-screen terminal in a browser tab, single server, hardcoded config | [001](../adrs/001.webtty.bootstrap.md) | ✅ |
 | In-memory registry | Server-side map of `id → { session, pty }`; sessions survive WS disconnect, not server restart | — | ✅ |
 | Default session | `GET /` redirects to last-used session, or creates `main` and redirects if none exists | — | ✅ |
 | Session URL | `GET /s/:id` — serves browser client for the named session; reconnects if session already has a PTY | — | ✅ |
 | Session management | CRUD + rename over HTTP — see REST API above | [ADR 004](../adrs/004.webtty.session-api.md) | ✅ |
-| Config file | Load shell, port, font, theme from a config file (`~/.config/webtty/config.json`) | [ADR 008](../adrs/008.webtty.config.md) | ⬜ | → [config spec](config.md) |
+| Config file | Load shell, port, font, theme from `~/.config/webtty/config.json`; hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Session client | Multiple browser tabs can attach to the same session simultaneously; reload replays scrollback; typing `exit` closes all tabs | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |

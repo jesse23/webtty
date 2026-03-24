@@ -125,6 +125,6 @@ main branch:
 
 | Feature | Status | Reference |
 |---------|--------|-----------|
-| Automated versioning via conventional commits | ⬜ | [ADR 003](../adrs/003.release-process.semantic-release.md) |
-| npm publish on release | ⬜ | [ADR 003](../adrs/003.release-process.semantic-release.md) |
-| GitHub Release with release notes | ⬜ | [ADR 003](../adrs/003.release-process.semantic-release.md) |
+| Automated versioning via conventional commits | ✅ | [ADR 003](../adrs/003.release-process.semantic-release.md) |
+| npm publish on release | ✅ | [ADR 003](../adrs/003.release-process.semantic-release.md) |
+| GitHub Release with release notes | ✅ | [ADR 003](../adrs/003.release-process.semantic-release.md) |

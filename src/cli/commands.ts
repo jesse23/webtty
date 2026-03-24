@@ -1,5 +1,5 @@
 import type { Command } from 'commander';
-import { BASE_URL, isServerRunning, openBrowser, startServer } from './http';
+import { BASE_URL, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
 export function registerCommands(program: Command): void {
   program
@@ -18,16 +18,16 @@ export function registerCommands(program: Command): void {
     .command('stop')
     .description('Stop the webtty server')
     .action(async () => {
-      try {
-        const res = await fetch(`${BASE_URL}/api/server/stop`, { method: 'POST' });
-        if (res.ok) {
-          console.log('webtty stopped');
-        } else {
-          console.error(`webtty stop failed (status: ${res.status})`);
-          process.exit(1);
-        }
-      } catch {
+      if (!(await isServerRunning())) {
         console.log('webtty is not running');
+        return;
+      }
+      const ok = await stopServer();
+      if (ok) {
+        console.log('webtty stopped');
+      } else {
+        console.error('webtty stop failed');
+        process.exit(1);
       }
     });
 
@@ -154,5 +154,20 @@ export function registerCommands(program: Command): void {
         console.error(`webtty: ${body.error ?? `rename failed (${res.status})`}`);
         process.exit(1);
       }
+    });
+
+  program
+    .command('restart')
+    .description('Restart the webtty server')
+    .action(async () => {
+      if (await isServerRunning()) {
+        const ok = await stopServer();
+        if (!ok) {
+          console.error('webtty: failed to stop server');
+          process.exit(1);
+        }
+      }
+      await startServer();
+      console.log('webtty restarted');
     });
 }

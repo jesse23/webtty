@@ -48,6 +48,21 @@ export async function startServer(): Promise<void> {
   process.exit(1);
 }
 
+export async function stopServer(baseUrl: string = BASE_URL): Promise<boolean> {
+  try {
+    const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
+    if (!res.ok) return false;
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      if (!(await isServerRunning())) return true;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function openBrowser(url: string): void {
   if (process.env.WEBTTY_NO_OPEN === '1') return;
   if (process.platform === 'win32') {

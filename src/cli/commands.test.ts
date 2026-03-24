@@ -106,6 +106,23 @@ describe('cli — lifecycle', () => {
     expect(exitCode).toBe(0);
     expect(stdout).toBe('webtty is not running');
   });
+
+  test('restart starts the server when not running', async () => {
+    const { stdout, exitCode } = await runCli(port, 'restart');
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('webtty restarted');
+    expect(await waitForServer(baseUrl)).toBe(true);
+  });
+
+  test('restart stops and restarts a running server', async () => {
+    const resBefore = await fetch(`${baseUrl}/api/sessions`);
+    expect(resBefore.ok).toBe(true);
+
+    const { stdout, exitCode } = await runCli(port, 'restart');
+    expect(exitCode).toBe(0);
+    expect(stdout).toBe('webtty restarted');
+    expect(await waitForServer(baseUrl)).toBe(true);
+  });
 });
 
 describe('cli — session management', () => {
