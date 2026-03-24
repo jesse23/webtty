@@ -9,7 +9,7 @@ export function render(sessionId: string, config: Config): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>${sessionId} | webtty</title>
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>>_</text></svg>">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='5' y='5' width='90' height='90' rx='18' fill='white'/><text x='8' y='73' font-size='58' font-family='monospace' font-weight='bold' fill='%23161b22'>>_</text></svg>">
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
 
