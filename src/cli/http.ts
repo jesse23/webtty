@@ -48,11 +48,11 @@ export async function startServer(): Promise<void> {
   process.exit(1);
 }
 
-export async function stopServer(baseUrl: string = BASE_URL): Promise<boolean> {
+export async function stopServer(baseUrl: string = BASE_URL, timeoutMs = 5000): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
     if (!res.ok) return false;
-    const deadline = Date.now() + 5000;
+    const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       if (!(await isServerRunning())) return true;
       await new Promise((r) => setTimeout(r, 100));
