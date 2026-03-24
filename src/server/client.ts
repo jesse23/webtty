@@ -50,8 +50,11 @@ export function render(sessionId: string, config: Config): string {
         const wsUrl = protocol + '//' + window.location.host + '/ws/' + sessionId + '?cols=' + term.cols + '&rows=' + term.rows;
         ws = new WebSocket(wsUrl);
 
+        const DIM = '\\x1b[2m', YELLOW = '\\x1b[1;33m', ITALIC = '\\x1b[3m', RESET = '\\x1b[0m';
+        const tag = DIM + '[' + RESET + ' ' + YELLOW + 'webtty' + RESET + ' ' + DIM + ']' + RESET;
+        const msg = (text) => '\\r\\n' + tag + ' ' + DIM + ITALIC + text + RESET + '\\r\\n';
+
         ws.onopen = () => {
-          console.log('[webtty] connected to session ' + sessionId);
           ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
         };
 
@@ -60,9 +63,6 @@ export function render(sessionId: string, config: Config): string {
         };
 
         ws.onclose = (event) => {
-          const DIM = '\\x1b[2m', YELLOW = '\\x1b[1;33m', ITALIC = '\\x1b[3m', RESET = '\\x1b[0m';
-          const tag = DIM + '[' + RESET + ' ' + YELLOW + 'webtty' + RESET + ' ' + DIM + ']' + RESET;
-          const msg = (text) => '\\r\\n' + tag + ' ' + DIM + ITALIC + text + RESET + '\\r\\n';
           if (event.code === 4001) {
             term.write(msg('Session removed.'));
             setTimeout(() => window.close(), 500);
@@ -78,7 +78,7 @@ export function render(sessionId: string, config: Config): string {
         };
 
         ws.onerror = () => {
-          console.error('[webtty] websocket error');
+          term.write(msg('WebSocket error.'));
         };
       }
 
