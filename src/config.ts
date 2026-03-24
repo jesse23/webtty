@@ -25,6 +25,8 @@ export interface Theme {
   brightWhite?: string;
 }
 
+export type RightClickBehavior = 'default' | 'copyPaste';
+
 export interface Config {
   port: number;
   host: string;
@@ -37,6 +39,8 @@ export interface Config {
   fontSize: number;
   fontFamily: string;
   cursorBlink: boolean;
+  copyOnSelect: boolean;
+  rightClickBehavior: RightClickBehavior;
   theme: Theme;
 }
 
@@ -82,6 +86,8 @@ export const DEFAULT_CONFIG: Config = {
   fontSize: 13,
   fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
   cursorBlink: true,
+  copyOnSelect: true,
+  rightClickBehavior: 'default' as RightClickBehavior,
   theme: DEFAULT_THEME,
 };
 
@@ -127,6 +133,12 @@ export function loadConfig(): Config {
     ...(typeof p.fontSize === 'number' && { fontSize: p.fontSize }),
     ...(typeof p.fontFamily === 'string' && { fontFamily: p.fontFamily }),
     ...(typeof p.cursorBlink === 'boolean' && { cursorBlink: p.cursorBlink }),
+    ...(typeof p.copyOnSelect === 'boolean' && { copyOnSelect: p.copyOnSelect }),
+    ...(typeof p.rightClickBehavior === 'string' && {
+      rightClickBehavior: (p.rightClickBehavior === 'copyPaste'
+        ? 'copyPaste'
+        : 'default') as RightClickBehavior,
+    }),
     ...(p.theme && typeof p.theme === 'object' && { theme: { ...DEFAULT_THEME, ...p.theme } }),
   };
 }

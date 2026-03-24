@@ -111,6 +111,8 @@ All keys are optional — omit any key to use the default value.
 | `cols` | number | `80` | Initial terminal width in columns |
 | `rows` | number | `24` | Initial terminal height in rows |
 | `cursorBlink` | boolean | `true` | Whether the cursor blinks |
+| `copyOnSelect` | boolean | `true` | Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style) |
+| `rightClickBehavior` | string | `"copyPaste"` | Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu |
 | `fontSize` | number | `13` | Font size in px |
 | `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace"` | CSS font-family stack |
 | `theme` | object | Campbell | Terminal color palette — see theme keys below |

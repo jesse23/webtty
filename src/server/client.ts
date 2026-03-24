@@ -3,6 +3,8 @@ import type { Config } from '../config';
 export function render(sessionId: string, config: Config): string {
   const theme = config.theme;
   const themeJson = JSON.stringify(theme, null, 8).replace(/^/gm, '        ').trimStart();
+  const copyOnSelect = config.copyOnSelect;
+  const rightClickBehavior = config.rightClickBehavior;
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -96,6 +98,29 @@ export function render(sessionId: string, config: Config): string {
           ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         }
       });
+
+      window.addEventListener('resize', () => {
+        fitAddon.fit();
+      });
+
+      const copyOnSelect = ${JSON.stringify(copyOnSelect)};
+      const rightClickBehavior = ${JSON.stringify(rightClickBehavior)};
+      if (copyOnSelect) {
+        term.onSelectionChange(() => {
+          const selection = term.getSelection();
+          if (!selection) return;
+          navigator.clipboard.writeText(selection).catch(() => {});
+        });
+      }
+      if (rightClickBehavior === 'copyPaste') {
+        container.addEventListener('contextmenu', (e) => {
+          const selection = term.getSelection();
+          if (!selection) return;
+          e.preventDefault();
+          navigator.clipboard.writeText(selection).catch(() => {});
+          term.clearSelection();
+        });
+      }
 
       window.addEventListener('resize', () => {
         fitAddon.fit();
