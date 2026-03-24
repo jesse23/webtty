@@ -1,21 +1,18 @@
 import { Command, type Help } from 'commander';
 import { registerCommands } from './commands';
 
-const BOLD = '\x1b[1m';
-const YELLOW = '\x1b[1;33m';
-const RESET = '\x1b[0m';
-
-const WEBTTY = `${BOLD}${YELLOW}Web TTY${RESET}`;
-
 const CMDS_WITH_ARGS = new Set(['at', 'rm', 'ls', 'mv']);
 const CMD_NAME_WIDTH = 'mv'.length;
 
 const program = new Command();
 program
   .name('webtty')
-  .description(`${WEBTTY} — Terminal UI in the browser`)
+  .description('Launch Terminal UI in the browser.')
   .helpOption(false)
   .configureHelp({
+    styleTitle(str: string): string {
+      return str.replace(/:$/, '').toUpperCase();
+    },
     subcommandTerm(cmd: Command): string {
       const args = cmd.registeredArguments
         .map((arg) => (arg.required ? `<${arg.name()}>` : `[${arg.name()}]`))
@@ -33,12 +30,15 @@ program
       const description = helper.commandDescription(cmd);
       const descriptionBlock =
         description.length > 0
-          ? [helper.boxWrap(helper.styleCommandDescription(description), helpWidth), '']
+          ? ['', helper.boxWrap(helper.styleCommandDescription(description), helpWidth), '']
           : [];
 
+      const indent = '  ';
+      const usageWidth = 'webtty [command]'.length;
       const usageBlock = [
-        `${helper.styleTitle('Usage:')} ${helper.styleUsage(helper.commandUsage(cmd))}`,
-        `${' '.repeat('Usage: '.length)}${helper.styleUsage('webtty')}  ${helper.styleCommandDescription('# open main session')}`,
+        helper.styleTitle('Usage:'),
+        `${indent}${helper.styleUsage('webtty'.padEnd(usageWidth))}  ${helper.styleCommandDescription('Open main session')}`,
+        `${indent}${helper.styleUsage('webtty [command]'.padEnd(usageWidth))}  ${helper.styleCommandDescription('Execute a specific command')}`,
         '',
       ];
 
