@@ -1,7 +1,6 @@
 import type http from 'node:http';
 import path from 'node:path';
 import { loadConfig } from '../config';
-import { render } from './client';
 import {
   createSession,
   generateId,
@@ -50,6 +49,7 @@ export async function handleRequest(
   res: http.ServerResponse,
   distPath: string,
   wasmPath: string,
+  clientDistPath: string,
   onStop: () => void,
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
@@ -59,6 +59,24 @@ export async function handleRequest(
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('stopping');
     onStop();
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/config') {
+    const config = loadConfig();
+    const clientConfig = {
+      cols: config.cols,
+      rows: config.rows,
+      fontSize: config.fontSize,
+      fontFamily: config.fontFamily,
+      cursorBlink: config.cursorBlink,
+      scrollback: config.scrollback,
+      theme: config.theme,
+      copyOnSelect: config.copyOnSelect,
+      rightClickBehavior: config.rightClickBehavior,
+    };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(clientConfig));
     return;
   }
 
@@ -198,13 +216,22 @@ export async function handleRequest(
       res.end('Not Found');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'text/html' });
-    res.end(render(id, loadConfig()));
+    const clientHtml = path.resolve(clientDistPath, 'client.html');
+    serveFile(clientHtml, res);
     return;
   }
 
   if (pathname.startsWith('/dist/')) {
-    const filePath = path.resolve(distPath, pathname.slice(6));
+    const relativePath = pathname.slice(6);
+    const ownFile = path.resolve(clientDistPath, relativePath);
+    if (ownFile.startsWith(clientDistPath + path.sep)) {
+      const fs = await import('node:fs');
+      if (fs.existsSync(ownFile)) {
+        serveFile(ownFile, res);
+        return;
+      }
+    }
+    const filePath = path.resolve(distPath, relativePath);
     if (
       !filePath.startsWith(path.resolve(distPath) + path.sep) &&
       filePath !== path.resolve(distPath)

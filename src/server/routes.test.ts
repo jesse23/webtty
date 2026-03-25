@@ -79,18 +79,33 @@ describe('server — routes', () => {
     expect(body.id).toBe('main');
   });
 
-  test('GET /s/:id returns HTML with session id', async () => {
+  test('GET /s/:id returns static HTML shell', async () => {
     const res = await fetch(`${baseUrl}/s/main`);
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toContain('text/html');
     const body = await res.text();
     expect(body).toContain('<!doctype html>');
-    expect(body).toContain('"main"');
+    expect(body).toContain('client-browser.js');
   });
 
   test('GET /s/:id returns 404 for unknown session', async () => {
     const res = await fetch(`${baseUrl}/s/does-not-exist`);
     expect(res.status).toBe(404);
+  });
+
+  test('GET /api/config returns client config keys', async () => {
+    const res = await fetch(`${baseUrl}/api/config`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body.cols).toBe('number');
+    expect(typeof body.rows).toBe('number');
+    expect(typeof body.fontSize).toBe('number');
+    expect(typeof body.copyOnSelect).toBe('boolean');
+    expect(typeof body.rightClickBehavior).toBe('string');
+    expect(body.port).toBeUndefined();
+    expect(body.host).toBeUndefined();
+    expect(body.shell).toBeUndefined();
+    expect(body.logs).toBeUndefined();
   });
 
   test('GET /api/sessions returns array', async () => {
