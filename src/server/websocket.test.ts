@@ -1,41 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
-import fs from 'node:fs';
-import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { WebSocket } from 'ws';
+import { cleanupTmpHome, getFreePort, makeTmpHome, waitForServer } from '../utils.test';
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const stripAnsi = (s: string) => s.replace(ANSI_RE, '');
 
-import { WebSocket } from 'ws';
-
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(__dirname, 'index.ts');
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close((err) => (err ? reject(err) : resolve(port)));
-    });
-  });
-}
-
-async function waitForServer(baseUrl: string, timeout = 5000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      await fetch(`${baseUrl}/api/sessions`);
-      return;
-    } catch {
-      await Bun.sleep(100);
-    }
-  }
-  throw new Error('Server did not start in time');
-}
 
 function connectWs(wsUrl: string): Promise<{ ws: WebSocket; messages: string[] }> {
   return new Promise((resolve, reject) => {
@@ -76,7 +50,7 @@ describe('websocket', () => {
   let tmpHome: string;
 
   beforeAll(async () => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'webtty-ws-test-'));
+    tmpHome = makeTmpHome('ws-test');
     port = await getFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
     wsBase = `ws://127.0.0.1:${port}`;
@@ -89,7 +63,7 @@ describe('websocket', () => {
 
   afterAll(() => {
     proc.kill();
-    fs.rmSync(tmpHome, { recursive: true, force: true });
+    cleanupTmpHome(tmpHome);
   });
 
   test('rejects connection for non-existent session with code 4001', async () => {

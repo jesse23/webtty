@@ -1,30 +1,24 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
-import fs from 'node:fs';
-import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  cleanupTmpHome,
+  getFreePort,
+  makeTmpHome,
+  waitForServerDown,
+  waitForServerReady,
+} from '../utils.test';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ENTRY = path.resolve(__dirname, 'index.ts');
 const SERVER_ENTRY = path.resolve(__dirname, '../server/index.ts');
 
-const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'webtty-cli-test-'));
+const tmpHome = makeTmpHome('cli-test');
 
 afterAll(() => {
-  fs.rmSync(tmpHome, { recursive: true, force: true });
+  cleanupTmpHome(tmpHome);
 });
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close((err) => (err ? reject(err) : resolve(port)));
-    });
-  });
-}
 
 async function runCli(
   port: number,
@@ -41,33 +35,6 @@ async function runCli(
   ]);
   const exitCode = await proc.exited;
   return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
-}
-
-async function waitForServer(baseUrl: string, timeout = 5000): Promise<boolean> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`${baseUrl}/api/sessions`);
-      if (res.ok && Array.isArray(await res.json())) return true;
-    } catch {
-      /* empty */
-    }
-    await Bun.sleep(100);
-  }
-  return false;
-}
-
-async function waitForServerDown(baseUrl: string, timeout = 3000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      await fetch(`${baseUrl}/api/sessions`);
-      await Bun.sleep(100);
-    } catch {
-      return;
-    }
-  }
-  throw new Error('Server did not shut down in time');
 }
 
 describe('cli — lifecycle', () => {
@@ -93,7 +60,7 @@ describe('cli — lifecycle', () => {
     const { stdout, exitCode } = await runCli(port, 'start');
     expect(exitCode).toBe(0);
     expect(stdout).toBe('webtty started');
-    expect(await waitForServer(baseUrl)).toBe(true);
+    expect(await waitForServerReady(baseUrl)).toBe(true);
   });
 
   test('start when already running reports already running', async () => {
@@ -120,7 +87,7 @@ describe('cli — lifecycle', () => {
     const { stdout, exitCode } = await runCli(port, 'start');
     expect(exitCode).toBe(0);
     expect(stdout).toBe('webtty started');
-    expect(await waitForServer(baseUrl)).toBe(true);
+    expect(await waitForServerReady(baseUrl)).toBe(true);
   });
 });
 
@@ -136,7 +103,7 @@ describe('cli — session management', () => {
       env: { ...process.env, PORT: String(port), HOME: tmpHome },
       stdio: 'ignore',
     });
-    await waitForServer(baseUrl);
+    await waitForServerReady(baseUrl);
   });
 
   afterAll(() => {
@@ -224,7 +191,7 @@ describe('cli — no-arg, help, config', () => {
       env: { ...process.env, PORT: String(port), HOME: tmpHome },
       stdio: 'ignore',
     });
-    await waitForServer(baseUrl);
+    await waitForServerReady(baseUrl);
   });
 
   afterAll(() => {
@@ -251,11 +218,13 @@ describe('cli — no-arg, help, config', () => {
   });
 
   test('config opens config path in $VISUAL', async () => {
-    const os = await import('node:os');
-    const path = await import('node:path');
-    const expectedPath = path.join(os.homedir(), '.config', 'webtty', 'config.json');
-
-    const env: Record<string, string> = { ...process.env, PORT: String(port), VISUAL: 'echo' };
+    const expectedPath = path.join(tmpHome, '.config', 'webtty', 'config.json');
+    const env: Record<string, string> = {
+      ...process.env,
+      PORT: String(port),
+      HOME: tmpHome,
+      VISUAL: 'echo',
+    };
     delete env.EDITOR;
     const proc = Bun.spawn([process.execPath, CLI_ENTRY, 'config'], {
       env,

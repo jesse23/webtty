@@ -1,49 +1,17 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
-import fs from 'node:fs';
-import net from 'node:net';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  cleanupTmpHome,
+  getFreePort,
+  makeTmpHome,
+  waitForServer,
+  waitForServerDown,
+} from '../utils.test';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(__dirname, 'index.ts');
-
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close((err) => (err ? reject(err) : resolve(port)));
-    });
-  });
-}
-
-async function waitForServer(baseUrl: string, timeout = 5000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      await fetch(`${baseUrl}/api/sessions`);
-      return;
-    } catch {
-      await Bun.sleep(100);
-    }
-  }
-  throw new Error('Server did not start in time');
-}
-
-async function waitForServerDown(baseUrl: string, timeout = 3000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      await fetch(`${baseUrl}/api/sessions`);
-      await Bun.sleep(100);
-    } catch {
-      return;
-    }
-  }
-  throw new Error('Server did not shut down in time');
-}
 
 describe('server — routes', () => {
   let proc: ChildProcess;
@@ -51,7 +19,7 @@ describe('server — routes', () => {
   let tmpHome: string;
 
   beforeAll(async () => {
-    tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'webtty-routes-test-'));
+    tmpHome = makeTmpHome('routes-test');
     const port = await getFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
     proc = spawn(process.execPath, [SERVER_ENTRY], {
@@ -63,7 +31,7 @@ describe('server — routes', () => {
 
   afterAll(() => {
     proc.kill();
-    fs.rmSync(tmpHome, { recursive: true, force: true });
+    cleanupTmpHome(tmpHome);
   });
 
   test('GET /unknown returns 404', async () => {

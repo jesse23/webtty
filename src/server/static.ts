@@ -3,12 +3,32 @@ import type http from 'node:http';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ghosttyWebRootFromMain, mimeType } from '../utils';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const require = createRequire(import.meta.url);
+
+export const MIME_TYPES: Record<string, string> = {
+  '.html': 'text/html',
+  '.js': 'application/javascript',
+  '.mjs': 'application/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+  '.wasm': 'application/wasm',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+};
+
+export function mimeType(filePath: string): string {
+  const ext = path.extname(filePath);
+  return MIME_TYPES[ext] ?? 'application/octet-stream';
+}
+
+export function ghosttyWebRootFromMain(mainPath: string): string {
+  return mainPath.replace(/[/\\]dist[/\\].*$/, '');
+}
 
 export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   try {
