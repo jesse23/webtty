@@ -1,19 +1,15 @@
 # SPEC: webtty
 
 **Author:** jesse23
-**Last Updated:** 2026-03-22
+**Last Updated:** 2026-03-24
 
 ---
 
 ## Description
 
-webtty is a web TTY that lets you run CLI/TUI applications in a browser tab, on any platform. Point a browser at a running webtty server and you get a full terminal — colors, cursor, resize, keyboard input — backed by a real PTY on the host machine.
+webtty runs CLI/TUI applications in a browser tab. Point a browser at a running webtty server and you get a full terminal — colors, cursor, resize, keyboard input — backed by a real PTY on the host machine.
 
-The goal is the same as ttyd and GoTTY: zero client-side installation, full TUI support, cross-platform. webtty uses `ghostty-web` as the terminal renderer (WASM-backed, same API as xterm.js) and `@lydell/node-pty` for cross-platform PTY support.
-
-**Why a single-port design?** Simplifies reverse proxy setup (nginx, ngrok, Cloudflare Tunnel) — one upstream, no separate port for assets vs API vs WebSocket. Same pattern used by ttyd and ghostty-web/demo.
-
-**Why `ws` over Socket.IO?** Minimal footprint, no client-side library requirement, sufficient for raw PTY streaming. Socket.IO's rooms/namespaces are unnecessary overhead for this use case.
+The goal is zero client-side installation and full TUI support on any platform. webtty uses `ghostty-web` as the terminal renderer (WASM-backed, same API as xterm.js) and `@lydell/node-pty` for cross-platform PTY support.
 
 **Persona:** Developers who want shell or TUI app access from any browser tab.
 
@@ -68,7 +64,7 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | `POST` | `/api/sessions` | Create session; body `{ id? }`; auto-generates ID if omitted; `409` if ID exists; validates ID rules |
 | `GET` | `/api/sessions/:id` | Get single session; `404` if absent |
 | `PATCH` | `/api/sessions/:id` | Rename session; body `{ id }`; `409` if new ID exists; `404` if session absent; validates ID rules |
-| `DELETE` | `/api/sessions/:id` | Kill PTY, close connected WebSocket, remove session; `204` or `404` |
+| `DELETE` | `/api/sessions/:id` | Kill PTY, close connected WebSocket, remove session; `204` with `X-Sessions-Remaining: <n>` header, or `404` |
 
 ### Server endpoints
 
@@ -80,10 +76,8 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Bootstrap | Port `ghostty-web` demo into webtty — full-screen terminal in a browser tab, single server, hardcoded config | [001](../adrs/001.webtty.bootstrap.md) | ✅ |
-| In-memory registry | Server-side map of `id → { session, pty }`; sessions survive WS disconnect, not server restart | — | ✅ |
-| Default session | `GET /` redirects to last-used session, or creates `main` and redirects if none exists | — | ✅ |
-| Session URL | `GET /s/:id` — serves browser client for the named session; reconnects if session already has a PTY | — | ✅ |
-| Session management | CRUD + rename over HTTP — see REST API above | [ADR 004](../adrs/004.webtty.session-api.md) | ✅ |
-| Config file | Load shell, port, font, theme from `~/.config/webtty/config.json`; hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| Session client | Multiple browser tabs can attach to the same session simultaneously; reload replays scrollback; typing `exit` closes all tabs | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
+| Bootstrap | Full-screen terminal in a browser tab, single server, config-driven | [ADR 001](../adrs/001.webtty.bootstrap.md) | ✅ |
+| Session management | Create, list, rename, and delete sessions over HTTP; sessions survive WebSocket disconnects but not server restarts | [ADR 004](../adrs/004.webtty.session-api.md) | ✅ |
+| Default session | `GET /` redirects to last-used session, or creates `main` if none exists | — | ✅ |
+| Multi-client sessions | Multiple browser tabs can attach to the same session; PTY output broadcast to all; scrollback replayed on reconnect | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
+| Config file | Shell, port, font, theme from `~/.config/webtty/config.json`; hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |

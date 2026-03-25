@@ -57,7 +57,7 @@ All status messages written to the terminal share a consistent style:
 
 | Event | Message | Behavior |
 |-------|---------|----------|
-| WS close `4001` (session deleted / shell exited) | `Session removed.` | `window.close()` after 500ms |
+| WS close `4001` (session deleted or shell exited) | `Session removed.` | `window.close()` after 500ms |
 | WS close `1001` (server stopped) | `Server stopped.` | `window.close()` after 500ms |
 | WS close (unexpected) | `Connection lost. Reconnecting in 2s...` | Reconnect after 2s |
 | WS error | `WebSocket error.` | — |
@@ -90,8 +90,8 @@ This is a browser-enforced security restriction with no JS workaround.
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, reconnect on disconnect | [001](../adrs/001.webtty.bootstrap.md) | ✅ |
-| Session support | `<url>/s/:id` opens a named session; `<url>` redirects to the last-used session or creates `main` if none exists | [ADR 005](../adrs/005.client.session-support.md) | ✅ |
-| Welcome banner | Shown on first connection to a session; identifies app, slogan, and help command | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
-| Status messages | Consistent `[ webtty ]`-prefixed dim italic messages for disconnect, error, and server stop events | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
+| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, WebSocket reconnect on disconnect | [ADR 001](../adrs/001.webtty.bootstrap.md) | ✅ |
+| Session support | `GET /s/:id` opens a named session; `GET /` redirects to last-used or creates `main` | [ADR 005](../adrs/005.client.session-support.md) | ✅ |
+| Multi-client | Multiple tabs can attach to the same session; scrollback replayed on reconnect; tab closes when PTY exits | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
+| Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |

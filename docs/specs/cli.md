@@ -1,23 +1,15 @@
 # SPEC: CLI
 
 **Author:** jesse23
-**Last Updated:** 2026-03-24 (amended: help formatting, ls filter, restart removed, at/mv/up/down commands, isServerRunning validation, stop-on-last-rm)
+**Last Updated:** 2026-03-24 (amended: help formatting, ls filter, restart removed, at/mv commands, isServerRunning validation, stop-on-last-rm)
 
 ---
 
 ## Description
 
-The `webtty` CLI is a thin client that controls a running webtty server over HTTP. It handles two concerns: server lifecycle (start/stop the server) and session management (create/list/remove/rename sessions via the REST API).
+The `webtty` CLI controls a running webtty server over HTTP. It handles two concerns: server lifecycle (`up` / `down`) and session management (attach, list, remove, rename sessions).
 
-The help output uses `webtty help` as the canonical entry point. `--help` is not advertised but still works. The description line and command table are formatted for scannability: slogan first, usage second; commands ordered by frequency of use; optional args use `[bracket]` style throughout.
-
-The CLI communicates with the server exclusively over HTTP to localhost — no Unix sockets, no PID files, no process signals. Whether the server is running is determined by a single question: does `GET /api/sessions` respond? Connection refused means not running. This works identically on Mac, Linux, and Windows.
-
-**Why HTTP over Unix socket?** webtty already speaks HTTP — reusing the same interface keeps the surface area minimal and makes the CLI trivially debuggable with `curl`. Unix sockets offer lower latency but the difference is imperceptible for CLI interactions.
-
-**Why Commander.js?** Zero dependencies, 18ms startup, TypeScript-native, used by Vue CLI and Vite. Yargs and oclif are heavier and provide features (plugin systems, config files) that are unnecessary here.
-
-**Why no PID file?** PID files require platform-specific signal handling (`SIGTERM` on Unix, `TerminateProcess` on Windows) and go stale if the server crashes. HTTP-only detection is simpler, cross-platform, and sufficient — the server owns its own shutdown via `POST /api/server/stop`.
+The CLI communicates with the server exclusively over HTTP — no Unix sockets, no PID files. Whether the server is running is determined by a single question: does `GET /api/sessions` respond with a JSON array? Connection refused (or a non-webtty process on the same port) means not running.
 
 ## Commands
 
@@ -62,12 +54,9 @@ The command exits when the editor exits.
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Server lifecycle | `webtty start` / `stop` — fork, detect, and terminate the server over HTTP | [ADR 002](../adrs/002.cli.start-stop.md) | ✅ |
-| Session management | `webtty at` / `ls` / `rm` / `mv` — attach, list, destroy, and rename sessions via the REST API | [ADR 006](../adrs/006.cli.session-management.md) | ✅ |
-| No-arg entry point | `webtty` — start server + open `main` session in browser | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| Help command | `webtty help` — show all commands | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| Config command | `webtty config` — open config file in `$EDITOR` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| Help formatting | Description first, USAGE/COMMANDS all-caps, aligned params, frequency-ordered commands | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| `ls` filter | `webtty ls [id]` — substring filter on session id, client-side | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| Stop on last rm | `webtty rm` stops the server automatically when the last session is removed | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| isServerRunning validation | `GET /api/sessions` response validated as JSON array — rejects non-webtty processes on same port | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Server lifecycle | `webtty start` / `stop` — start and stop the server | [ADR 002](../adrs/002.cli.start-stop.md) | ✅ |
+| Session management | `webtty at` / `ls` / `rm` / `mv` — attach, list, destroy, and rename sessions | [ADR 006](../adrs/006.cli.session-management.md) | ✅ |
+| No-arg entry point | `webtty` — start server and open `main` session in browser | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Help and config | `webtty help` — show all commands; `webtty config` — open config in `$VISUAL`/`$EDITOR`/`vi` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Help formatting | Description first, all-caps headings, aligned params, frequency-ordered commands, annotated usage lines | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Stop on last rm | `webtty rm` auto-stops the server when the last session is removed | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
