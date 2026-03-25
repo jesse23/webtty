@@ -8,7 +8,6 @@ const program = new Command();
 program
   .name('webtty')
   .description('Launch Terminal UI in the browser.')
-  .helpOption(false)
   .configureHelp({
     styleTitle(str: string): string {
       return str.replace(/:$/, '').toUpperCase();

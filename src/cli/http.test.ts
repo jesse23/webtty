@@ -100,6 +100,7 @@ describe('startServer', () => {
   test('opens log file and passes fd to spawn when logs is true', async () => {
     const mkdirSpy = spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
     const openSpy = spyOn(fs, 'openSync').mockReturnValue(99);
+    const closeSpy = spyOn(fs, 'closeSync').mockImplementation(() => {});
     const fakeChild = { unref: mock(() => {}) };
     const spawnMock = mock(() => fakeChild);
 
@@ -121,10 +122,12 @@ describe('startServer', () => {
     const spawnCall = (spawnMock.mock.calls[0] as unknown[])[2] as unknown as { stdio: unknown };
     expect(spawnCall.stdio).toEqual(['ignore', 99, 99]);
     expect(openSpy).toHaveBeenCalledWith(expect.stringContaining('server.log'), 'a');
+    expect(closeSpy).toHaveBeenCalledWith(99);
 
     existsSpy.mockRestore();
     mkdirSpy.mockRestore();
     openSpy.mockRestore();
+    closeSpy.mockRestore();
     configSpy.mockRestore();
   });
 

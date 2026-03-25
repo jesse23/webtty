@@ -7,7 +7,7 @@
 
 ## Description
 
-The `webtty` CLI controls a running webtty server over HTTP. It handles two concerns: server lifecycle (`up` / `down`) and session management (attach, list, remove, rename sessions).
+The `webtty` CLI controls a running webtty server over HTTP. It handles two concerns: server lifecycle (`start` / `stop`) and session management (attach, list, remove, rename sessions).
 
 The CLI communicates with the server exclusively over HTTP — no Unix sockets, no PID files. Whether the server is running is determined by a single question: does `GET /api/sessions` respond with a JSON array? Connection refused (or a non-webtty process on the same port) means not running.
 
@@ -19,7 +19,7 @@ The CLI communicates with the server exclusively over HTTP — no Unix sockets, 
 | `webtty ls [id]` | `GET /api/sessions` — list sessions; if `[id]` given, filter by substring match. Alias: `list` |
 | `webtty rm [id]` | `DELETE /api/sessions/:id` — destroy session and its PTY; stops server if last session. Alias: `remove` |
 | `webtty mv [id] [new-id]` | `PATCH /api/sessions/:id` — rename a session. Aliases: `move`, `rename` |
-| `webtty stop` | `POST /api/server/stop` — server cleans up and exits. Alias: `down` |
+| `webtty stop` | `POST /api/server/stop` — server cleans up and exits |
 | `webtty start` | Fork server, wait for `GET /api/sessions` to respond |
 | `webtty` | No-arg entry point — start server if not running, then delegate to `webtty at main` |
 | `webtty config` | Open `~/.config/webtty/config.json` in `$VISUAL` (falls back to `$EDITOR`, then `vi` on Unix / `notepad` on Windows) |

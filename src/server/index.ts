@@ -15,8 +15,9 @@ const HTTP_PORT = Number(process.env.PORT) || config.port;
 const HTTP_HOST = config.host;
 
 const { distPath, wasmPath } = findGhosttyWeb();
-const builtDistPath = path.resolve(distPath, '..', '..', '..', 'dist');
-const srcClientPath = path.resolve(__dirname, '..', 'client');
+const projectRoot = path.resolve(__dirname, '..', '..');
+const builtDistPath = path.join(projectRoot, 'dist');
+const srcClientPath = path.join(projectRoot, 'src', 'client');
 const clientDistPath = fs.existsSync(path.join(builtDistPath, 'client.html'))
   ? builtDistPath
   : srcClientPath;

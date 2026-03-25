@@ -1,7 +1,8 @@
 import * as childProcess from 'node:child_process';
-import os from 'node:os';
+import fs from 'node:fs';
 import path from 'node:path';
 import type { Command } from 'commander';
+import { configDir } from '../config';
 import { BASE_URL, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
 export function registerCommands(program: Command): void {
@@ -182,7 +183,12 @@ export function registerCommands(program: Command): void {
     .command('config')
     .description('Open the config file in $EDITOR')
     .action(() => {
-      const configPath = path.join(os.homedir(), '.config', 'webtty', 'config.json');
+      const dir = configDir();
+      const configPath = path.join(dir, 'config.json');
+      fs.mkdirSync(dir, { recursive: true });
+      if (!fs.existsSync(configPath)) {
+        fs.writeFileSync(configPath, '{}\n', 'utf8');
+      }
       const editor =
         process.env.VISUAL ??
         process.env.EDITOR ??

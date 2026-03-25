@@ -45,8 +45,12 @@ export interface Config {
   theme: Theme;
 }
 
+export function configDir(): string {
+  return path.join(process.env.HOME ?? os.homedir(), '.config', 'webtty');
+}
+
 function getConfigPath(): string {
-  return path.join(process.env.HOME ?? os.homedir(), '.config', 'webtty', 'config.json');
+  return path.join(configDir(), 'config.json');
 }
 
 export const DEFAULT_THEME: Theme = {
