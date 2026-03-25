@@ -45,7 +45,7 @@ program
       const commandGroups = (
         helper as unknown as {
           groupItems: (
-            a: Command[],
+            a: readonly Command[],
             b: Command[],
             c: (s: Command) => string,
           ) => Map<string, Command[]>;

@@ -25,7 +25,7 @@ const clientResult = await Bun.build({
   target: 'browser',
   format: 'esm',
   minify: true,
-  external: ['/dist/ghostty-web.js'],
+  external: ['ghostty-web'],
   naming: 'client-browser.js',
 });
 
@@ -34,6 +34,10 @@ if (!clientResult.success) {
   for (const log of clientResult.logs) console.error(log);
   process.exit(1);
 }
+
+const clientOut = path.resolve('./dist/client-browser.js');
+const clientJs = fs.readFileSync(clientOut, 'utf8');
+fs.writeFileSync(clientOut, clientJs.replace(/"ghostty-web"/g, '"/dist/ghostty-web.js"'));
 
 fs.copyFileSync(path.resolve('./src/client/index.html'), path.resolve('./dist/client.html'));
 fs.copyFileSync(path.resolve('./src/client/index.css'), path.resolve('./dist/client.css'));

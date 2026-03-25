@@ -1,4 +1,4 @@
-import { FitAddon, init, Terminal } from '/dist/ghostty-web.js';
+import { FitAddon, init, Terminal } from 'ghostty-web';
 
 interface Theme {
   background?: string;

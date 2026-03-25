@@ -6,10 +6,7 @@
     "strict": true,
     "skipLibCheck": true,
     "verbatimModuleSyntax": true,
-    "noEmit": true,
-    "paths": {
-      "/dist/ghostty-web.js": ["./node_modules/ghostty-web/dist/ghostty-web.js"]
-    }
+    "noEmit": true
   },
   "include": ["src", "scripts"],
   "exclude": ["node_modules", "dist"]
