@@ -38,6 +38,7 @@ export interface Config {
   rows: number;
   fontSize: number;
   fontFamily: string;
+  cursorStyle: 'block' | 'bar' | 'underline';
   cursorBlink: boolean;
   copyOnSelect: boolean;
   rightClickBehavior: RightClickBehavior;
@@ -90,6 +91,7 @@ export const DEFAULT_CONFIG: Config = {
   rows: 24,
   fontSize: 13,
   fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+  cursorStyle: 'bar' as 'block' | 'bar' | 'underline',
   cursorBlink: true,
   copyOnSelect: true,
   rightClickBehavior: 'default' as RightClickBehavior,
@@ -138,6 +140,10 @@ export function loadConfig(): Config {
     ...(typeof p.rows === 'number' && { rows: p.rows }),
     ...(typeof p.fontSize === 'number' && { fontSize: p.fontSize }),
     ...(typeof p.fontFamily === 'string' && { fontFamily: p.fontFamily }),
+    ...(typeof p.cursorStyle === 'string' &&
+      (p.cursorStyle === 'block' || p.cursorStyle === 'bar' || p.cursorStyle === 'underline') && {
+        cursorStyle: p.cursorStyle,
+      }),
     ...(typeof p.cursorBlink === 'boolean' && { cursorBlink: p.cursorBlink }),
     ...(typeof p.copyOnSelect === 'boolean' && { copyOnSelect: p.copyOnSelect }),
     ...(typeof p.rightClickBehavior === 'string' && {

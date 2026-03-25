@@ -5,8 +5,12 @@
 Terminal UI in the browser. Run CLI/TUI applications in a browser tab, across platforms.
 
 ```sh
-npx webtty                # open main session in the browser
-npx webtty go [id]        # open a specific session by id
+bunx webtty                # open main session in the browser
+bunx webtty go [id]        # open a specific session by id
+
+# or with npx
+npx webtty
+npx webtty go [id]
 ```
 
 ## Development

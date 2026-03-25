@@ -69,6 +69,7 @@ export async function handleRequest(
       rows: config.rows,
       fontSize: config.fontSize,
       fontFamily: config.fontFamily,
+      cursorStyle: config.cursorStyle,
       cursorBlink: config.cursorBlink,
       scrollback: config.scrollback,
       theme: config.theme,
