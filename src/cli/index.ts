@@ -1,83 +1,68 @@
-import { Command, type Help } from 'commander';
-import { registerCommands } from './commands';
+import { cmdConfig, cmdGo, cmdLs, cmdMv, cmdRm, cmdStart, cmdStop } from './commands';
 
-const CMDS_WITH_ARGS = new Set(['go', 'rm', 'ls', 'mv']);
-const CMD_NAME_WIDTH = 'mv'.length;
+const GO_ALIASES = new Set(['go', 'a', 'run', 'attach', 'open']);
 
-const program = new Command();
-program
-  .name('webtty')
-  .description('Launch Terminal UI in the browser.')
-  .configureHelp({
-    styleTitle(str: string): string {
-      return str.replace(/:$/, '').toUpperCase();
-    },
-    subcommandTerm(cmd: Command): string {
-      const args = cmd.registeredArguments
-        .map((arg) => (arg.required ? `<${arg.name()}>` : `[${arg.name()}]`))
-        .join(' ');
-      const name = CMDS_WITH_ARGS.has(cmd.name()) ? cmd.name().padEnd(CMD_NAME_WIDTH) : cmd.name();
-      return args ? `${name} ${args}` : name;
-    },
-    formatHelp(cmd: Command, helper: Help): string {
-      const helpWidth = helper.helpWidth ?? 80;
-      const termWidth = helper.padWidth(cmd, helper);
+function printHelp(): void {
+  const indent = '  ';
+  const col = 18; // width of the widest term: "mv <id> <new-id>"
+  const row = (term: string, desc: string) => `${indent}${term.padEnd(col)}  ${desc}`;
 
-      const callFormatItem = (term: string, description: string) =>
-        helper.formatItem(term, termWidth, description, helper);
+  console.log(
+    [
+      'Launch Terminal UI in the browser.',
+      '',
+      'USAGE',
+      row('webtty', 'Open main session in the browser'),
+      row('webtty [command]', 'Execute a specific command'),
+      '',
+      'COMMANDS',
+      row('go [id]', 'Open a new or existing session in the browser'),
+      row('ls [id]', 'List all sessions, or filter by id substring'),
+      row('rm <id>', 'Destroy a session'),
+      row('mv <id> <new-id>', 'Rename a session'),
+      row('stop', 'Stop the webtty server'),
+      row('start', 'Start the webtty server'),
+      row('config', 'Open the config file in $EDITOR'),
+      row('help', 'Show this help message'),
+    ].join('\n'),
+  );
+}
 
-      const description = helper.commandDescription(cmd);
-      const descriptionBlock =
-        description.length > 0
-          ? ['', helper.boxWrap(helper.styleCommandDescription(description), helpWidth), '']
-          : [];
+const [, , cmd, ...rest] = process.argv;
 
-      const indent = '  ';
-      const usageWidth = 'webtty [command]'.length;
-      const usageBlock = [
-        helper.styleTitle('Usage:'),
-        `${indent}${helper.styleUsage('webtty'.padEnd(usageWidth))}  ${helper.styleCommandDescription('Open main session in the browser')}`,
-        `${indent}${helper.styleUsage('webtty [command]'.padEnd(usageWidth))}  ${helper.styleCommandDescription('Execute a specific command')}`,
-        '',
-      ];
-
-      const commandGroups = (
-        helper as unknown as {
-          groupItems: (
-            a: readonly Command[],
-            b: Command[],
-            c: (s: Command) => string,
-          ) => Map<string, Command[]>;
-        }
-      ).groupItems(
-        cmd.commands,
-        helper.visibleCommands(cmd),
-        (sub: Command) =>
-          (sub as unknown as { helpGroup: () => string }).helpGroup?.() || 'Commands:',
-      );
-      const commandsBlock: string[] = [];
-      commandGroups.forEach((commands: Command[], group: string) => {
-        const commandList = commands.map((sub: Command) =>
-          callFormatItem(
-            helper.styleSubcommandTerm(helper.subcommandTerm(sub)),
-            helper.styleSubcommandDescription(helper.subcommandDescription(sub)),
-          ),
-        );
-        commandsBlock.push(
-          ...(
-            helper as unknown as { formatItemList: (h: string, i: string[], hp: Help) => string[] }
-          ).formatItemList(group, commandList, helper),
-        );
-      });
-
-      return [...descriptionBlock, ...usageBlock, ...commandsBlock].join('\n');
-    },
-  });
-
-registerCommands(program);
-
-program.action(async () => {
-  await program.parseAsync(['go', 'main'], { from: 'user' });
-});
-
-program.parseAsync(process.argv);
+if (!cmd || GO_ALIASES.has(cmd)) {
+  await cmdGo(cmd && GO_ALIASES.has(cmd) ? rest[0] : undefined);
+} else {
+  switch (cmd) {
+    case 'ls':
+    case 'list':
+      await cmdLs(rest[0]);
+      break;
+    case 'rm':
+    case 'remove':
+      await cmdRm(rest[0]);
+      break;
+    case 'mv':
+    case 'move':
+    case 'rename':
+      await cmdMv(rest[0], rest[1]);
+      break;
+    case 'stop':
+      await cmdStop();
+      break;
+    case 'start':
+      await cmdStart();
+      break;
+    case 'config':
+      cmdConfig();
+      break;
+    case 'help':
+    case '--help':
+    case '-h':
+      printHelp();
+      break;
+    default:
+      console.error(`webtty: unknown command '${cmd}'\nRun \`webtty help\` for usage.`);
+      process.exit(1);
+  }
+}

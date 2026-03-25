@@ -53,7 +53,7 @@ describe('cli — lifecycle', () => {
   test('unknown command exits with error', async () => {
     const { stderr, exitCode } = await runCli(port, 'unknown');
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('error');
+    expect(stderr).toContain('unknown command');
   });
 
   test('start launches the server', async () => {
