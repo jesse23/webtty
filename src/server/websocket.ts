@@ -27,6 +27,12 @@ export function closeAllSessions(): void {
   }
 }
 
+let onLastSessionClosed: (() => void) | null = null;
+
+export function setLastSessionClosedHandler(handler: () => void): void {
+  onLastSessionClosed = handler;
+}
+
 const DIM = '\x1b[2m';
 const RESET = '\x1b[0m';
 const BOLD = '\x1b[1m';
@@ -140,6 +146,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
           }
         }
         session.pty = null;
+        if (sessionRegistry.size === 0) onLastSessionClosed?.();
       });
 
       const banner = sessionBanner();

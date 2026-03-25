@@ -1,14 +1,26 @@
+import fs from 'node:fs';
 import http from 'node:http';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config';
 import { handleRequest } from './routes';
 import { findGhosttyWeb } from './static';
-import { closeAllSessions, createWebSocketServer } from './websocket';
+import { closeAllSessions, createWebSocketServer, setLastSessionClosedHandler } from './websocket';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const config = loadConfig();
 const HTTP_PORT = Number(process.env.PORT) || config.port;
 const HTTP_HOST = config.host;
 
 const { distPath, wasmPath } = findGhosttyWeb();
+const projectRoot = path.resolve(__dirname, '..', '..');
+const builtDistPath = path.join(projectRoot, 'dist');
+const srcClientPath = path.join(projectRoot, 'src', 'client');
+const clientDistPath = fs.existsSync(path.join(builtDistPath, 'client.html'))
+  ? builtDistPath
+  : srcClientPath;
 
 function shutdown() {
   closeAllSessions();
@@ -22,10 +34,11 @@ function shutdown() {
 }
 
 const httpServer = http.createServer((req, res) => {
-  handleRequest(req, res, distPath, wasmPath, shutdown);
+  handleRequest(req, res, distPath, wasmPath, clientDistPath, shutdown);
 });
 
 const wss = createWebSocketServer(httpServer);
+setLastSessionClosedHandler(shutdown);
 
 process.on('SIGINT', () => {
   console.log('\n\nShutting down...');

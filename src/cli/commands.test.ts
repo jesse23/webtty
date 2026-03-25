@@ -1,29 +1,31 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
-import net from 'node:net';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  cleanupTmpHome,
+  getFreePort,
+  makeTmpHome,
+  waitForServerDown,
+  waitForServerReady,
+} from '../utils.test';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ENTRY = path.resolve(__dirname, 'index.ts');
 const SERVER_ENTRY = path.resolve(__dirname, '../server/index.ts');
 
-function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, '127.0.0.1', () => {
-      const { port } = srv.address() as net.AddressInfo;
-      srv.close((err) => (err ? reject(err) : resolve(port)));
-    });
-  });
-}
+const tmpHome = makeTmpHome('cli-test');
+
+afterAll(() => {
+  cleanupTmpHome(tmpHome);
+});
 
 async function runCli(
   port: number,
   ...args: string[]
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = Bun.spawn([process.execPath, CLI_ENTRY, ...args], {
-    env: { ...process.env, PORT: String(port), WEBTTY_NO_OPEN: '1' },
+    env: { ...process.env, PORT: String(port), WEBTTY_NO_OPEN: '1', HOME: tmpHome },
     stdout: 'pipe',
     stderr: 'pipe',
   });
@@ -33,32 +35,6 @@ async function runCli(
   ]);
   const exitCode = await proc.exited;
   return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
-}
-
-async function waitForServer(baseUrl: string, timeout = 5000): Promise<boolean> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      await fetch(`${baseUrl}/api/sessions`);
-      return true;
-    } catch {
-      await Bun.sleep(100);
-    }
-  }
-  return false;
-}
-
-async function waitForServerDown(baseUrl: string, timeout = 3000): Promise<void> {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    try {
-      await fetch(`${baseUrl}/api/sessions`);
-      await Bun.sleep(100);
-    } catch {
-      return;
-    }
-  }
-  throw new Error('Server did not shut down in time');
 }
 
 describe('cli — lifecycle', () => {
@@ -84,7 +60,7 @@ describe('cli — lifecycle', () => {
     const { stdout, exitCode } = await runCli(port, 'start');
     expect(exitCode).toBe(0);
     expect(stdout).toBe('webtty started');
-    expect(await waitForServer(baseUrl)).toBe(true);
+    expect(await waitForServerReady(baseUrl)).toBe(true);
   });
 
   test('start when already running reports already running', async () => {
@@ -107,21 +83,11 @@ describe('cli — lifecycle', () => {
     expect(stdout).toBe('webtty is not running');
   });
 
-  test('restart starts the server when not running', async () => {
-    const { stdout, exitCode } = await runCli(port, 'restart');
+  test('start launches server after stop', async () => {
+    const { stdout, exitCode } = await runCli(port, 'start');
     expect(exitCode).toBe(0);
-    expect(stdout).toBe('webtty restarted');
-    expect(await waitForServer(baseUrl)).toBe(true);
-  });
-
-  test('restart stops and restarts a running server', async () => {
-    const resBefore = await fetch(`${baseUrl}/api/sessions`);
-    expect(resBefore.ok).toBe(true);
-
-    const { stdout, exitCode } = await runCli(port, 'restart');
-    expect(exitCode).toBe(0);
-    expect(stdout).toBe('webtty restarted');
-    expect(await waitForServer(baseUrl)).toBe(true);
+    expect(stdout).toBe('webtty started');
+    expect(await waitForServerReady(baseUrl)).toBe(true);
   });
 });
 
@@ -134,10 +100,10 @@ describe('cli — session management', () => {
     port = await getFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
     serverProc = spawn(process.execPath, [SERVER_ENTRY], {
-      env: { ...process.env, PORT: String(port) },
+      env: { ...process.env, PORT: String(port), HOME: tmpHome },
       stdio: 'ignore',
     });
-    await waitForServer(baseUrl);
+    await waitForServerReady(baseUrl);
   });
 
   afterAll(() => {
@@ -151,7 +117,7 @@ describe('cli — session management', () => {
   });
 
   test('run creates a session and prints url', async () => {
-    const { stdout, exitCode } = await runCli(port, 'run', 'my-session');
+    const { stdout, exitCode } = await runCli(port, 'at', 'my-session');
     expect(exitCode).toBe(0);
     expect(stdout).toContain(`/s/my-session`);
 
@@ -160,13 +126,13 @@ describe('cli — session management', () => {
   });
 
   test('run with existing id reuses session without error', async () => {
-    const { stdout, exitCode } = await runCli(port, 'run', 'my-session');
+    const { stdout, exitCode } = await runCli(port, 'at', 'my-session');
     expect(exitCode).toBe(0);
     expect(stdout).toContain(`/s/my-session`);
   });
 
   test('run without id creates session with auto-generated id', async () => {
-    const { stdout, exitCode } = await runCli(port, 'run');
+    const { stdout, exitCode } = await runCli(port, 'at');
     expect(exitCode).toBe(0);
     expect(stdout).toMatch(/\/s\/[a-f0-9]{8}/);
   });
@@ -178,7 +144,7 @@ describe('cli — session management', () => {
   });
 
   test('rename renames a session', async () => {
-    const { stdout, exitCode } = await runCli(port, 'rename', 'my-session', 'renamed-session');
+    const { stdout, exitCode } = await runCli(port, 'mv', 'my-session', 'renamed-session');
     expect(exitCode).toBe(0);
     expect(stdout).toContain('renamed');
     expect(stdout).toContain('renamed-session');
@@ -188,7 +154,7 @@ describe('cli — session management', () => {
   });
 
   test('rename non-existent session exits with error', async () => {
-    const { exitCode, stderr } = await runCli(port, 'rename', 'does-not-exist', 'new-name');
+    const { exitCode, stderr } = await runCli(port, 'mv', 'does-not-exist', 'new-name');
     expect(exitCode).toBe(1);
     expect(stderr).toContain('not found');
   });
@@ -210,5 +176,67 @@ describe('cli — session management', () => {
     const { stdout, exitCode } = await runCli(port + 1, 'ls');
     expect(exitCode).toBe(1);
     expect(stdout).toContain('not running');
+  });
+});
+
+describe('cli — no-arg, help, config', () => {
+  let port: number;
+  let baseUrl: string;
+  let serverProc: ChildProcess;
+
+  beforeAll(async () => {
+    port = await getFreePort();
+    baseUrl = `http://127.0.0.1:${port}`;
+    serverProc = spawn(process.execPath, [SERVER_ENTRY], {
+      env: { ...process.env, PORT: String(port), HOME: tmpHome },
+      stdio: 'ignore',
+    });
+    await waitForServerReady(baseUrl);
+  });
+
+  afterAll(() => {
+    serverProc.kill();
+  });
+
+  test('no-arg creates main session and prints url', async () => {
+    const { stdout, exitCode } = await runCli(port);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('/s/main');
+  });
+
+  test('no-arg reuses main session without error', async () => {
+    const { stdout, exitCode } = await runCli(port);
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('/s/main');
+  });
+
+  test('help prints usage', async () => {
+    const { stdout, exitCode } = await runCli(port, 'help');
+    expect(exitCode).toBe(0);
+    expect(stdout).toContain('USAGE');
+    expect(stdout).toContain('webtty');
+  });
+
+  test('config opens config path in $VISUAL', async () => {
+    const expectedPath = path.join(tmpHome, '.config', 'webtty', 'config.json');
+    const env: Record<string, string> = {
+      ...process.env,
+      PORT: String(port),
+      HOME: tmpHome,
+      VISUAL: 'echo',
+    };
+    delete env.EDITOR;
+    const proc = Bun.spawn([process.execPath, CLI_ENTRY, 'config'], {
+      env,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const [stdout] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    const exitCode = await proc.exited;
+    expect(exitCode).toBe(0);
+    expect(stdout.trim()).toContain(expectedPath);
   });
 });

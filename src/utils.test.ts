@@ -1,46 +1,80 @@
 import { describe, expect, test } from 'bun:test';
-import { ghosttyWebRootFromMain, mimeType } from './utils';
+import fs from 'node:fs';
+import net from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
 
-describe('mimeType', () => {
-  test('returns correct type for known extensions', () => {
-    expect(mimeType('index.html')).toBe('text/html');
-    expect(mimeType('app.js')).toBe('application/javascript');
-    expect(mimeType('app.mjs')).toBe('application/javascript');
-    expect(mimeType('style.css')).toBe('text/css');
-    expect(mimeType('data.json')).toBe('application/json');
-    expect(mimeType('module.wasm')).toBe('application/wasm');
-    expect(mimeType('image.png')).toBe('image/png');
-    expect(mimeType('icon.svg')).toBe('image/svg+xml');
-    expect(mimeType('favicon.ico')).toBe('image/x-icon');
+export function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = net.createServer();
+    srv.listen(0, '127.0.0.1', () => {
+      const { port } = srv.address() as net.AddressInfo;
+      srv.close((err) => (err ? reject(err) : resolve(port)));
+    });
   });
+}
 
-  test('returns octet-stream for unknown extensions', () => {
-    expect(mimeType('file.xyz')).toBe('application/octet-stream');
-    expect(mimeType('binary.bin')).toBe('application/octet-stream');
-  });
+export async function waitForServer(baseUrl: string, timeout = 5000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${baseUrl}/api/sessions`);
+      return;
+    } catch {
+      await Bun.sleep(100);
+    }
+  }
+  throw new Error('Server did not start in time');
+}
 
-  test('works with full paths', () => {
-    expect(mimeType('/dist/ghostty-web.js')).toBe('application/javascript');
-    expect(mimeType('/dist/ghostty-vt.wasm')).toBe('application/wasm');
-  });
-});
+export async function waitForServerDown(baseUrl: string, timeout = 3000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      await fetch(`${baseUrl}/api/sessions`);
+      await Bun.sleep(100);
+    } catch {
+      return;
+    }
+  }
+  throw new Error('Server did not shut down in time');
+}
 
-describe('ghosttyWebRootFromMain', () => {
-  test('strips dist/ and filename on posix path', () => {
-    expect(ghosttyWebRootFromMain('/node_modules/ghostty-web/dist/index.js')).toBe(
-      '/node_modules/ghostty-web',
+export async function waitForServerReady(baseUrl: string, timeout = 5000): Promise<boolean> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions`);
+      if (res.ok && Array.isArray(await res.json())) return true;
+    } catch {
+      /* empty */
+    }
+    await Bun.sleep(100);
+  }
+  return false;
+}
+
+export function makeTmpHome(prefix: string): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), `webtty-${prefix}-`));
+}
+
+export function cleanupTmpHome(tmpHome: string): void {
+  fs.rmSync(tmpHome, { recursive: true, force: true });
+}
+
+describe('test-helpers', () => {
+  test('waitForServer throws when server never responds', async () => {
+    await expect(waitForServer('http://127.0.0.1:1', 50)).rejects.toThrow(
+      'Server did not start in time',
     );
   });
 
-  test('strips nested dist/ path', () => {
-    expect(ghosttyWebRootFromMain('/node_modules/ghostty-web/dist/ghostty-web.js')).toBe(
-      '/node_modules/ghostty-web',
+  test('waitForServerDown throws when server keeps responding', async () => {
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response('[]', { status: 200 })) as unknown as typeof fetch;
+    await expect(waitForServerDown('http://127.0.0.1:1', 50)).rejects.toThrow(
+      'Server did not shut down in time',
     );
-  });
-
-  test('strips windows-style path', () => {
-    expect(ghosttyWebRootFromMain('C:\\node_modules\\ghostty-web\\dist\\index.js')).toBe(
-      'C:\\node_modules\\ghostty-web',
-    );
+    globalThis.fetch = realFetch;
   });
 });

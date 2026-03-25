@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const realFetch = globalThis.fetch;
 
@@ -10,6 +12,19 @@ beforeEach(() => {
 afterEach(() => {
   globalThis.fetch = realFetch;
 });
+
+function withPlatform(platform: string, fn: () => void): void {
+  const origNodeEnv = process.env.NODE_ENV;
+  const origPlatform = process.platform;
+  delete process.env.NODE_ENV;
+  Object.defineProperty(process, 'platform', { value: platform, configurable: true });
+  try {
+    fn();
+  } finally {
+    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
+    process.env.NODE_ENV = origNodeEnv;
+  }
+}
 
 describe('isServerRunning', () => {
   test('returns true when GET /api/sessions succeeds', async () => {
@@ -74,9 +89,53 @@ describe('stopServer', () => {
   });
 });
 
+describe('logPath', () => {
+  test('returns path inside ~/.config/webtty/', async () => {
+    const { logPath } = await import('./http');
+    expect(logPath()).toBe(path.join(os.homedir(), '.config', 'webtty', 'server.log'));
+  });
+});
+
 describe('startServer', () => {
+  test('opens log file and passes fd to spawn when logs is true', async () => {
+    const mkdirSpy = spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
+    const openSpy = spyOn(fs, 'openSync').mockReturnValue(99);
+    const closeSpy = spyOn(fs, 'closeSync').mockImplementation(() => {});
+    const fakeChild = { unref: mock(() => {}) };
+    const spawnMock = mock(() => fakeChild);
+
+    globalThis.fetch = mock(
+      async () => new Response('[]', { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const configModule = await import('../config');
+    const configSpy = spyOn(configModule, 'loadConfig').mockReturnValue({
+      ...configModule.DEFAULT_CONFIG,
+      logs: true,
+    });
+
+    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
+
+    const { startServer } = await import('./http');
+    await startServer(10000, spawnMock as never);
+
+    const spawnCall = (spawnMock.mock.calls[0] as unknown[])[2] as unknown as { stdio: unknown };
+    expect(spawnCall.stdio).toEqual(['ignore', 99, 99]);
+    expect(openSpy).toHaveBeenCalledWith(expect.stringContaining('server.log'), 'a');
+    expect(closeSpy).toHaveBeenCalledWith(99);
+
+    existsSpy.mockRestore();
+    mkdirSpy.mockRestore();
+    openSpy.mockRestore();
+    closeSpy.mockRestore();
+    configSpy.mockRestore();
+  });
+
   test('exits with error when server entry not found', async () => {
-    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(false);
+    const realExistsSync = fs.existsSync.bind(fs);
+    const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) =>
+      String(p).includes('server/index') ? false : realExistsSync(p),
+    );
     const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
@@ -148,59 +207,35 @@ describe('openBrowser', () => {
   });
 
   test('spawns open on darwin', async () => {
-    const origNodeEnv = process.env.NODE_ENV;
-    delete process.env.NODE_ENV;
-    const origPlatform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const spawnMock = mock(() => ({ unref: () => {} }));
-
     const { openBrowser } = await import('./http');
-    openBrowser('http://localhost:2346/s/main', spawnMock as never);
+    withPlatform('darwin', () => openBrowser('http://localhost:2346/s/main', spawnMock as never));
     expect(spawnMock).toHaveBeenCalledWith(
       'open',
       ['http://localhost:2346/s/main'],
       expect.anything(),
     );
-
-    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
-    process.env.NODE_ENV = origNodeEnv;
   });
 
   test('spawns xdg-open on linux', async () => {
-    const origNodeEnv = process.env.NODE_ENV;
-    delete process.env.NODE_ENV;
-    const origPlatform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
     const spawnMock = mock(() => ({ unref: () => {} }));
-
     const { openBrowser } = await import('./http');
-    openBrowser('http://localhost:2346/s/main', spawnMock as never);
+    withPlatform('linux', () => openBrowser('http://localhost:2346/s/main', spawnMock as never));
     expect(spawnMock).toHaveBeenCalledWith(
       'xdg-open',
       ['http://localhost:2346/s/main'],
       expect.anything(),
     );
-
-    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
-    process.env.NODE_ENV = origNodeEnv;
   });
 
   test('spawns cmd.exe on win32', async () => {
-    const origNodeEnv = process.env.NODE_ENV;
-    delete process.env.NODE_ENV;
-    const origPlatform = process.platform;
-    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
     const spawnMock = mock(() => ({ unref: () => {} }));
-
     const { openBrowser } = await import('./http');
-    openBrowser('http://localhost:2346/s/main', spawnMock as never);
+    withPlatform('win32', () => openBrowser('http://localhost:2346/s/main', spawnMock as never));
     expect(spawnMock).toHaveBeenCalledWith(
       'cmd.exe',
       expect.arrayContaining(['start']),
       expect.anything(),
     );
-
-    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
-    process.env.NODE_ENV = origNodeEnv;
   });
 });

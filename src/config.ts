@@ -25,6 +25,8 @@ export interface Theme {
   brightWhite?: string;
 }
 
+export type RightClickBehavior = 'default' | 'copyPaste';
+
 export interface Config {
   port: number;
   host: string;
@@ -37,11 +39,18 @@ export interface Config {
   fontSize: number;
   fontFamily: string;
   cursorBlink: boolean;
+  copyOnSelect: boolean;
+  rightClickBehavior: RightClickBehavior;
+  logs: boolean;
   theme: Theme;
 }
 
+export function configDir(): string {
+  return path.join(process.env.HOME ?? os.homedir(), '.config', 'webtty');
+}
+
 function getConfigPath(): string {
-  return path.join(os.homedir(), '.config', 'webtty', 'config.json');
+  return path.join(configDir(), 'config.json');
 }
 
 export const DEFAULT_THEME: Theme = {
@@ -82,6 +91,9 @@ export const DEFAULT_CONFIG: Config = {
   fontSize: 13,
   fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
   cursorBlink: true,
+  copyOnSelect: true,
+  rightClickBehavior: 'default' as RightClickBehavior,
+  logs: false,
   theme: DEFAULT_THEME,
 };
 
@@ -127,6 +139,13 @@ export function loadConfig(): Config {
     ...(typeof p.fontSize === 'number' && { fontSize: p.fontSize }),
     ...(typeof p.fontFamily === 'string' && { fontFamily: p.fontFamily }),
     ...(typeof p.cursorBlink === 'boolean' && { cursorBlink: p.cursorBlink }),
+    ...(typeof p.copyOnSelect === 'boolean' && { copyOnSelect: p.copyOnSelect }),
+    ...(typeof p.rightClickBehavior === 'string' && {
+      rightClickBehavior: (p.rightClickBehavior === 'copyPaste'
+        ? 'copyPaste'
+        : 'default') as RightClickBehavior,
+    }),
+    ...(typeof p.logs === 'boolean' && { logs: p.logs }),
     ...(p.theme && typeof p.theme === 'object' && { theme: { ...DEFAULT_THEME, ...p.theme } }),
   };
 }

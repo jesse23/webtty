@@ -5,9 +5,9 @@
 Terminal UI in the browser. Run CLI/TUI applications in a browser tab, across platforms.
 
 ```sh
-npx webtty run        # start server + open a terminal in the browser
-npx webtty ls         # list sessions
-npx webtty help       # show all commands
+npx webtty           # start server + open a terminal in the browser
+npx webtty ls        # list sessions
+npx webtty help      # show all commands
 ```
 
 ## Debugging

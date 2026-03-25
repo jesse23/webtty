@@ -1,66 +1,16 @@
+import * as childProcess from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { Command } from 'commander';
+import { configDir } from '../config';
 import { BASE_URL, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
 export function registerCommands(program: Command): void {
   program
-    .command('start')
-    .description('Start the webtty server')
-    .action(async () => {
-      if (await isServerRunning()) {
-        console.log('webtty is already running');
-        return;
-      }
-      await startServer();
-      console.log('webtty started');
-    });
-
-  program
-    .command('stop')
-    .description('Stop the webtty server')
-    .action(async () => {
-      if (!(await isServerRunning())) {
-        console.log('webtty is not running');
-        return;
-      }
-      const ok = await stopServer();
-      if (ok) {
-        console.log('webtty stopped');
-      } else {
-        console.error('webtty stop failed');
-        process.exit(1);
-      }
-    });
-
-  program
-    .command('ls')
-    .description('List all sessions')
-    .action(async () => {
-      let res: Response;
-      try {
-        res = await fetch(`${BASE_URL}/api/sessions`);
-      } catch {
-        console.log('webtty is not running');
-        process.exit(1);
-      }
-      const sessions = (await res.json()) as Array<{
-        id: string;
-        connected: boolean;
-        createdAt: number;
-      }>;
-      if (sessions.length === 0) {
-        console.log('no sessions');
-        return;
-      }
-      console.log('id\t\t\tconnected\tcreated');
-      for (const s of sessions) {
-        const created = new Date(s.createdAt).toLocaleString();
-        console.log(`${s.id}\t\t\t${s.connected}\t\t${created}`);
-      }
-    });
-
-  program
-    .command('run [id]')
-    .description('Create or reuse a session and open it in the browser')
+    .command('at [id]')
+    .alias('a')
+    .alias('attach')
+    .description('Attach to a new or existing session and open it')
     .action(async (id?: string) => {
       if (!(await isServerRunning())) {
         await startServer();
@@ -106,9 +56,43 @@ export function registerCommands(program: Command): void {
     });
 
   program
-    .command('rm <id>')
-    .description('Kill a session and its PTY')
-    .action(async (id: string) => {
+    .command('ls [id]')
+    .alias('list')
+    .description('List all sessions, or filter by id substring')
+    .action(async (filter?: string) => {
+      let res: Response;
+      try {
+        res = await fetch(`${BASE_URL}/api/sessions`);
+      } catch {
+        console.log('webtty is not running');
+        process.exit(1);
+      }
+      const all = (await res.json()) as Array<{
+        id: string;
+        connected: boolean;
+        createdAt: number;
+      }>;
+      const sessions = filter ? all.filter((s) => s.id.includes(filter)) : all;
+      if (sessions.length === 0) {
+        console.log('no sessions');
+        return;
+      }
+      console.log('id\t\t\tconnected\tcreated');
+      for (const s of sessions) {
+        const created = new Date(s.createdAt).toLocaleString();
+        console.log(`${s.id}\t\t\t${s.connected}\t\t${created}`);
+      }
+    });
+
+  program
+    .command('rm [id]')
+    .alias('remove')
+    .description('Destroy a session')
+    .action(async (id?: string) => {
+      if (!id) {
+        console.error('webtty: rm requires a session id');
+        process.exit(1);
+      }
       let res: Response;
       try {
         res = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`, {
@@ -120,6 +104,10 @@ export function registerCommands(program: Command): void {
       }
       if (res.status === 204) {
         console.log(`removed ${id}`);
+        if (res.headers.get('x-sessions-remaining') === '0') {
+          await stopServer();
+          console.log('no sessions remaining — webtty stopped');
+        }
       } else if (res.status === 404) {
         console.error(`session ${id} not found`);
         process.exit(1);
@@ -130,9 +118,15 @@ export function registerCommands(program: Command): void {
     });
 
   program
-    .command('rename <id> <new-id>')
+    .command('mv [id] [new-id]')
+    .alias('move')
+    .alias('rename')
     .description('Rename a session')
-    .action(async (id: string, newId: string) => {
+    .action(async (id?: string, newId?: string) => {
+      if (!id || !newId) {
+        console.error('webtty: rename requires two arguments: [id] [new-id]');
+        process.exit(1);
+      }
       let res: Response;
       try {
         res = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`, {
@@ -157,17 +151,55 @@ export function registerCommands(program: Command): void {
     });
 
   program
-    .command('restart')
-    .description('Restart the webtty server')
+    .command('stop')
+    .description('Stop the webtty server')
+    .action(async () => {
+      if (!(await isServerRunning())) {
+        console.log('webtty is not running');
+        return;
+      }
+      const ok = await stopServer();
+      if (ok) {
+        console.log('webtty stopped');
+      } else {
+        console.error('webtty stop failed');
+        process.exit(1);
+      }
+    });
+
+  program
+    .command('start')
+    .description('Start the webtty server')
     .action(async () => {
       if (await isServerRunning()) {
-        const ok = await stopServer();
-        if (!ok) {
-          console.error('webtty: failed to stop server');
-          process.exit(1);
-        }
+        console.log('webtty is already running');
+        return;
       }
       await startServer();
-      console.log('webtty restarted');
+      console.log('webtty started');
+    });
+
+  program
+    .command('config')
+    .description('Open the config file in $EDITOR')
+    .action(() => {
+      const dir = configDir();
+      const configPath = path.join(dir, 'config.json');
+      fs.mkdirSync(dir, { recursive: true });
+      if (!fs.existsSync(configPath)) {
+        fs.writeFileSync(configPath, '{}\n', 'utf8');
+      }
+      const editor =
+        process.env.VISUAL ??
+        process.env.EDITOR ??
+        (process.platform === 'win32' ? 'notepad' : 'vi');
+      childProcess.spawnSync(editor, [configPath], { stdio: 'inherit' });
+    });
+
+  program
+    .command('help')
+    .description('Show help — all commands and options')
+    .action(() => {
+      program.outputHelp();
     });
 }

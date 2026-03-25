@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,17 +6,22 @@ import { DEFAULT_CONFIG, DEFAULT_THEME, loadConfig, saveConfig } from './config'
 
 let tmpDir: string;
 let configPath: string;
-let homedirSpy: ReturnType<typeof spyOn>;
+let origHome: string | undefined;
 
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'webtty-config-test-'));
   configPath = path.join(tmpDir, '.config', 'webtty', 'config.json');
-  homedirSpy = spyOn(os, 'homedir').mockReturnValue(tmpDir);
+  origHome = process.env.HOME;
+  process.env.HOME = tmpDir;
 });
 
 afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
-  homedirSpy.mockRestore();
+  if (origHome === undefined) {
+    delete process.env.HOME;
+  } else {
+    process.env.HOME = origHome;
+  }
 });
 
 describe('saveConfig', () => {
@@ -153,6 +158,21 @@ describe('loadConfig — reads and merges', () => {
     expect(config.port).toBe(DEFAULT_CONFIG.port);
     expect(config.cols).toBe(DEFAULT_CONFIG.cols);
     expect(config.host).toBe(DEFAULT_CONFIG.host);
+  });
+
+  test('overrides copyOnSelect when set to false', () => {
+    writeConfig(JSON.stringify({ copyOnSelect: false }));
+    expect(loadConfig().copyOnSelect).toBe(false);
+  });
+
+  test('overrides rightClickBehavior when set to copyPaste', () => {
+    writeConfig(JSON.stringify({ rightClickBehavior: 'copyPaste' }));
+    expect(loadConfig().rightClickBehavior).toBe('copyPaste');
+  });
+
+  test('falls back rightClickBehavior to default for invalid value', () => {
+    writeConfig(JSON.stringify({ rightClickBehavior: 'bogus' }));
+    expect(loadConfig().rightClickBehavior).toBe('default');
   });
 
   test('throws on invalid JSON', () => {

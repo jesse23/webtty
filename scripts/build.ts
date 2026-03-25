@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
 
-export {};
+import fs from 'node:fs';
+import path from 'node:path';
 
-const result = await Bun.build({
+const serverResult = await Bun.build({
   entrypoints: ['./src/server/index.ts', './src/cli/index.ts'],
   outdir: './dist',
   target: 'node',
@@ -12,12 +13,34 @@ const result = await Bun.build({
   banner: '#!/usr/bin/env node\n',
 });
 
-if (!result.success) {
-  console.error('Build failed:');
-  for (const log of result.logs) {
-    console.error(log);
-  }
+if (!serverResult.success) {
+  console.error('Server build failed:');
+  for (const log of serverResult.logs) console.error(log);
   process.exit(1);
 }
 
-console.log(`✓ Build complete (${result.outputs.length} files)`);
+const clientResult = await Bun.build({
+  entrypoints: ['./src/client/index.ts'],
+  outdir: './dist',
+  target: 'browser',
+  format: 'esm',
+  minify: true,
+  external: ['ghostty-web'],
+  naming: 'client-browser.js',
+});
+
+if (!clientResult.success) {
+  console.error('Client build failed:');
+  for (const log of clientResult.logs) console.error(log);
+  process.exit(1);
+}
+
+const clientOut = path.resolve('./dist/client-browser.js');
+const clientJs = fs.readFileSync(clientOut, 'utf8');
+fs.writeFileSync(clientOut, clientJs.replace(/"ghostty-web"/g, '"/dist/ghostty-web.js"'));
+
+fs.copyFileSync(path.resolve('./src/client/client.html'), path.resolve('./dist/client.html'));
+fs.copyFileSync(path.resolve('./src/client/index.css'), path.resolve('./dist/client.css'));
+
+const totalFiles = serverResult.outputs.length + clientResult.outputs.length + 2;
+console.log(`✓ Build complete (${totalFiles} files)`);

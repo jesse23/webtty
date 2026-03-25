@@ -1,7 +1,7 @@
 # SPEC: Config
 
 **Author:** jesse23
-**Last Updated:** 2026-03-23
+**Last Updated:** 2026-03-24
 
 ---
 
@@ -92,7 +92,7 @@ spawn PTY with fresh: shell, term, colorTerm, scrollback
 - **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
 - **Hot config reload**:
   - `port` / `host` — locked at startup (server socket already bound; restart required).
-  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink`, `scrollback`, `theme` — re-read on every tab reload.
+  -   `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior` — re-read on every tab reload.
   - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
   - An already-running session is never affected mid-flight.
 
@@ -111,6 +111,9 @@ All keys are optional — omit any key to use the default value.
 | `cols` | number | `80` | Initial terminal width in columns |
 | `rows` | number | `24` | Initial terminal height in rows |
 | `cursorBlink` | boolean | `true` | Whether the cursor blinks |
+| `copyOnSelect` | boolean | `true` | Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style) |
+| `rightClickBehavior` | string | `"default"` | Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. Invalid values fall back to `"default"` |
+| `logs` | boolean | `false` | Write server stdout/stderr to `~/.config/webtty/server.log`. Appends on each start. Default `false` — server runs silently. |
 | `fontSize` | number | `13` | Font size in px |
 | `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace"` | CSS font-family stack |
 | `theme` | object | Campbell | Terminal color palette — see theme keys below |
@@ -156,6 +159,8 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
   "cols": 80,
   "rows": 24,
   "cursorBlink": true,
+  "copyOnSelect": true,
+  "rightClickBehavior": "default",
   "fontSize": 13,
   "fontFamily": "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
 
@@ -188,10 +193,9 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Config lifecycle | First-run write + subsequent load, merge with defaults, env overrides | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| `port` / `host` | Override HTTP listen port and bind address | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| `shell` / `term` / `colorTerm` | Override shell and `$TERM` / `$COLORTERM` env vars for new PTY sessions | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| `scrollback` | PTY history buffer size in bytes; shared between server-side replay and client-side line buffer | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink` injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| `theme` | Terminal color palette injected into client HTML | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| Config lifecycle | First-run write, merge with defaults, env overrides, hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| Server settings | `port`, `host` — locked at startup; `shell`, `term`, `colorTerm` — applied per new PTY | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorBlink`, `scrollback`, `theme` — re-read on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Hot config reload | Appearance re-read on tab reload; shell/PTY settings re-read on new PTY spawn; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ✅ |
+| Copy behavior | `copyOnSelect` + `rightClickBehavior` — configurable clipboard copy matching VS Code / kitty conventions | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
