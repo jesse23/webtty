@@ -145,3 +145,22 @@ if (config.rightClickBehavior === 'copyPaste') {
     term.clearSelection();
   });
 }
+
+// ghostty-web swallows Ctrl+V without sending \x16 to the PTY (unlike
+// xterm.js). When clipboard has no text/plain, its paste handler drops it
+// too. Send \x16 so TUI apps can invoke their native OS clipboard read.
+// See ADR 014.
+container.addEventListener(
+  'paste',
+  (e: ClipboardEvent) => {
+    const cd = e.clipboardData;
+    if (!cd) return;
+    if (cd.getData('text/plain')) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send('\x16');
+    }
+  },
+  { capture: true },
+);
