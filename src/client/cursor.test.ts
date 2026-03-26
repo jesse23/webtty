@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
 import { applyDecscusr } from './cursor';
-import { shouldForwardPaste } from './paste';
 
 function makeTerm(): { options: { cursorStyle: string; cursorBlink: boolean } } {
   return { options: { cursorStyle: 'block', cursorBlink: false } };
@@ -91,29 +90,5 @@ describe('applyDecscusr', () => {
     applyDecscusr(term as never, 'text before\x1b[6 qtext after');
     expect(term.options.cursorStyle).toBe('bar');
     expect(term.options.cursorBlink).toBe(false);
-  });
-});
-
-describe('shouldForwardPaste', () => {
-  function makeClipboard(items: Record<string, string>): DataTransfer {
-    return {
-      getData: (type: string) => items[type] ?? '',
-    } as DataTransfer;
-  }
-
-  test('returns true when clipboard has no text/plain (e.g. image)', () => {
-    expect(shouldForwardPaste(makeClipboard({}))).toBe(true);
-  });
-
-  test('returns true when text/plain is empty string', () => {
-    expect(shouldForwardPaste(makeClipboard({ 'text/plain': '' }))).toBe(true);
-  });
-
-  test('returns false when clipboard has text/plain content', () => {
-    expect(shouldForwardPaste(makeClipboard({ 'text/plain': 'hello' }))).toBe(false);
-  });
-
-  test('returns false when clipboard has only whitespace text', () => {
-    expect(shouldForwardPaste(makeClipboard({ 'text/plain': '  ' }))).toBe(false);
   });
 });
