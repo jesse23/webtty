@@ -34,6 +34,32 @@ function waitForMessages(messages: string[], count: number, timeout = 3000): Pro
   });
 }
 
+function waitForPrompt(messages: string[], timeout = 3000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeout;
+    const check = () => {
+      const all = messages.join('');
+      if (all.includes('\x1b]133;B') || all.match(/[$%#>➜] *$/m)) return resolve();
+      if (Date.now() > deadline) return reject(new Error('Timeout waiting for shell prompt'));
+      setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
+function waitForContent(messages: string[], content: string, timeout = 3000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeout;
+    const check = () => {
+      if (messages.join('').includes(content)) return resolve();
+      if (Date.now() > deadline)
+        return reject(new Error(`Timeout waiting for content: ${content}`));
+      setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
 function closeWs(ws: WebSocket): Promise<void> {
   return new Promise((resolve) => {
     if (ws.readyState === WebSocket.CLOSED) return resolve();
@@ -55,7 +81,7 @@ describe('websocket', () => {
     baseUrl = `http://127.0.0.1:${port}`;
     wsBase = `ws://127.0.0.1:${port}`;
     proc = spawn(process.execPath, [SERVER_ENTRY], {
-      env: { ...process.env, PORT: String(port), HOME: tmpHome },
+      env: { ...process.env, PORT: String(port), HOME: tmpHome, SHELL: '/bin/sh' },
       stdio: 'ignore',
     });
     await waitForServer(baseUrl);
@@ -127,20 +153,17 @@ describe('websocket', () => {
     );
     await waitForMessages(m2, 1);
 
-    await Bun.sleep(2500);
-
-    const before1 = m1.length;
-    const before2 = m2.length;
+    await waitForPrompt(m1);
 
     ws1.send('echo hello-fanout\n');
-    await waitForMessages(m1, before1 + 1);
-    await waitForMessages(m2, before2 + 1);
+    await waitForContent(m1, 'hello-fanout');
+    await waitForContent(m2, 'hello-fanout');
 
     await closeWs(ws1);
     await closeWs(ws2);
 
-    expect(m1.slice(before1).join('')).toContain('hello-fanout');
-    expect(m2.slice(before2).join('')).toContain('hello-fanout');
+    expect(m1.join('')).toContain('hello-fanout');
+    expect(m2.join('')).toContain('hello-fanout');
   });
 
   test('session is removed and tab closed when shell exits', async () => {
@@ -173,13 +196,12 @@ describe('websocket', () => {
 
     ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }));
 
-    await Bun.sleep(2500);
-    const before = messages.length;
+    await waitForPrompt(messages);
     ws.send('echo resize-ok\n');
-    await waitForMessages(messages, before + 1);
+    await waitForContent(messages, 'resize-ok');
     await closeWs(ws);
 
-    expect(messages.slice(before).join('')).toContain('resize-ok');
+    expect(messages.join('')).toContain('resize-ok');
   });
 
   test('server shuts down when last session exits', async () => {
