@@ -93,12 +93,15 @@ Good pieces for a solid terminal workflow:
 
 | Name | Type | Description |
 |------|------|-------------|
-| **fish** | Shell | Sensible defaults, autosuggestions, no config required to be useful |
-| **NvChad** (Neovim) | Editor | Full IDE feel in the terminal, built-in LSP and syntax highlighting |
-| **yazi** | File Manager | Fast terminal file manager with preview |
-| **gitui** | Git | Terminal UI for git, better than memorizing flags |
-| **Zellij** | Multiplexer | Terminal workspace with layouts; pairs well with webtty for multiple sessions |
-| **starship** | Prompt | Fast, minimal, works with any shell |
+| **[fish](https://fishshell.com)** | Shell | Sensible defaults, autosuggestions, no config required to be useful |
+| **[Clink](https://chrisant996.github.io/clink)** | Shell (Windows) | Powerful Bash-style line editing and completions for Windows cmd.exe |
+| **[MSYS2](https://www.msys2.org)** | Shell (Windows) | Unix-like shell environment on Windows with pacman package manager |
+| **[NvChad](https://nvchad.com)** (Neovim) | Editor | Full IDE feel in the terminal, built-in LSP and syntax highlighting. Note: has unresolved lagging issues |
+| **[vim](https://www.vim.org)** | Editor | Self-customized vim is more efficient for vibe coding — no framework overhead |
+| **[yazi](https://yazi-rs.github.io)** | File Manager | Fast terminal file manager with preview |
+| **[gitui](https://github.com/extrawurst/gitui)** | Git | Terminal UI for git, better than memorizing flags |
+| **[Zellij](https://zellij.dev)** | Multiplexer | Terminal workspace with layouts; pairs well with webtty for multiple sessions |
+| **[starship](https://starship.rs)** | Prompt | Fast, minimal, works with any shell |
 
 ### AI Agents
 
