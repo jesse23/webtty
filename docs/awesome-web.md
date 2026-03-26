@@ -35,10 +35,10 @@ Pick one, stick with it. Cross-device sync matters more than features.
 Google was the first to push the browser-first model seriously. All web-native from the start, still the gold standard for real-time collaboration.
 
 - [Gmail](https://mail.google.com)
-- [Docs](https://docs.google.com)
-- [Sheets](https://sheets.google.com)
-- [Slides](https://slides.google.com)
 - [Drive](https://drive.google.com)
+- [Sheets](https://sheets.google.com)
+- [Docs](https://docs.google.com)
+- [Slides](https://slides.google.com)
 - [Meet](https://meet.google.com)
 - [Calendar](https://calendar.google.com)
 
@@ -49,11 +49,21 @@ If you're starting fresh or don't have org constraints, Google Workspace is the 
 Office Online has caught up. Word, Excel, PowerPoint in the browser are now good enough for most tasks. If your org is on M365, lean into it — everything works in the browser.
 
 - [Outlook](https://outlook.live.com)
+- [Teams](https://teams.microsoft.com)
+- [OneDrive](https://onedrive.live.com)
 - [Word](https://word.office.com)
 - [Excel](https://excel.office.com)
 - [PowerPoint](https://powerpoint.office.com)
-- [OneDrive](https://onedrive.live.com)
-- [Teams](https://teams.microsoft.com)
+
+#### AI Assistants
+
+The major AI assistants all live in the browser — no install needed.
+
+- [M365 Copilot](https://microsoft365.com/copilot)
+- [Claude](https://claude.ai) 
+- [ChatGPT](https://chatgpt.com)
+- [Gemini](https://gemini.google.com)
+- [Grok](https://grok.com)
 
 ### IDE
 
@@ -94,18 +104,27 @@ Good pieces for a solid terminal workflow:
 | Name | Type | Description |
 |------|------|-------------|
 | **[fish](https://fishshell.com)** | Shell | Sensible defaults, autosuggestions, no config required to be useful |
+| **[starship](https://starship.rs)** | Shell | Fast, minimal shell prompt, works with any shell |
 | **[Clink](https://chrisant996.github.io/clink)** | Shell (Windows) | Powerful Bash-style line editing and completions for Windows cmd.exe |
 | **[MSYS2](https://www.msys2.org)** | Shell (Windows) | Unix-like shell environment on Windows with pacman package manager |
+| **[Zellij](https://zellij.dev)** | Multiplexer | Terminal workspace with layouts; pairs well with webtty for multiple sessions |
 | **[NvChad](https://nvchad.com)** (Neovim) | Editor | Full IDE feel in the terminal, built-in LSP and syntax highlighting. Note: has unresolved lagging issues |
 | **[vim](https://www.vim.org)** | Editor | Self-customized vim is more efficient for vibe coding — no framework overhead |
 | **[yazi](https://yazi-rs.github.io)** | File Manager | Fast terminal file manager with preview |
 | **[gitui](https://github.com/extrawurst/gitui)** | Git | Terminal UI for git, better than memorizing flags |
-| **[Zellij](https://zellij.dev)** | Multiplexer | Terminal workspace with layouts; pairs well with webtty for multiple sessions |
-| **[starship](https://starship.rs)** | Prompt | Fast, minimal, works with any shell |
+| **[lazygit](https://github.com/jesseduffield/lazygit)** | Git | Alternative git TUI, more opinionated workflow |
+| **[delta](https://github.com/dandavison/delta)** | Git | Syntax-highlighting pager for git diffs — configure as `core.pager` in gitconfig |
+| **[fzf](https://github.com/junegunn/fzf)** | Search | Fuzzy finder for files, history, and anything else piped to it |
+| **[fd](https://github.com/sharkdp/fd)** | Search | Fast, user-friendly alternative to `find` |
+| **[ripgrep](https://github.com/BurntSushi/ripgrep)** | Search | Blazing fast grep — respects `.gitignore` by default |
+| **[eza](https://eza.rocks)** | Utility | Modern `ls` replacement with icons, git status, and tree view |
+| **[bottom](https://github.com/ClementTsang/bottom)** | Utility | Cross-platform system monitor with a TUI |
+| **[glow](https://github.com/charmbracelet/glow)** | Utility | Render markdown in the terminal with style |
+| **[yt-dlp](https://github.com/yt-dlp/yt-dlp)** | Utility | Download video/audio from YouTube and hundreds of other sites |
 
-### AI Agents
+### Agentic CLI
 
-These tools do more than write code — they plan, execute commands, manage files, search the web, and work through multi-step tasks autonomously. Think of them less as assistants and more as a second pair of hands that runs in your terminal.
+CLI tools that go beyond code completion — they plan, execute commands, manage files, search the web, and work through multi-step tasks autonomously in your terminal.
 
 | Name | Subscription | Description |
 |------|-------------|-------------|
@@ -114,7 +133,6 @@ These tools do more than write code — they plan, execute commands, manage file
 | **[GitHub Copilot CLI](https://docs.github.com/en/copilot)** | Free ($0) / Pro ($10/mo) / Pro+ ($39/mo) | GitHub-native terminal agent with `/plan`, `/fleet` for parallel execution |
 | **[Gemini CLI](https://github.com/google-gemini/gemini-cli)** | Free (1k req/day) / Google One AI Premium | Google's open-source terminal agent, generous free tier, 1M token context |
 | **[Codex CLI](https://github.com/openai/codex)** | ChatGPT Plus/Pro/Team | OpenAI's terminal agent, lightweight, runs locally |
-| **[Aider](https://aider.chat)** | GitHub Copilot | Lightweight terminal pair programmer, excellent git integration |
 
 ---
 
