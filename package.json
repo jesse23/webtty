@@ -2,6 +2,7 @@
   "name": "webtty",
   "version": "0.0.0-development",
   "description": "Web TTY for running CLI/TUI applications in a browser tab, across platforms",
+  "license": "MIT",
   "bin": {
     "webtty": "dist/cli/index.js"
   },
@@ -22,13 +23,12 @@
     "build": "bun run scripts/build.ts",
     "server": "bun run dist/server/index.js",
     "server:node": "node dist/server/index.js",
-    "webtty": "bun run dist/cli/index.js",
+    "webtty": "bun -- dist/cli/index.js",
     "prepack": "bun scripts/clean-pkg-scripts.ts strip",
     "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.3",
-    "commander": "14.0.0",
     "ghostty-web": "0.4.0-next.14.g6a1a50d",
     "ws": "8.20.0"
   },

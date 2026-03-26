@@ -53,7 +53,7 @@ describe('cli — lifecycle', () => {
   test('unknown command exits with error', async () => {
     const { stderr, exitCode } = await runCli(port, 'unknown');
     expect(exitCode).toBe(1);
-    expect(stderr).toContain('error');
+    expect(stderr).toContain('unknown command');
   });
 
   test('start launches the server', async () => {
@@ -116,8 +116,8 @@ describe('cli — session management', () => {
     expect(stdout).toContain('no sessions');
   });
 
-  test('run creates a session and prints url', async () => {
-    const { stdout, exitCode } = await runCli(port, 'at', 'my-session');
+  test('go creates a session and prints url', async () => {
+    const { stdout, exitCode } = await runCli(port, 'go', 'my-session');
     expect(exitCode).toBe(0);
     expect(stdout).toContain(`/s/my-session`);
 
@@ -125,16 +125,16 @@ describe('cli — session management', () => {
     expect(res.status).toBe(200);
   });
 
-  test('run with existing id reuses session without error', async () => {
-    const { stdout, exitCode } = await runCli(port, 'at', 'my-session');
+  test('go with existing id reuses session without error', async () => {
+    const { stdout, exitCode } = await runCli(port, 'go', 'my-session');
     expect(exitCode).toBe(0);
     expect(stdout).toContain(`/s/my-session`);
   });
 
-  test('run without id creates session with auto-generated id', async () => {
-    const { stdout, exitCode } = await runCli(port, 'at');
+  test('go without id opens main session', async () => {
+    const { stdout, exitCode } = await runCli(port, 'go');
     expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/\/s\/[a-f0-9]{8}/);
+    expect(stdout).toContain('/s/main');
   });
 
   test('ls shows created sessions', async () => {

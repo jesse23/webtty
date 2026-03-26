@@ -38,7 +38,8 @@ export interface Config {
   rows: number;
   fontSize: number;
   fontFamily: string;
-  cursorBlink: boolean;
+  cursorStyle: 'block' | 'bar' | 'underline';
+  cursorStyleBlink: boolean;
   copyOnSelect: boolean;
   rightClickBehavior: RightClickBehavior;
   logs: boolean;
@@ -90,7 +91,8 @@ export const DEFAULT_CONFIG: Config = {
   rows: 24,
   fontSize: 13,
   fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
-  cursorBlink: true,
+  cursorStyle: 'bar',
+  cursorStyleBlink: true,
   copyOnSelect: true,
   rightClickBehavior: 'default' as RightClickBehavior,
   logs: false,
@@ -138,7 +140,11 @@ export function loadConfig(): Config {
     ...(typeof p.rows === 'number' && { rows: p.rows }),
     ...(typeof p.fontSize === 'number' && { fontSize: p.fontSize }),
     ...(typeof p.fontFamily === 'string' && { fontFamily: p.fontFamily }),
-    ...(typeof p.cursorBlink === 'boolean' && { cursorBlink: p.cursorBlink }),
+    ...(typeof p.cursorStyle === 'string' &&
+      (p.cursorStyle === 'block' || p.cursorStyle === 'bar' || p.cursorStyle === 'underline') && {
+        cursorStyle: p.cursorStyle,
+      }),
+    ...(typeof p.cursorStyleBlink === 'boolean' && { cursorStyleBlink: p.cursorStyleBlink }),
     ...(typeof p.copyOnSelect === 'boolean' && { copyOnSelect: p.copyOnSelect }),
     ...(typeof p.rightClickBehavior === 'string' && {
       rightClickBehavior: (p.rightClickBehavior === 'copyPaste'

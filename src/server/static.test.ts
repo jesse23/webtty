@@ -1,5 +1,6 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import { findGhosttyWeb, ghosttyWebRootFromMain, mimeType, serveFile } from './static';
 
 describe('mimeType', () => {
@@ -49,8 +50,23 @@ describe('ghosttyWebRootFromMain', () => {
 describe('findGhosttyWeb', () => {
   test('returns distPath and wasmPath when ghostty-web is installed', () => {
     const { distPath, wasmPath } = findGhosttyWeb();
+    expect(fs.existsSync(path.join(distPath, 'ghostty-web.js'))).toBe(true);
+    expect(wasmPath).toContain('ghostty-vt.wasm');
+  });
+
+  test('falls back to node_modules when bundled assets are missing', () => {
+    const realExistsSync = fs.existsSync.bind(fs);
+    const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) => {
+      const s = String(p);
+      if (s.includes('ghostty-web.js') && !s.includes('node_modules')) return false;
+      if (s.includes('ghostty-vt.wasm') && !s.includes('node_modules')) return false;
+      return realExistsSync(s);
+    });
+
+    const { distPath, wasmPath } = findGhosttyWeb();
     expect(distPath).toContain('ghostty-web');
     expect(wasmPath).toContain('ghostty-vt.wasm');
+    existsSpy.mockRestore();
   });
 
   test('exits when ghostty-web files are missing', () => {

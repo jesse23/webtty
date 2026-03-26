@@ -1,4 +1,5 @@
 import { FitAddon, init, Terminal } from 'ghostty-web';
+import { applyDecscusr } from './cursor';
 
 interface Theme {
   background?: string;
@@ -28,7 +29,8 @@ interface ClientConfig {
   rows: number;
   fontSize: number;
   fontFamily: string;
-  cursorBlink: boolean;
+  cursorStyle: 'block' | 'bar' | 'underline';
+  cursorStyleBlink: boolean;
   scrollback: number;
   theme: Theme;
   copyOnSelect: boolean;
@@ -45,7 +47,8 @@ await init();
 const term = new Terminal({
   cols: config.cols,
   rows: config.rows,
-  cursorBlink: config.cursorBlink,
+  cursorStyle: config.cursorStyle,
+  cursorBlink: config.cursorStyleBlink,
   fontSize: config.fontSize,
   fontFamily: config.fontFamily,
   scrollback: Math.ceil(config.scrollback / 80),
@@ -79,6 +82,7 @@ function connect(): void {
   };
 
   ws.onmessage = (event: MessageEvent<string>) => {
+    applyDecscusr(term, event.data);
     term.write(event.data);
   };
 

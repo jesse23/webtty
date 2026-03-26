@@ -31,6 +31,14 @@ export function ghosttyWebRootFromMain(mainPath: string): string {
 }
 
 export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
+  // Prefer assets bundled into dist/ — present when installed via npx/npm.
+  const bundledDist = path.join(__dirname, '..', '..', 'dist');
+  const bundledWasm = path.join(bundledDist, 'ghostty-vt.wasm');
+  if (fs.existsSync(path.join(bundledDist, 'ghostty-web.js')) && fs.existsSync(bundledWasm)) {
+    return { distPath: bundledDist, wasmPath: bundledWasm };
+  }
+
+  // Fall back to node_modules — present during local development.
   try {
     const ghosttyWebMain = require.resolve('ghostty-web') as string;
     const ghosttyWebRoot = ghosttyWebRootFromMain(ghosttyWebMain);

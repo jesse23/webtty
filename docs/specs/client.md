@@ -42,7 +42,7 @@ src/client/
 1. Reads `sessionId` from `window.location.pathname` (`/s/main` → `main`)
 2. Fetches `GET /api/config` to get terminal config
 3. Sets `document.title = sessionId + ' | webtty'`
-4. Initialises a `ghostty-web` `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorBlink, scrollback, theme, copyOnSelect, rightClickBehavior)
+4. Initialises a `ghostty-web` `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, theme, copyOnSelect, rightClickBehavior)
 5. Connects to `ws://<host>/ws/:id?cols=<cols>&rows=<rows>` over WebSocket
 6. Fits the terminal to the viewport and observes resize events via `FitAddon`
 7. Sends a `{ type: 'resize', cols, rows }` JSON message on open and on every terminal resize
@@ -54,7 +54,7 @@ src/client/
 
 ```ts
 {
-  cols, rows, fontSize, fontFamily, cursorBlink, scrollback,
+  cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback,
   theme, copyOnSelect, rightClickBehavior
 }
 ```
@@ -121,10 +121,11 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Static asset build | Browser TS compiled by `Bun.build()`; HTML/CSS copied to `dist/`; zero inline script | [ADR 012](../adrs/012.client.static-assets.md) | ⬜ |
+| Static asset build | Browser TS compiled by `Bun.build()`; HTML/CSS copied to `dist/`; zero inline script | [ADR 012](../adrs/012.client.static-assets.md) | ✅ |
 | Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, WebSocket reconnect on disconnect | [ADR 001](../adrs/001.webtty.bootstrap.md) | ✅ |
-| Config endpoint | `GET /api/config` — serves client-relevant config keys; replaces server-side template injection | [ADR 012](../adrs/012.client.static-assets.md) | ⬜ |
+| Config endpoint | `GET /api/config` — serves client-relevant config keys; replaces server-side template injection | [ADR 012](../adrs/012.client.static-assets.md) | ✅ |
 | Session support | `GET /s/:id` opens a named session; `GET /` redirects to last-used or creates `main` | [ADR 005](../adrs/005.client.session-support.md) | ✅ |
 | Multi-client | Multiple tabs can attach to the same session; scrollback replayed on reconnect; tab closes when PTY exits | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
 | Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Cursor style | `cursorStyle` / `cursorStyleBlink` defaults; DECSCUSR from PTY overrides at runtime via client-side intercept | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
