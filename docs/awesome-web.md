@@ -77,9 +77,9 @@ Three approaches to a browser terminal:
 
 | Tool | Sessions | Multi-tab | Windows | Notes |
 |------|----------|-----------|---------|-------|
-| **ttyd** | ❌ | ❌ | ✅ | Simple, one shell per URL, no state |
-| **Zellij web mode** | ✅ | ✅ | ❌ | Full multiplexer, but Linux/macOS only |
 | **webtty** | ✅ | ✅ | ✅ | Lightweight, session-aware, cross-platform |
+| **ttyd** | ❌ | ❌ | ✅ | Simple, one shell per URL; session terminates when WebSocket connection is lost |
+| **Zellij** (web mode) | ✅ | ✅ | ❌ | Full multiplexer with web mode support, but Linux/macOS only |
 
 ttyd is fine if you just need a quick shell in the browser. Zellij web mode is powerful but doesn't run on Windows. webtty is the middle ground — sessions, reconnect, multiple terminals, works everywhere.
 
