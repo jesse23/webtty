@@ -2,6 +2,7 @@
   "name": "webtty",
   "version": "0.0.0-development",
   "description": "Web TTY for running CLI/TUI applications in a browser tab, across platforms",
+  "license": "MIT",
   "bin": {
     "webtty": "dist/cli/index.js"
   },

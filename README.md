@@ -1,8 +1,8 @@
-<img src="assets/social-preview.png" width="600">
+<img src="docs/assets/social-preview.png" width="600">
 
 # webtty
 
-Terminal UI in the browser. Run CLI/TUI applications in a browser tab, across platforms.
+Terminal UI in the browser. Run CLI/TUI applications in a browser tab, across platforms. Powered by [ghostty-web](https://github.com/coder/ghostty-web).
 
 ```sh
 bunx webtty                # open main session in the browser
