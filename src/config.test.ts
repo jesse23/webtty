@@ -59,6 +59,7 @@ describe('loadConfig — first run', () => {
     expect(config.rows).toBe(DEFAULT_CONFIG.rows);
     expect(config.fontSize).toBe(DEFAULT_CONFIG.fontSize);
     expect(config.cursorStyleBlink).toBe(DEFAULT_CONFIG.cursorStyleBlink);
+    expect(config.cursorStyle).toBe(DEFAULT_CONFIG.cursorStyle);
     expect(config.scrollback).toBe(DEFAULT_CONFIG.scrollback);
     expect(config.theme).toEqual(DEFAULT_CONFIG.theme);
   });
@@ -123,6 +124,16 @@ describe('loadConfig — reads and merges', () => {
   test('overrides cursorStyleBlink when set to false', () => {
     writeConfig(JSON.stringify({ cursorStyleBlink: false }));
     expect(loadConfig().cursorStyleBlink).toBe(false);
+  });
+
+  test('overrides cursorStyle when set to a valid value', () => {
+    writeConfig(JSON.stringify({ cursorStyle: 'underline' }));
+    expect(loadConfig().cursorStyle).toBe('underline');
+  });
+
+  test('falls back cursorStyle to default for invalid value', () => {
+    writeConfig(JSON.stringify({ cursorStyle: 'bogus' }));
+    expect(loadConfig().cursorStyle).toBe(DEFAULT_CONFIG.cursorStyle);
   });
 
   test('overrides cols and rows when set in file', () => {

@@ -22,7 +22,7 @@ function printHelp(): void {
       row('mv <id> <new-id>', 'Rename a session'),
       row('stop', 'Stop the webtty server'),
       row('start', 'Start the webtty server'),
-      row('config', 'Open the config file in $EDITOR'),
+      row('config', 'Open the config file in $VISUAL, $EDITOR, or a default editor'),
       row('help', 'Show this help message'),
     ].join('\n'),
   );
@@ -30,8 +30,10 @@ function printHelp(): void {
 
 const [, , cmd, ...rest] = process.argv;
 
-if (!cmd || GO_ALIASES.has(cmd)) {
-  await cmdGo(cmd && GO_ALIASES.has(cmd) ? (rest[0] ?? 'main') : 'main');
+if (!cmd) {
+  await cmdGo();
+} else if (GO_ALIASES.has(cmd)) {
+  await cmdGo(rest[0]);
 } else {
   switch (cmd) {
     case 'ls':

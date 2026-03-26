@@ -91,7 +91,7 @@ export const DEFAULT_CONFIG: Config = {
   rows: 24,
   fontSize: 13,
   fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
-  cursorStyle: 'bar' as 'block' | 'bar' | 'underline',
+  cursorStyle: 'bar',
   cursorStyleBlink: true,
   copyOnSelect: true,
   rightClickBehavior: 'default' as RightClickBehavior,

@@ -4,35 +4,20 @@ import path from 'node:path';
 import { configDir } from '../config';
 import { BASE_URL, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
-export async function cmdGo(id?: string): Promise<void> {
+export async function cmdGo(id = 'main'): Promise<void> {
   if (!(await isServerRunning())) {
     await startServer();
   }
 
   let sessionId: string;
-  if (id) {
-    const check = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`);
-    if (check.status === 200) {
-      sessionId = id;
-    } else {
-      const res = await fetch(`${BASE_URL}/api/sessions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id }),
-      });
-      if (!res.ok) {
-        const body = (await res.json()) as { error?: string };
-        console.error(`webtty: ${body.error ?? `failed to create session (${res.status})`}`);
-        process.exit(1);
-      }
-      const session = (await res.json()) as { id: string };
-      sessionId = session.id;
-    }
+  const check = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`);
+  if (check.status === 200) {
+    sessionId = id;
   } else {
     const res = await fetch(`${BASE_URL}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: '{}',
+      body: JSON.stringify({ id }),
     });
     if (!res.ok) {
       const body = (await res.json()) as { error?: string };
