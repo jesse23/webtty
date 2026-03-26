@@ -1,5 +1,6 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
+import path from 'node:path';
 import { findGhosttyWeb, ghosttyWebRootFromMain, mimeType, serveFile } from './static';
 
 describe('mimeType', () => {
@@ -49,7 +50,7 @@ describe('ghosttyWebRootFromMain', () => {
 describe('findGhosttyWeb', () => {
   test('returns distPath and wasmPath when ghostty-web is installed', () => {
     const { distPath, wasmPath } = findGhosttyWeb();
-    expect(distPath).toContain('ghostty-web');
+    expect(fs.existsSync(path.join(distPath, 'ghostty-web.js'))).toBe(true);
     expect(wasmPath).toContain('ghostty-vt.wasm');
   });
 
