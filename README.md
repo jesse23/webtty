@@ -1,4 +1,6 @@
-<img src="docs/assets/social-preview.png" width="600">
+<p align="center">
+  <img src="docs/assets/social-preview.png" width="600">
+</p>
 
 # webtty
 
