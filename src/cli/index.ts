@@ -1,4 +1,4 @@
-import { cmdConfig, cmdGo, cmdList, cmdRename, cmdRemove, cmdStart, cmdStop } from './commands';
+import { cmdConfig, cmdGo, cmdList, cmdRemove, cmdRename, cmdStart, cmdStop } from './commands';
 
 const GO_ALIASES = new Set(['go', 'a', 'run', 'attach', 'open']);
 
@@ -31,7 +31,7 @@ function printHelp(): void {
 const [, , cmd, ...rest] = process.argv;
 
 if (!cmd || GO_ALIASES.has(cmd)) {
-  await cmdGo(cmd && GO_ALIASES.has(cmd) ? rest[0] : undefined);
+  await cmdGo(cmd && GO_ALIASES.has(cmd) ? (rest[0] ?? 'main') : 'main');
 } else {
   switch (cmd) {
     case 'ls':

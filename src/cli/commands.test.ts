@@ -131,10 +131,10 @@ describe('cli — session management', () => {
     expect(stdout).toContain(`/s/my-session`);
   });
 
-  test('go without id creates session with auto-generated id', async () => {
+  test('go without id opens main session', async () => {
     const { stdout, exitCode } = await runCli(port, 'go');
     expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/\/s\/[a-f0-9]{8}/);
+    expect(stdout).toContain('/s/main');
   });
 
   test('ls shows created sessions', async () => {
