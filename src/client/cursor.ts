@@ -25,9 +25,11 @@ export function applyDecscusr(term: Terminal, data: string): void {
   let match = DECSCUSR.exec(data);
   while (match !== null) {
     const ps = match[1] === '' ? 0 : Number(match[1]);
-    term.options.cursorStyle =
-      ps === 0 || ps === 1 || ps === 2 ? 'block' : ps === 3 || ps === 4 ? 'underline' : 'bar';
-    term.options.cursorBlink = ps === 0 || ps === 1 || ps === 3 || ps === 5;
+    if (!Number.isNaN(ps) && ps >= 0 && ps <= 6) {
+      term.options.cursorStyle =
+        ps === 0 || ps === 1 || ps === 2 ? 'block' : ps === 3 || ps === 4 ? 'underline' : 'bar';
+      term.options.cursorBlink = ps === 0 || ps === 1 || ps === 3 || ps === 5;
+    }
     match = DECSCUSR.exec(data);
   }
 }

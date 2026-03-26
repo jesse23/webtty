@@ -91,7 +91,7 @@ Here's every known approach and how they compare:
 
 | Tool | Sessions | Windows | Notes |
 |------|----------|---------|-------|
-| **[webtty](https://github.com/jess23/webtty)** (current repo) | ✅ | ✅ | Lightweight, session-aware, cross-platform |
+| **[webtty](https://github.com/jesse23/webtty)** (current repo) | ✅ | ✅ | Lightweight, session-aware, cross-platform |
 | **[VibeTunnel](https://github.com/amantus-ai/vibetunnel)** | ✅ | ❌ | macOS/Linux, built for AI agent monitoring, native menu bar app + `vt` command wrapper |
 | **[ttyd](https://github.com/tsl0922/ttyd)** | ❌ | ✅ | One shell per URL; session terminates when the connection drops |
 | **[GoTTY](https://github.com/yudai/gotty)** | ❌ | ❌ | Lightweight Go tool, abandoned since 2017 |
