@@ -4,9 +4,11 @@ A personal guide to living in the browser.
 
 ## Why the Browser
 
-The browser is where you already spend your time. One window manager, sync across devices, no install friction. The web platform caught up — most apps you need actually run well in it now.
+The browser is where you already spend your time. One window, sync across devices, no install friction. The web platform caught up — most apps you need run well in it now.
 
-You don't need a native app for everything. Seriously. The browser handles email, documents, spreadsheets, code editing, terminals, and design tools. Pick a browser, set it up right, and you've got a complete computing environment that works on any device.
+**The principle**: if a web version exists and it's good enough, use it. Not because native is bad, but because staying in the browser means fewer windows, fewer context switches, and a setup that works the same everywhere — your main machine, a work laptop, a tablet, or a borrowed computer.
+
+You don't need a native app for everything.
 
 ## Best Practices
 
@@ -21,6 +23,10 @@ Pick one, stick with it. Cross-device sync matters more than features.
 | **[Zen](https://zen-browser.app)** | Same minimal philosophy as Arc, open source |
 | **[Edge](https://microsoft.com/edge)** | Enable vertical tab bar to collapse the top area to a single line |
 | **[Chrome](https://google.com/chrome)** | Enable vertical tab bar to collapse the top area to a single line |
+
+### Password Manager
+
+**[KeeWeb](https://keeweb.info)** — KeePass-compatible, open source, works as an offline web app with no install. Syncs your `.kdbx` file via Dropbox, Google Drive, OneDrive, or your own server. Desktop apps available too if you want them.
 
 ### Productivity Suite
 
@@ -49,15 +55,11 @@ Office Online has caught up. Word, Excel, PowerPoint in the browser are now good
 - [OneDrive](https://onedrive.live.com)
 - [Teams](https://teams.microsoft.com)
 
-### Password Manager
-
-**[KeeWeb](https://keeweb.info)** — KeePass-compatible, open source, works as an offline web app with no install. Syncs your `.kdbx` file via Dropbox, Google Drive, OneDrive, or your own server. Desktop apps available too if you want them.
-
 ### IDE
 
 VS Code has three browser modes — they're different products, often confused:
 
-**[VS Code `serve-web`](https://code.visualstudio.com/docs/remote/vscode-server)** — Run `code serve-web` on your machine, open the URL in any browser on your network. Fully self-hosted, no Microsoft infrastructure involved. Full VS Code with terminal, extensions, and debugger. Best for local network access from a tablet or secondary device.
+**[VS Code `serve-web`](https://code.visualstudio.com/docs/remote/vscode-server)** — Run `code serve-web` on your machine, open the URL in any browser. Fully self-hosted, no Microsoft infrastructure. Full VS Code with terminal, extensions, and debugger — the browser-first way to run your editor.
 
 **[code-server](https://github.com/coder/code-server)** — Open source, self-hosted VS Code server by Coder. Same idea as `serve-web` but community-driven, more deployment options, and multi-user capable. Total control over your setup.
 
@@ -73,41 +75,43 @@ VS Code has three browser modes — they're different products, often confused:
 
 ### Terminal
 
-Three approaches to a browser terminal:
+Great native terminals exist — [Ghostty](https://ghostty.org), [Alacritty](https://alacritty.org), [WezTerm](https://wezfurlong.org/wezterm), [Windows Terminal](https://aka.ms/terminal) — but a browser terminal keeps you in one window, makes sessions just URLs, and removes the context switch between editor and terminal. On Windows especially, the native multiplexer story is weak — no tmux, limited Zellij support — and the browser fills that gap naturally.
 
-| Tool | Sessions | Multi-tab | Windows | Notes |
-|------|----------|-----------|---------|-------|
-| **webtty** | ✅ | ✅ | ✅ | Lightweight, session-aware, cross-platform |
-| **ttyd** | ❌ | ❌ | ✅ | Simple, one shell per URL; session terminates when WebSocket connection is lost |
-| **Zellij** (web mode) | ✅ | ✅ | ❌ | Full multiplexer with web mode support, but Linux/macOS only |
+Here's every known approach and how they compare:
 
-ttyd is fine if you just need a quick shell in the browser. Zellij web mode is powerful but doesn't run on Windows. webtty is the middle ground — sessions, reconnect, multiple terminals, works everywhere.
+| Tool | Sessions | Windows | Notes |
+|------|----------|---------|-------|
+| **[webtty](https://github.com/jess23/webtty)** (current repo) | ✅ | ✅ | Lightweight, session-aware, cross-platform |
+| **[VibeTunnel](https://github.com/amantus-ai/vibetunnel)** | ✅ | ❌ | macOS/Linux, built for AI agent monitoring, native menu bar app + `vt` command wrapper |
+| **[ttyd](https://github.com/tsl0922/ttyd)** | ❌ | ✅ | One shell per URL; session terminates when the connection drops |
+| **[GoTTY](https://github.com/yudai/gotty)** | ❌ | ❌ | Lightweight Go tool, abandoned since 2017 |
+| **[Zellij](https://zellij.dev)** (web mode) | ✅ | ❌ | Full multiplexer with web mode, Linux/macOS only |
 
 ### Terminal Software Recommendations
 
-What to run inside your browser terminal. These are the tools that make terminal work actually pleasant:
+Good pieces for a solid terminal workflow:
 
-**Shell**
-- **fish** — sensible defaults, autosuggestions, no config required to be useful
+| Name | Type | Description |
+|------|------|-------------|
+| **fish** | Shell | Sensible defaults, autosuggestions, no config required to be useful |
+| **NvChad** (Neovim) | Editor | Full IDE feel in the terminal, built-in LSP and syntax highlighting |
+| **yazi** | File Manager | Fast terminal file manager with preview |
+| **gitui** | Git | Terminal UI for git, better than memorizing flags |
+| **Zellij** | Multiplexer | Terminal workspace with layouts; pairs well with webtty for multiple sessions |
+| **starship** | Prompt | Fast, minimal, works with any shell |
 
-**Editor**
-- **NvChad** (Neovim) — full IDE feel in the terminal, built-in LSP and syntax highlighting
+### AI Agents
 
-**File Manager**
-- **yazi** — fast, terminal file manager with preview
+These tools do more than write code — they plan, execute commands, manage files, search the web, and work through multi-step tasks autonomously. Think of them less as assistants and more as a second pair of hands that runs in your terminal.
 
-**Git**
-- **gitui** — terminal UI for git, better than memorizing flags
-
-**Multiplexer / Layout**
-- **Zellij** — terminal workspace with layouts; pairs well with webtty for managing multiple sessions
-
-**Prompt**
-- **starship** — fast, minimal, works with any shell
-
-**AI**
-- **OpenCode** — open-source AI coding agent in the terminal
-- **Claude Code** — Anthropic's CLI coding assistant
+| Name | Subscription | Description |
+|------|-------------|-------------|
+| **[OpenCode](https://github.com/sst/opencode)** | GitHub Copilot | Open-source terminal AI agent, provider-agnostic |
+| **[Claude Code](https://docs.anthropic.com/claude-code)** | Claude Pro ($20/mo) or Max ($100/$200/mo) | Anthropic's terminal agent — strong at reasoning and long multi-step tasks |
+| **[GitHub Copilot CLI](https://docs.github.com/en/copilot)** | Free ($0) / Pro ($10/mo) / Pro+ ($39/mo) | GitHub-native terminal agent with `/plan`, `/fleet` for parallel execution |
+| **[Gemini CLI](https://github.com/google-gemini/gemini-cli)** | Free (1k req/day) / Google One AI Premium | Google's open-source terminal agent, generous free tier, 1M token context |
+| **[Codex CLI](https://github.com/openai/codex)** | ChatGPT Plus/Pro/Team | OpenAI's terminal agent, lightweight, runs locally |
+| **[Aider](https://aider.chat)** | GitHub Copilot | Lightweight terminal pair programmer, excellent git integration |
 
 ---
 
