@@ -21,6 +21,8 @@ const ESC = '\x1b';
 const DECSCUSR = new RegExp(`${ESC}\\[(\\d*) q`, 'g');
 
 export function applyDecscusr(term: Terminal, data: string): void {
+  const initialStyle = term.options.cursorStyle;
+  const initialBlink = term.options.cursorBlink;
   DECSCUSR.lastIndex = 0;
   let match = DECSCUSR.exec(data);
   while (match !== null) {
@@ -31,5 +33,20 @@ export function applyDecscusr(term: Terminal, data: string): void {
       term.options.cursorBlink = ps === 0 || ps === 1 || ps === 3 || ps === 5;
     }
     match = DECSCUSR.exec(data);
+  }
+  // ghostty-web's render loop only clears the cursor row when the cursor moves or
+  // cursorBlink is true. When switching to a non-blinking style (e.g. block→bar in
+  // vim normal→insert), the old cursor shape stays painted on canvas and the new
+  // shape is drawn on top — leaving a ghost of the previous cursor.
+  //
+  // Force a full repaint so the cursor row is cleared before the new shape is drawn.
+  // term.renderer and term.wasmTerm are public on Terminal; forceAll=true repaints
+  // every row, which clears the stale cursor, and renderCursor() draws the new shape.
+  if (
+    (term.options.cursorStyle !== initialStyle || term.options.cursorBlink !== initialBlink) &&
+    term.renderer &&
+    term.wasmTerm
+  ) {
+    term.renderer.render(term.wasmTerm, true, term.viewportY);
   }
 }

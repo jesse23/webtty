@@ -1,8 +1,22 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, mock, test } from 'bun:test';
 import { applyDecscusr } from './cursor';
 
 function makeTerm(): { options: { cursorStyle: string; cursorBlink: boolean } } {
   return { options: { cursorStyle: 'block', cursorBlink: false } };
+}
+
+function makeTermWithRenderer(): {
+  options: { cursorStyle: string; cursorBlink: boolean };
+  renderer: { render: ReturnType<typeof mock> };
+  wasmTerm: object;
+  viewportY: number;
+} {
+  return {
+    options: { cursorStyle: 'block', cursorBlink: false },
+    renderer: { render: mock(() => {}) },
+    wasmTerm: {},
+    viewportY: 0,
+  };
 }
 
 describe('applyDecscusr', () => {
@@ -90,5 +104,47 @@ describe('applyDecscusr', () => {
     applyDecscusr(term as never, 'text before\x1b[6 qtext after');
     expect(term.options.cursorStyle).toBe('bar');
     expect(term.options.cursorBlink).toBe(false);
+  });
+});
+
+describe('applyDecscusr — force repaint', () => {
+  test('calls renderer.render with forceAll=true when style changes', () => {
+    const term = makeTermWithRenderer();
+    applyDecscusr(term as never, '\x1b[6 q');
+    expect(term.renderer.render).toHaveBeenCalledTimes(1);
+    expect(term.renderer.render).toHaveBeenCalledWith(term.wasmTerm, true, 0);
+  });
+
+  test('calls renderer.render when only blink changes', () => {
+    const term = makeTermWithRenderer();
+    term.options.cursorBlink = true;
+    applyDecscusr(term as never, '\x1b[2 q');
+    expect(term.renderer.render).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not call renderer.render when style is unchanged', () => {
+    const term = makeTermWithRenderer();
+    term.options.cursorStyle = 'block';
+    term.options.cursorBlink = false;
+    applyDecscusr(term as never, '\x1b[2 q');
+    expect(term.renderer.render).not.toHaveBeenCalled();
+  });
+
+  test('does not call renderer.render when no DECSCUSR sequence', () => {
+    const term = makeTermWithRenderer();
+    applyDecscusr(term as never, 'hello world');
+    expect(term.renderer.render).not.toHaveBeenCalled();
+  });
+
+  test('calls renderer.render once even with multiple changing sequences', () => {
+    const term = makeTermWithRenderer();
+    applyDecscusr(term as never, '\x1b[2 q\x1b[6 q');
+    expect(term.renderer.render).toHaveBeenCalledTimes(1);
+  });
+
+  test('does not call renderer.render when sequences cancel out to original values', () => {
+    const term = makeTermWithRenderer();
+    applyDecscusr(term as never, '\x1b[6 q\x1b[2 q');
+    expect(term.renderer.render).not.toHaveBeenCalled();
   });
 });
