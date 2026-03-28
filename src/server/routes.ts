@@ -23,6 +23,7 @@ function decodeId(raw: string): string | null {
   }
 }
 
+/** Reads and JSON-parses the request body (max 64 KB). Rejects with `{ status: 413 }` if too large. */
 export function readJson(req: http.IncomingMessage): Promise<unknown> {
   return new Promise((resolve, reject) => {
     let body = '';
@@ -44,6 +45,11 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
   });
 }
 
+/**
+ * Main HTTP request handler for the webtty server.
+ * Dispatches all REST API routes and serves static client assets.
+ * @param onStop - Called when `POST /api/server/stop` is received.
+ */
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,

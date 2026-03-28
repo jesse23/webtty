@@ -20,6 +20,14 @@ import type { Terminal } from 'ghostty-web';
 const ESC = '\x1b';
 const DECSCUSR = new RegExp(`${ESC}\\[(\\d*) q`, 'g');
 
+/**
+ * Scans `data` for DECSCUSR sequences (`CSI Ps SP q`) and applies matching cursor
+ * style/blink changes directly to `term.options`, then forces a full repaint so the
+ * previous cursor shape is cleared before the new one is drawn.
+ *
+ * ghostty-web does not yet propagate cursor style from PTY output — this is a
+ * client-side workaround until the WASM layer handles it natively.
+ */
 export function applyDecscusr(term: Terminal, data: string): void {
   const initialStyle = term.options.cursorStyle;
   const initialBlink = term.options.cursorBlink;

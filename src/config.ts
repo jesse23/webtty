@@ -12,6 +12,7 @@ export interface KeyboardBinding {
   chars: string;
 }
 
+/** Terminal color palette. All keys are optional; omitted keys fall back to the Campbell defaults. */
 export interface Theme {
   /** Terminal background. */
   background?: string;
@@ -58,6 +59,7 @@ export interface Theme {
 /** Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. */
 export type RightClickBehavior = 'default' | 'copyPaste';
 
+/** Full webtty configuration. All keys are optional in the config file; missing keys fall back to {@link DEFAULT_CONFIG}. */
 export interface Config {
   /** HTTP listen port; env `PORT` takes precedence. */
   port: number;
@@ -97,6 +99,7 @@ export interface Config {
   keyboardBindings: KeyboardBinding[];
 }
 
+/** Returns the webtty config directory: `~/.config/webtty`. */
 export function configDir(): string {
   return path.join(process.env.HOME ?? os.homedir(), '.config', 'webtty');
 }
@@ -168,6 +171,10 @@ function isValidBinding(b: unknown): b is KeyboardBinding {
   return typeof o.key === 'string' && typeof o.chars === 'string';
 }
 
+/**
+ * Merges user-supplied bindings over a set of defaults by `(key, mods)` identity.
+ * User entries replace matching defaults; unmatched user entries are appended.
+ */
 // NOTE: export for testing only
 export function mergeKeyboardBindings(
   defaults: KeyboardBinding[],

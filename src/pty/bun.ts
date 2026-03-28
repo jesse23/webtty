@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import type { PtyProcess } from './types';
 
+/** Spawns a PTY-backed shell using Bun's native `Bun.spawn` terminal API. */
 export function spawn(
   shell: string,
   cols: number,

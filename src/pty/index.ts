@@ -7,6 +7,7 @@ const { spawn: _spawn } = await (isBun ? import('./bun') : import('./node'));
 
 export const spawn = _spawn;
 
+/** Convenience wrapper: spawns a PTY using session-oriented parameters from config. */
 export function spawnForSession(
   cols: number,
   rows: number,

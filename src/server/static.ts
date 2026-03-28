@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const require = createRequire(import.meta.url);
 
+/** File extension → MIME type map used by {@link serveFile}. */
 export const MIME_TYPES: Record<string, string> = {
   '.html': 'text/html',
   '.js': 'application/javascript',
@@ -21,15 +22,21 @@ export const MIME_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
+/** Returns the MIME type for `filePath` based on its extension, defaulting to `application/octet-stream`. */
 export function mimeType(filePath: string): string {
   const ext = path.extname(filePath);
   return MIME_TYPES[ext] ?? 'application/octet-stream';
 }
 
+/** Strips the `dist/…` suffix from a ghostty-web main entry path to get the package root. */
 export function ghosttyWebRootFromMain(mainPath: string): string {
   return mainPath.replace(/[/\\]dist[/\\].*$/, '');
 }
 
+/**
+ * Locates the ghostty-web package, preferring assets bundled in `dist/` (npm install)
+ * over `node_modules/` (local dev). Exits the process if the package cannot be found.
+ */
 export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   // Prefer assets bundled into dist/ — present when installed via npx/npm.
   const bundledDist = path.join(__dirname, '..', '..', 'dist');
@@ -54,6 +61,7 @@ export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   process.exit(1);
 }
 
+/** Reads `filePath` from disk and writes it to `res` with the correct Content-Type header. Responds 404 on read error. */
 export function serveFile(filePath: string, res: http.ServerResponse): void {
   const contentType = mimeType(filePath);
   fs.readFile(filePath, (err, data) => {

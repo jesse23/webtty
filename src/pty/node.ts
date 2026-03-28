@@ -2,6 +2,7 @@ import { homedir } from 'node:os';
 import nodePty from '@lydell/node-pty';
 import type { PtyProcess } from './types';
 
+/** Spawns a PTY-backed shell using the `@lydell/node-pty` native addon. */
 export function spawn(
   shell: string,
   cols: number,
