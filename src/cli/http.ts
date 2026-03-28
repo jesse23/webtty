@@ -30,7 +30,13 @@ export async function isServerRunning(): Promise<boolean> {
   }
 }
 
-/** Spawns the server process detached, then polls until it is ready or `timeoutMs` expires. */
+/**
+ * Spawns the server process detached, then polls until it is ready or `timeoutMs` expires.
+ *
+ * @param timeoutMs - Maximum time to wait for the server to start (default: 10000 ms).
+ * @param _spawn - Spawn function override for testing (default: childProcess.spawn).
+ * @throws Exits the process with code 1 if the server entry is not found or fails to start in time.
+ */
 export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn): Promise<void> {
   const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
   const isTs = isBun && __filename.endsWith('.ts');
@@ -67,7 +73,13 @@ export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn
   process.exit(1);
 }
 
-/** Sends `POST /api/server/stop`, then polls until the server is no longer reachable. Returns `true` on success. */
+/**
+ * Sends `POST /api/server/stop`, then polls until the server is no longer reachable.
+ *
+ * @param baseUrl - The server base URL (default: BASE_URL).
+ * @param timeoutMs - Maximum time to wait for the server to stop (default: 5000 ms).
+ * @returns `true` if the server stopped successfully, `false` otherwise.
+ */
 export async function stopServer(baseUrl: string = BASE_URL, timeoutMs = 5000): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
@@ -83,7 +95,13 @@ export async function stopServer(baseUrl: string = BASE_URL, timeoutMs = 5000): 
   }
 }
 
-/** Opens `url` in the default system browser. No-op in test environments or when `WEBTTY_NO_OPEN=1`. */
+/**
+ * Opens `url` in the default system browser.
+ * No-op in test environments or when `WEBTTY_NO_OPEN=1` is set.
+ *
+ * @param url - The URL to open.
+ * @param _spawn - Spawn function override for testing (default: childProcess.spawn).
+ */
 export function openBrowser(url: string, _spawn = childProcess.spawn): void {
   if (process.env.WEBTTY_NO_OPEN === '1') return;
   if (process.env.NODE_ENV === 'test') return;

@@ -17,7 +17,11 @@ function closeClients(session: Session, code: number, reason: string): void {
   for (const client of session.clients) client.close(code, reason);
 }
 
-/** Closes all WebSocket clients for `session` with the SESSION_GONE close code. */
+/**
+ * Closes all WebSocket clients for `session` with the SESSION_GONE close code.
+ *
+ * @param session - The session to close.
+ */
 export function closeSession(session: Session): void {
   closeClients(session, WS_CLOSE.SESSION_GONE, 'session deleted');
 }
@@ -31,7 +35,11 @@ export function closeAllSessions(): void {
 
 let onLastSessionClosed: (() => void) | null = null;
 
-/** Registers a callback invoked once the last session closes (e.g. to stop the HTTP server). */
+/**
+ * Registers a callback invoked once the last session closes (e.g. to stop the HTTP server).
+ *
+ * @param handler - Callback to invoke when the last session closes.
+ */
 export function setLastSessionClosedHandler(handler: () => void): void {
   onLastSessionClosed = handler;
 }
@@ -82,6 +90,9 @@ function sessionBanner(): string {
 /**
  * Attaches a WebSocket server to `httpServer`, handling PTY I/O, session management,
  * scrollback replay, and terminal resize for all `/ws/:id` connections.
+ *
+ * @param httpServer - The HTTP server to attach the WebSocket server to.
+ * @returns The configured {@link WebSocketServer}.
  */
 export function createWebSocketServer(httpServer: http.Server): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });

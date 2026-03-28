@@ -22,13 +22,23 @@ export const MIME_TYPES: Record<string, string> = {
   '.ico': 'image/x-icon',
 };
 
-/** Returns the MIME type for `filePath` based on its extension, defaulting to `application/octet-stream`. */
+/**
+ * Returns the MIME type for `filePath` based on its extension, defaulting to `application/octet-stream`.
+ *
+ * @param filePath - The file path to determine the MIME type for.
+ * @returns The MIME type string.
+ */
 export function mimeType(filePath: string): string {
   const ext = path.extname(filePath);
   return MIME_TYPES[ext] ?? 'application/octet-stream';
 }
 
-/** Strips the `dist/…` suffix from a ghostty-web main entry path to get the package root. */
+/**
+ * Strips the `dist/…` suffix from a ghostty-web main entry path to get the package root.
+ *
+ * @param mainPath - The main entry path from ghostty-web package.
+ * @returns The package root directory path.
+ */
 export function ghosttyWebRootFromMain(mainPath: string): string {
   return mainPath.replace(/[/\\]dist[/\\].*$/, '');
 }
@@ -36,6 +46,9 @@ export function ghosttyWebRootFromMain(mainPath: string): string {
 /**
  * Locates the ghostty-web package, preferring assets bundled in `dist/` (npm install)
  * over `node_modules/` (local dev). Exits the process if the package cannot be found.
+ *
+ * @returns An object with `distPath` (ghostty-web dist directory) and `wasmPath` (ghostty-vt.wasm file).
+ * @throws Exits the process with code 1 if ghostty-web cannot be found.
  */
 export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   // Prefer assets bundled into dist/ — present when installed via npx/npm.
@@ -61,7 +74,13 @@ export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
   process.exit(1);
 }
 
-/** Reads `filePath` from disk and writes it to `res` with the correct Content-Type header. Responds 404 on read error. */
+/**
+ * Reads `filePath` from disk and writes it to `res` with the correct Content-Type header.
+ * Responds with 404 if the file cannot be read.
+ *
+ * @param filePath - The file path to serve.
+ * @param res - The HTTP response object.
+ */
 export function serveFile(filePath: string, res: http.ServerResponse): void {
   const contentType = mimeType(filePath);
   fs.readFile(filePath, (err, data) => {

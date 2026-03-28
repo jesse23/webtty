@@ -174,6 +174,10 @@ function isValidBinding(b: unknown): b is KeyboardBinding {
 /**
  * Merges user-supplied bindings over a set of defaults by `(key, mods)` identity.
  * User entries replace matching defaults; unmatched user entries are appended.
+ *
+ * @param defaults - Default bindings to merge over.
+ * @param user - User-supplied bindings that override defaults.
+ * @returns Merged bindings with user entries replacing matching defaults and new user entries appended.
  */
 // NOTE: export for testing only
 export function mergeKeyboardBindings(
