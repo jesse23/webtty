@@ -1,7 +1,7 @@
 # SPEC: Client
 
 **Author:** jesse23
-**Last Updated:** 2026-03-26
+**Last Updated:** 2026-03-27
 
 ---
 
@@ -55,7 +55,8 @@ src/client/
 ```ts
 {
   cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback,
-  theme, copyOnSelect, rightClickBehavior
+  theme, copyOnSelect, rightClickBehavior,
+  mouseScrollSpeed  // used by the custom wheel handler, not passed to Terminal constructor
 }
 ```
 
@@ -130,3 +131,4 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` defaults; DECSCUSR from PTY overrides at runtime via client-side intercept | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
+| Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), wheel events are forwarded as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |

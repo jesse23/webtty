@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_CONFIG, DEFAULT_THEME, loadConfig, saveConfig } from './config';
+import { DEFAULT_CONFIG, DEFAULT_THEME, initConfig, loadConfig } from './config';
 
 let tmpDir: string;
 let configPath: string;
@@ -24,20 +24,20 @@ afterEach(() => {
   }
 });
 
-describe('saveConfig', () => {
+describe('initConfig', () => {
   test('creates the config directory if it does not exist', () => {
-    saveConfig(DEFAULT_CONFIG);
+    initConfig();
     expect(fs.existsSync(path.dirname(configPath))).toBe(true);
   });
 
   test('writes valid JSON', () => {
-    saveConfig(DEFAULT_CONFIG);
+    initConfig();
     const raw = fs.readFileSync(configPath, 'utf8');
     expect(() => JSON.parse(raw)).not.toThrow();
   });
 
   test('written file contains port and host', () => {
-    saveConfig(DEFAULT_CONFIG);
+    initConfig();
     const raw = fs.readFileSync(configPath, 'utf8');
     expect(raw).toContain('"port"');
     expect(raw).toContain('"host"');
@@ -49,6 +49,10 @@ describe('loadConfig — first run', () => {
     expect(fs.existsSync(configPath)).toBe(false);
     loadConfig();
     expect(fs.existsSync(configPath)).toBe(true);
+  });
+
+  test('DEFAULT_CONFIG.term is xterm-256color', () => {
+    expect(DEFAULT_CONFIG.term).toBe('xterm-256color');
   });
 
   test('returns config that equals DEFAULT_CONFIG after first run', () => {

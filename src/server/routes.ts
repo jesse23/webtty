@@ -76,6 +76,7 @@ export async function handleRequest(
       theme: config.theme,
       copyOnSelect: config.copyOnSelect,
       rightClickBehavior: config.rightClickBehavior,
+      mouseScrollSpeed: config.mouseScrollSpeed,
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(clientConfig));

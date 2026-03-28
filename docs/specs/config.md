@@ -1,7 +1,7 @@
 # SPEC: Config
 
 **Author:** jesse23
-**Last Updated:** 2026-03-24
+**Last Updated:** 2026-03-27
 
 ---
 
@@ -92,7 +92,7 @@ spawn PTY with fresh: shell, term, colorTerm, scrollback
 - **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
 - **Hot config reload**:
   - `port` / `host` — locked at startup (server socket already bound; restart required).
-  -   `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
+  -   `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
   - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
   - An already-running session is never affected mid-flight.
   - Historical note: ADR 008/009/012 describe an earlier config flow that used a `cursorBlink` key and different HTML injection mechanics. Those ADRs are considered historical; this spec's `cursorStyle` / `cursorStyleBlink` behavior is authoritative.
@@ -106,7 +106,7 @@ All keys are optional — omit any key to use the default value.
 | `port` | number | `2346` | HTTP listen port; env `PORT` takes precedence |
 | `host` | string | `"127.0.0.1"` | Bind address; use `"0.0.0.0"` for remote access |
 | `shell` | string | `$SHELL` / `%COMSPEC%` | Shell for new sessions |
-| `term` | string | `$TERM` | `$TERM` env var passed to the shell |
+| `term` | string | `"xterm-256color"` | `$TERM` env var passed to the shell. Fixed to `xterm-256color` — the PTY child talks to webtty, not to the parent terminal. See [ADR 016](../adrs/016.config.term-default.md). |
 | `colorTerm` | string | `"truecolor"` | `$COLORTERM` env var passed to the shell |
 | `scrollback` | number | `262144` | PTY history buffer in bytes; used for server-side replay on reload/reconnect |
 | `cols` | number | `80` | Initial terminal width in columns |
@@ -115,6 +115,7 @@ All keys are optional — omit any key to use the default value.
 | `cursorStyleBlink` | boolean | `true` | Default blink state. Apps override at runtime via DECSCUSR — this is the startup default only. |
 | `copyOnSelect` | boolean | `true` | Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style) |
 | `rightClickBehavior` | string | `"default"` | Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. Invalid values fall back to `"default"` |
+| `mouseScrollSpeed` | number | `1` | Mouse wheel scroll speed multiplier for apps with mouse tracking (e.g. vim `set mouse=a`). `1` = one SGR event per wheel tick (default). Values `< 1` reduce rate (e.g. `0.5` fires every other tick); values `> 1` send multiple SGRs per tick. Must be `> 0`. |
 | `logs` | boolean | `false` | Write server stdout/stderr to `~/.config/webtty/server.log`. Appends on each start. Default `false` — server runs silently. |
 | `fontSize` | number | `13` | Font size in px |
 | `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace"` | CSS font-family stack |
@@ -197,9 +198,10 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
 | Config lifecycle | First-run write, merge with defaults, env overrides, hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
-| Server settings | `port`, `host` — locked at startup; `shell`, `term`, `colorTerm` — applied per new PTY | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
+| Server settings | `port`, `host` — locked at startup; `shell`, `term`, `colorTerm` — applied per new PTY. `term` defaults to `xterm-256color` (not inherited from parent process) | [ADR 008](../adrs/008.webtty.config.md), [ADR 016](../adrs/016.config.term-default.md) | ✅ |
 | Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme` — re-read on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Hot config reload | Appearance re-read on tab reload; shell/PTY settings re-read on new PTY spawn; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — configurable clipboard copy matching VS Code / kitty conventions | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
+| Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
