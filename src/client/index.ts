@@ -35,7 +35,6 @@ interface ClientConfig {
   theme: Theme;
   copyOnSelect: boolean;
   rightClickBehavior: 'default' | 'copyPaste';
-  mouseScrollSpeed: number;
 }
 
 const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
@@ -109,42 +108,6 @@ function connect(): void {
 
 connect();
 
-// ghostty-web's Terminal.handleWheel sends \x1b[A/\x1b[B (arrow keys) on the
-// alternate screen regardless of mouse tracking state, moving the cursor instead
-// of scrolling. When the PTY application has enabled mouse tracking (e.g. vim
-// with `set mouse=a`), intercept wheel events and send the correct SGR mouse
-// scroll sequence so the app receives a scroll event, not a cursor move.
-// SGR button 64 = scroll up, 65 = scroll down. See ADR 017.
-//
-// config.mouseScrollSpeed scales SGR events per wheel tick (default 1).
-// Values < 1 reduce rate via accumulation; values > 1 send multiple SGRs.
-// The accumulator resets on direction change to prevent cross-direction bleed.
-let scrollAccum = 0;
-let scrollDir = 0;
-term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
-  if (!term.hasMouseTracking()) return false;
-  const metrics = term.renderer?.getMetrics();
-  if (!metrics) return false;
-  const dir = e.deltaY < 0 ? -1 : 1;
-  if (dir !== scrollDir) {
-    scrollAccum = 0;
-    scrollDir = dir;
-  }
-  scrollAccum += config.mouseScrollSpeed;
-  const ticks = Math.trunc(scrollAccum);
-  if (ticks === 0) return true;
-  scrollAccum -= ticks;
-  const rect = (e.target as HTMLElement).getBoundingClientRect();
-  const col = Math.max(1, Math.floor((e.clientX - rect.left) / metrics.width) + 1);
-  const row = Math.max(1, Math.floor((e.clientY - rect.top) / metrics.height) + 1);
-  const btn = dir < 0 ? 64 : 65;
-  const seq = `\x1b[<${btn};${col};${row}M`;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    for (let i = 0; i < ticks; i++) ws.send(seq);
-  }
-  return true;
-});
-
 // Forward terminal keystrokes and input to the PTY over WebSocket.
 term.onData((data: string) => {
   if (ws && ws.readyState === WebSocket.OPEN) {
@@ -187,22 +150,3 @@ if (config.rightClickBehavior === 'copyPaste') {
     term.clearSelection();
   });
 }
-
-// ghostty-web swallows Ctrl+V without sending \x16 to the PTY (unlike
-// xterm.js). When clipboard has no text/plain, its paste handler drops it
-// too. Send \x16 so TUI apps can invoke their native OS clipboard read.
-// See ADR 014.
-container.addEventListener(
-  'paste',
-  (e: ClipboardEvent) => {
-    const cd = e.clipboardData;
-    if (!cd) return;
-    if (cd.getData('text/plain')) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send('\x16');
-    }
-  },
-  { capture: true },
-);
