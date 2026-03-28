@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { DEFAULT_CONFIG, DEFAULT_THEME, loadConfig, initConfig } from './config';
+import { DEFAULT_CONFIG, DEFAULT_THEME, initConfig, loadConfig } from './config';
 
 let tmpDir: string;
 let configPath: string;
