@@ -1,6 +1,12 @@
 import { FitAddon, init, Terminal } from 'ghostty-web';
 import { applyDecscusr } from './cursor';
 
+interface KeyboardBinding {
+  key: string;
+  mods?: string[];
+  chars: string;
+}
+
 interface Theme {
   background?: string;
   foreground?: string;
@@ -36,6 +42,7 @@ interface ClientConfig {
   copyOnSelect: boolean;
   rightClickBehavior: 'default' | 'copyPaste';
   mouseScrollSpeed: number;
+  keyboardBindings: KeyboardBinding[];
 }
 
 const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
@@ -144,6 +151,35 @@ term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
   }
   return true;
 });
+
+// Intercept configured key+mods combos before ghostty-web sees them and send
+// the bound chars directly to the PTY. See ADR 018.
+container.addEventListener(
+  'keydown',
+  (e: KeyboardEvent) => {
+    const key = e.key.toLowerCase();
+    const active = new Set([
+      ...(e.shiftKey ? ['shift'] : []),
+      ...(e.ctrlKey ? ['ctrl'] : []),
+      ...(e.altKey ? ['alt'] : []),
+      ...(e.metaKey ? ['meta'] : []),
+    ]);
+    const binding = config.keyboardBindings.find((b) => {
+      if (b.key.toLowerCase() !== key) return false;
+      const required = new Set((b.mods ?? []).map((m) => m.toLowerCase()));
+      if (required.size !== active.size) return false;
+      for (const m of required) if (!active.has(m)) return false;
+      return true;
+    });
+    if (!binding) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (binding.chars && ws.readyState === WebSocket.OPEN) {
+      ws.send(binding.chars);
+    }
+  },
+  { capture: true },
+);
 
 // Forward terminal keystrokes and input to the PTY over WebSocket.
 term.onData((data: string) => {

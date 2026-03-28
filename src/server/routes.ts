@@ -77,6 +77,7 @@ export async function handleRequest(
       copyOnSelect: config.copyOnSelect,
       rightClickBehavior: config.rightClickBehavior,
       mouseScrollSpeed: config.mouseScrollSpeed,
+      keyboardBindings: config.keyboardBindings,
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(clientConfig));
