@@ -92,7 +92,7 @@ spawn PTY with fresh: shell, term, colorTerm, scrollback
 - **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
 - **Hot config reload**:
   - `port` / `host` — locked at startup (server socket already bound; restart required).
-  -   `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
+  -   `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
   - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
   - An already-running session is never affected mid-flight.
   - Historical note: ADR 008/009/012 describe an earlier config flow that used a `cursorBlink` key and different HTML injection mechanics. Those ADRs are considered historical; this spec's `cursorStyle` / `cursorStyleBlink` behavior is authoritative.
@@ -204,3 +204,4 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — configurable clipboard copy matching VS Code / kitty conventions | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
+| Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
