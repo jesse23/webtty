@@ -54,7 +54,7 @@ unconditionally. KKP sequences are only reliable when the app negotiates
 directly with webtty. In nested terminal setups (e.g. running a TUI app inside
 vim `:terminal`, tmux, or screen), the intermediate emulator does not forward
 KKP capability negotiation, so the app never enters KKP mode and the sequence
-is silently ignored. See [ADR 019](../adrs/019.config.keyboard-binding-chars.md)
+is silently ignored. See [ADR 019](../adrs/019.keyboard.md)
 for the full analysis.
 
 ### Legacy encoding
@@ -69,6 +69,53 @@ Common examples:
 |---|---|
 | Shift+Enter | `"\u001b\r"` |
 | Alt+Enter | `"\u001b\r"` (same as Shift+Enter in many apps — check app docs) |
+
+#### Porting from another terminal
+
+| App | Shift+Enter example | How to convert to `chars` |
+|---|---|---|
+| Alacritty | `chars = "\u001B\r"` | `\uNNNN` copies as-is (case-insensitive); `\xHH` → `\u00HH` (pad to 4 digits) |
+| Ghostty | `keybind = shift+enter=text:\x1b\r` | `\xHH` → `\u00HH`; `\r`, `\n`, `\t` copy as-is |
+| VS Code | `"args": { "text": "\u001b\r" }` | `\uNNNN` copies as-is |
+| Windows Terminal | `"input": "\u001b\r"` | `\uNNNN` copies as-is |
+| iTerm2 | `0x1b 0x0d` ("Send Hex Code") | Split on spaces; each `0xHH` → `\u00HH` (e.g. `0x1b 0x0d` → `"\u001b\r"`) |
+
+#### Discovering sequences from scratch
+
+When you have no existing config to copy from, two approaches work:
+
+**Capture from your native terminal**
+
+`cat` shows ESC as `^[` but CR is invisible — it just moves the cursor. Use
+`od -c` instead, which prints named escape characters:
+
+```sh
+cat | od -c
+# press the key combo, then Ctrl+D
+```
+
+Output for Shift+Enter (`\u001b\r`):
+
+```
+0000000  033   \r
+```
+
+`033` is octal for ESC → `\u001b`. `\r` is CR → `\r`. For hex, `xxd` works
+the same way: `1b 0d` → `\u001b\r`.
+
+**Look it up in a reference**
+
+There is no interactive lookup tool for legacy sequences — they are not
+standardized. The closest reference is the xterm modified keys table at
+[invisible-island.net/xterm/modified-keys.html](https://invisible-island.net/xterm/modified-keys.html),
+which documents the CSI sequences xterm sends for modifier+key combinations.
+For the ESC-prefix pattern specifically (`\u001b` + unmodified key), the rule
+is simple enough to derive directly: ESC followed by whatever the unmodified
+key sends (`\r` for Enter, `\t` for Tab, and so on).
+
+If the captured sequence still does nothing, the app may expect a different
+convention. Check the app's documentation or source for what it registers as
+its key handler.
 
 ### Kitty Keyboard Protocol
 
@@ -136,5 +183,5 @@ send time.
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Configurable bindings | `keyboardBindings` array in `~/.config/webtty/config.json`; capture-phase `keydown` handler sends `chars` to PTY; defaults to `[]` | [ADR 018](../adrs/018.client.keyboard-bindings.md) | ✅ |
-| Legacy encoding recommendation | `"\u001b\r"` recommended over KKP sequences for Shift+Enter and similar combos; works across nested terminal chains | [ADR 019](../adrs/019.config.keyboard-binding-chars.md) | ✅ |
+| Configurable bindings | `keyboardBindings` array in `~/.config/webtty/config.json`; capture-phase `keydown` handler sends `chars` to PTY; defaults to `[]` | [ADR 018](../adrs/018.keyboard.md) | ✅ |
+| Legacy encoding recommendation | `"\u001b\r"` recommended over KKP sequences for Shift+Enter and similar combos; works across nested terminal chains | [ADR 019](../adrs/019.keyboard.md) | ✅ |
