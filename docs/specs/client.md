@@ -110,7 +110,7 @@ A capture-phase `keydown` listener on the terminal container fires before ghostt
 
 **`chars` encoding:** The client sends `binding.chars` verbatim. Standard JSON escapes (`\uXXXX`, `\r`, `\n`, `\t`) are resolved by `JSON.parse` at config load — no further processing occurs.
 
-See [config SPEC](config.md#keyboard-binding-objects) for the binding object schema and built-in defaults.
+See [keyboard spec](keyboard.md) for the binding object schema and examples.
 
 ## Copy Behavior
 

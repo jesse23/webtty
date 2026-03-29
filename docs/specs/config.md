@@ -120,7 +120,7 @@ All keys are optional — omit any key to use the default value.
 | `fontSize` | number | `13` | Font size in px |
 | `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace"` | CSS font-family stack |
 | `theme` | object | Campbell | Terminal color palette — see theme keys below |
-| `keyboardBindings` | array | see below | Custom key-to-sequence bindings sent to the PTY. Merged with defaults by `key`+`mods` identity — see keyboard bindings below. |
+| `keyboardBindings` | array | `[]` | Custom key-to-sequence bindings sent to the PTY. See [keyboard spec](keyboard.md) for schema and examples. |
 
 ### Theme keys
 
@@ -149,65 +149,6 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | `brightCyan` | `#61D6D6` | ANSI 14 |
 | `brightWhite` | `#F2F2F2` | ANSI 15 |
 
-### Keyboard binding objects
-
-Each entry in `keyboardBindings` is an object with the following fields:
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `key` | string | yes | Key name, matched case-insensitively against `KeyboardEvent.key`. Special keys: `"enter"`, `"escape"`, `"tab"`, `"backspace"`, `"delete"`, `"space"`, `"arrowup"`, `"arrowdown"`, `"arrowleft"`, `"arrowright"`, `"f1"`–`"f12"`. Printable characters: `"a"`–`"z"`, `"0"`–`"9"`, etc. |
-| `mods` | string[] | no | Array of modifier names. Accepted values: `"shift"`, `"ctrl"`, `"alt"`, `"meta"`. Unknown values are silently filtered out at config load time. Examples: `["shift"]`, `["ctrl", "shift"]`. Omit or `[]` for no modifiers. Order does not matter — `["ctrl", "shift"]` and `["shift", "ctrl"]` are equivalent. |
-| `chars` | string | yes | Escape sequence sent verbatim to the PTY. Must be a valid JSON string — use `\uXXXX` for non-printable bytes (e.g. `"\u001b"` for ESC). `\x` hex notation is **not valid JSON** and will cause a parse error. Standard escapes `\r`, `\n`, `\t` work as expected. All escapes are resolved by `JSON.parse` at config load; the string is sent as-is with no further processing. |
-
-#### How to define `chars`
-
-The `chars` value is the byte sequence your TUI app expects to receive for that key combo.
-
-Take `"\u001b[13;2u"` as an example — the kitty keyboard protocol sequence for Shift+Enter, used by opencode, Helix, and most modern TUI apps. Most TUI apps follow one of two conventions:
-
-| Convention | Shift+Enter | Used by |
-|---|---|---|
-| [Kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) | `"\u001b[13;2u"` | Helix, opencode, modern TUI apps |
-| Legacy ESC CR | `"\u001b\r"` | older TUI apps |
-
-**Legacy convention** — the sequence is app-specific. Check the binding examples below, or search the app's source for `\x1b\r` near its input handling code.
-
-**Kitty keyboard protocol** — sequences are standardized and can be derived from a formula:
-
-```
-\u001b [ {keycode} ; {modifier} u
-```
-
-Modifier value = `1` + sum of active modifiers (Shift `1`, Alt `2`, Ctrl `4`, Meta `8`):
-
-| Modifiers | Modifier value | Shift+Enter example |
-|---|---|---|
-| Shift | 1+1 = 2 | `"\u001b[13;2u"` |
-| Alt | 1+2 = 3 | `"\u001b[13;3u"` |
-| Ctrl | 1+4 = 5 | `"\u001b[13;5u"` |
-| Shift+Ctrl | 1+1+4 = 6 | `"\u001b[13;6u"` |
-
-Common keycodes for the formula:
-
-| Key | Keycode | Shift example |
-|---|---|---|
-| Enter | 13 | `"\u001b[13;2u"` |
-| Tab | 9 | `"\u001b[9;2u"` |
-| Backspace | 127 | `"\u001b[127;2u"` |
-| Escape | 27 | `"\u001b[27;2u"` |
-| Space | 32 | `"\u001b[32;2u"` |
-
-Full keycode table: [kitty keyboard protocol — functional key definitions](https://sw.kovidgoyal.net/kitty/keyboard-protocol/#functional-key-definitions).
-
-#### Binding examples
-
-| Intent | `key` | `mods` | `chars` |
-|---|---|---|---|
-| Shift+Enter → new line (opencode, Helix, etc.) | `"enter"` | `["shift"]` | `"\u001b[13;2u"` |
-| Ctrl+Enter → same | `"enter"` | `["ctrl"]` | `"\u001b[13;5u"` |
-| Shift+Tab → backtab | `"tab"` | `["shift"]` | `"\u001b[9;2u"` |
-| Suppress a key (consume without sending) | `"enter"` | `["shift"]` | `""` |
-
 ### Example
 
 ```json
@@ -229,8 +170,7 @@ Full keycode table: [kitty keyboard protocol — functional key definitions](htt
   "fontFamily": "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
 
   "keyboardBindings": [
-    { "key": "enter", "mods": ["shift"], "chars": "\u001b[13;2u" },
-    { "key": "enter", "mods": ["ctrl"],  "chars": "\u001b[13;5u" }
+    { "key": "enter", "mods": ["shift"], "chars": "\u001b\r" }
   ],
 
   "theme": {
@@ -270,4 +210,4 @@ Full keycode table: [kitty keyboard protocol — functional key definitions](htt
 | Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
-| Keyboard bindings | `keyboardBindings` — configurable key-to-sequence mappings sent to PTY; defaults to `[]`, users add entries in `~/.config/webtty/config.json` | [ADR 018](../adrs/018.client.keyboard-bindings.md) | ✅ |
+| Keyboard bindings | `keyboardBindings` — configurable key-to-sequence mappings sent to PTY; defaults to `[]` | [ADR 018](../adrs/018.client.keyboard-bindings.md), [keyboard spec](keyboard.md) | ✅ |
