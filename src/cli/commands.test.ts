@@ -9,7 +9,7 @@ import {
   waitForServerDown,
   waitForServerReady,
 } from '../utils.test';
-import { bytesToChars, bytesToDisplay } from './commands';
+import { bytesToChars, bytesToDisplay } from './key-format';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ENTRY = path.resolve(__dirname, 'index.ts');
