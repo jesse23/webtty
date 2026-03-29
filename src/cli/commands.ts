@@ -187,28 +187,51 @@ export function bytesToChars(buf: Buffer): string {
   return `"${out}"`;
 }
 
+export function bytesToDisplay(buf: Buffer): string {
+  return Array.from(buf)
+    .map((b) => {
+      if (b === 0x1b) return 'ESC';
+      if (b === 0x0d) return 'CR';
+      if (b === 0x09) return 'TAB';
+      if (b === 0x0a) return 'LF';
+      if (b === 0x20) return 'SPC';
+      if (b === 0x7f) return 'DEL';
+      if (b > 0x20 && b < 0x7f) return String.fromCharCode(b);
+      return `\\x${b.toString(16).padStart(2, '0')}`;
+    })
+    .join(' ');
+}
+
 export function cmdChars(): void {
   if (!process.stdin.isTTY) {
     console.error('webtty chars: requires an interactive terminal');
     process.exit(1);
   }
 
+  const dim = '\x1b[2m';
+  const bold = '\x1b[1m';
+  const reset = '\x1b[0m';
+
   process.stdin.setRawMode(true);
   process.stdin.resume();
   console.log('Press any key combo to see its chars value. q to quit.\n');
+  console.log(`  ${dim}received${reset} →  ${bold}chars${reset}`);
+  console.log('  ' + '─'.repeat(17));
 
   let buf = Buffer.alloc(0);
   let timer: ReturnType<typeof setTimeout> | null = null;
 
   const flush = () => {
     if (buf.length === 0) return;
-    console.log(`  ${bytesToChars(buf)}\n`);
+    const display = bytesToDisplay(buf).padEnd(8);
+    console.log(`  ${dim}${display}${reset} →  ${bold}${bytesToChars(buf)}${reset}`);
     buf = Buffer.alloc(0);
   };
 
   process.stdin.on('data', (chunk: Buffer) => {
     if (chunk.length === 1 && chunk[0] === 0x71) {
       process.stdin.setRawMode(false);
+      console.log('  ' + '─'.repeat(17) + '\n');
       process.exit(0);
     }
     buf = Buffer.concat([buf, chunk]);

@@ -54,7 +54,7 @@ unconditionally. KKP sequences are only reliable when the app negotiates
 directly with webtty. In nested terminal setups (e.g. running a TUI app inside
 vim `:terminal`, tmux, or screen), the intermediate emulator does not forward
 KKP capability negotiation, so the app never enters KKP mode and the sequence
-is silently ignored. See [ADR 019](../adrs/019.keyboard.md)
+is silently ignored. See [ADR 019](../adrs/019.keyboard.sequence-compat.md)
 for the full analysis.
 
 ### Legacy encoding
@@ -88,9 +88,13 @@ value ready to copy-paste for each key combo you press:
 ```sh
 webtty chars
 # Press any key combo to see its chars value. q to quit.
-
-  "\u001b\r"      ← pressed Shift+Enter
-  "\u001b[13;5u"  ← pressed Ctrl+Enter
+#
+#   received →  chars
+#   -----------------
+#
+#   ESC CR   →  "\u001b\r"
+#   \x04     →  "\u0004"
+#   S        →  "S"
 ```
 
 If you do not have webtty installed, `od -c` is the fallback — it shows named
@@ -173,6 +177,6 @@ send time.
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Configurable bindings | `keyboardBindings` array in `~/.config/webtty/config.json`; capture-phase `keydown` handler sends `chars` to PTY; defaults to `[]` | [ADR 018](../adrs/018.keyboard.md) | ✅ |
-| Legacy encoding recommendation | `"\u001b\r"` recommended over KKP sequences for Shift+Enter and similar combos; works across nested terminal chains | [ADR 019](../adrs/019.keyboard.md) | ✅ |
-| `webtty chars` | CLI command: puts terminal in raw mode, prints the `chars` value for each key combo pressed; Ctrl+C to exit | [ADR 018](../adrs/018.keyboard.md) | ✅ |
+| Configurable bindings | `keyboardBindings` array in `~/.config/webtty/config.json`; capture-phase `keydown` handler sends `chars` to PTY; defaults to `[]` | [ADR 018](../adrs/018.keyboard.key-bindings.md) | ✅ |
+| Legacy encoding recommendation | `"\u001b\r"` recommended over KKP sequences for Shift+Enter and similar combos; works across nested terminal chains | [ADR 019](../adrs/019.keyboard.sequence-compat.md) | ✅ |
+| `webtty chars` | CLI command: puts terminal in raw mode, prints the `chars` value for each key combo pressed; q to quit | [ADR 018](../adrs/018.keyboard.key-bindings.md) | ✅ |

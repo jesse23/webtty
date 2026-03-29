@@ -9,7 +9,7 @@ import {
   waitForServerDown,
   waitForServerReady,
 } from '../utils.test';
-import { bytesToChars } from './commands';
+import { bytesToChars, bytesToDisplay } from './commands';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ENTRY = path.resolve(__dirname, 'index.ts');
@@ -177,6 +177,34 @@ describe('cli — session management', () => {
     const { stdout, exitCode } = await runCli(port + 1, 'ls');
     expect(exitCode).toBe(1);
     expect(stdout).toContain('not running');
+  });
+});
+
+describe('bytesToDisplay', () => {
+  test('ESC CR → legacy shift+enter', () => {
+    expect(bytesToDisplay(Buffer.from([0x1b, 0x0d]))).toBe('ESC CR');
+  });
+
+  test('ESC [ 1 3 ; 2 u → KKP shift+enter', () => {
+    expect(bytesToDisplay(Buffer.from([0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x32, 0x75]))).toBe(
+      'ESC [ 1 3 ; 2 u',
+    );
+  });
+
+  test('tab → TAB', () => {
+    expect(bytesToDisplay(Buffer.from([0x09]))).toBe('TAB');
+  });
+
+  test('space → SPC', () => {
+    expect(bytesToDisplay(Buffer.from([0x20]))).toBe('SPC');
+  });
+
+  test('del → DEL', () => {
+    expect(bytesToDisplay(Buffer.from([0x7f]))).toBe('DEL');
+  });
+
+  test('unknown control byte → \\xHH', () => {
+    expect(bytesToDisplay(Buffer.from([0x00]))).toBe('\\x00');
   });
 });
 
