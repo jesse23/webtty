@@ -216,7 +216,7 @@ export function cmdKey(): void {
   process.stdin.resume();
   console.log('Press any key combo to see its chars value. q to quit.\n');
   console.log(`  ${dim}received${reset} →  ${bold}chars${reset}`);
-  console.log('  ' + '─'.repeat(17));
+  console.log(`  ${'─'.repeat(17)}`);
 
   let buf = Buffer.alloc(0);
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -231,7 +231,7 @@ export function cmdKey(): void {
   process.stdin.on('data', (chunk: Buffer) => {
     if (chunk.length === 1 && chunk[0] === 0x71) {
       process.stdin.setRawMode(false);
-      console.log('  ' + '─'.repeat(17) + '\n');
+      console.log(`  ${'─'.repeat(17)}\n`);
       process.exit(0);
     }
     buf = Buffer.concat([buf, chunk]);

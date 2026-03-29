@@ -1,7 +1,7 @@
 import {
-  cmdKey,
   cmdConfig,
   cmdGo,
+  cmdKey,
   cmdList,
   cmdRemove,
   cmdRename,
