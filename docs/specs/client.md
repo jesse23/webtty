@@ -1,6 +1,5 @@
 # SPEC: Client
 
-**Author:** jesse23
 **Last Updated:** 2026-03-27
 
 ---

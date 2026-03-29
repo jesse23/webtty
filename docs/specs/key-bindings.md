@@ -1,6 +1,5 @@
 # SPEC: Key Bindings
 
-**Author:** jesse23
 **Last Updated:** 2026-03-29
 
 ---
@@ -51,17 +50,7 @@ Common examples:
 | Shift+Enter | `"\u001b\r"` |
 | Alt+Enter | `"\u001b\r"` (same as Shift+Enter in many apps — check app docs) |
 
-#### Porting from another terminal
-
-| App | Shift+Enter example | How to convert to `chars` |
-|---|---|---|
-| Alacritty | `chars = "\u001B\r"` | `\uNNNN` copies as-is (case-insensitive); `\xHH` → `\u00HH` (pad to 4 digits) |
-| Ghostty | `keybind = shift+enter=text:\x1b\r` | `\xHH` → `\u00HH`; `\r`, `\n`, `\t` copy as-is |
-| VS Code | `"args": { "text": "\u001b\r" }` | `\uNNNN` copies as-is |
-| Windows Terminal | `"input": "\u001b\r"` | `\uNNNN` copies as-is |
-| iTerm2 | `0x1b 0x0d` ("Send Hex Code") | Split on spaces; each `0xHH` → `\u00HH` (e.g. `0x1b 0x0d` → `"\u001b\r"`) |
-
-#### Discovering sequences from scratch
+#### Discovering sequences
 
 Run `webtty key` — it puts the terminal in raw mode and prints the `chars` value ready to copy-paste for each key combo you press:
 
@@ -76,15 +65,17 @@ webtty key
 #   S        →  "S"
 ```
 
-If you do not have webtty installed, `od -c` is the fallback — it shows named escape characters so CR is visible as `\r` rather than an invisible cursor movement:
-
-```sh
-cat | od -c
-# press the key combo, then Ctrl+D
-# 0000000  033   \r        (033 = octal ESC → \u001b)
-```
-
 If the captured sequence still does nothing, the app may expect a different convention. Check the app's documentation or source for what sequence it registers as its key handler.
+
+#### Porting from another terminal
+
+| App | Shift+Enter example | How to convert to `chars` |
+|---|---|---|
+| Alacritty | `chars = "\u001B\r"` | `\uNNNN` copies as-is (case-insensitive); `\xHH` → `\u00HH` (pad to 4 digits) |
+| Ghostty | `keybind = shift+enter=text:\x1b\r` | `\xHH` → `\u00HH`; `\r`, `\n`, `\t` copy as-is |
+| VS Code Terminal | `"args": { "text": "\u001b\r" }` | `\uNNNN` copies as-is |
+| Windows Terminal | `"input": "\u001b\r"` | `\uNNNN` copies as-is |
+| iTerm2 | `0x1b 0x0d` ("Send Hex Code") | Split on spaces; each `0xHH` → `\u00HH` (e.g. `0x1b 0x0d` → `"\u001b\r"`) |
 
 ### Kitty Keyboard Protocol
 
@@ -117,12 +108,12 @@ Full keycode table: [kitty keyboard protocol — functional key definitions](htt
 
 ## Binding examples
 
-| Intent | `key` | `mods` | `chars` |
-|---|---|---|---|
-| Shift+Enter → new line (opencode, Helix, etc.) | `"enter"` | `["shift"]` | `"\u001b\r"` |
-| Ctrl+Enter → same | `"enter"` | `["ctrl"]` | `"\u001b[13;5u"` |
-| Shift+Tab → backtab | `"tab"` | `["shift"]` | `"\u001b[9;2u"` |
-| Suppress a key (consume without sending) | `"enter"` | `["shift"]` | `""` |
+| Use case | `key` | `mods` | Legacy `chars` | KKP `chars` | Reason |
+|---|---|---|---|---|---|
+| Shift+Enter | `"enter"` | `["shift"]` | `"\u001b\r"` | `"\u001b[13;2u"` | Most terminal emulators don't distinguish Shift+Enter from Enter by default; explicit binding required for apps like opencode (see [#1505](https://github.com/anomalyco/opencode/issues/1505)) |
+| Ctrl+Enter | `"enter"` | `["ctrl"]` | not supported (Ctrl+key legacy maps only A–Z to control chars `0x01`–`0x1A`; Enter has no equivalent) | `"\u001b[13;5u"` | Distinguish "run command" from "new line" in multi-line prompts; no legacy encoding exists for Ctrl+Enter |
+| Ctrl+w | `"w"` | `["ctrl"]` | `"\u0017"` | `"\u0017"` | Browser intercepts Ctrl+W to close the tab; this binding suppresses that and forwards the keystroke to the PTY (e.g. vim window command) |
+| Suppress F5 | `"f5"` | `[]` | `""` | `""` | Browser intercepts F5 to reload the page; empty `chars` consumes the key without sending anything to the PTY |
 
 ## Client implementation
 

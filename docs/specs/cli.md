@@ -1,6 +1,5 @@
 # SPEC: CLI
 
-**Author:** jesse23
 **Last Updated:** 2026-03-24 (amended: help formatting, ls filter, restart removed, at/mv commands, isServerRunning validation, stop-on-last-rm)
 
 ---
