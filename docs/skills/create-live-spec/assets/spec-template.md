@@ -5,7 +5,6 @@ Use this exact format when generating a new SPEC. Fill placeholders from the use
 ```markdown
 # SPEC: {Full Title}
 
-**Author:** {author or "Team"}
 **Last Updated:** {YYYY-MM-DD}
 
 ---

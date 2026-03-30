@@ -92,10 +92,22 @@ Here's every known approach and how they compare:
 | Tool | Sessions | Windows | Notes |
 |------|----------|---------|-------|
 | **[webtty](https://github.com/jesse23/webtty)** (current repo) | ✅ | ✅ | Lightweight, session-aware, cross-platform |
+| **[Zellij](https://zellij.dev)** (web mode) | ✅ | ✅ | Full multiplexer with web mode, cross-platform since v0.44.0 (March 2026) |
 | **[VibeTunnel](https://github.com/amantus-ai/vibetunnel)** | ✅ | ❌ | macOS/Linux, built for AI agent monitoring, native menu bar app + `vt` command wrapper |
 | **[ttyd](https://github.com/tsl0922/ttyd)** | ❌ | ✅ | One shell per URL; session terminates when the connection drops |
 | **[GoTTY](https://github.com/yudai/gotty)** | ❌ | ❌ | Lightweight Go tool, abandoned since 2017 |
-| **[Zellij](https://zellij.dev)** (web mode) | ✅ | ❌ | Full multiplexer with web mode, Linux/macOS only |
+
+### Multiplexer
+
+A multiplexer lets you split a terminal into panes, manage named sessions, and detach/reattach without losing state.
+
+| Name | Windows | macOS/Linux | Notes |
+|------|---------|-------------|-------|
+| **[vim](https://www.vim.org) / [Neovim](https://neovim.io)** | ✅ | ✅ | Editor-based approach — `:terminal` and pane splits give you multiple shells inside the editor; not a dedicated multiplexer but works everywhere natively |
+| **[Zellij](https://zellij.dev)** | ✅ | ✅ | Full multiplexer with native Windows support (v0.44.0, March 2026); built-in web server for browser-based session access and read-only sharing; layouts, plugins, session management |
+| **[tmux](https://github.com/tmux/tmux)** | ❌ WSL only | ✅ | The gold standard on macOS/Linux; no native Windows support |
+| **[psmux](https://github.com/psmux/psmux)** | ✅ only | ❌ | Native tmux-compatible multiplexer for Windows Terminal, PowerShell, and cmd.exe; zero dependencies, Rust-based |
+| **[GNU Screen](https://www.gnu.org/software/screen/)** | ❌ WSL only | ✅ | Legacy but stable; predates tmux; mostly used on remote servers where tmux isn't available |
 
 ### Terminal Software Recommendations
 

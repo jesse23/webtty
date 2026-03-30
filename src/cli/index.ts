@@ -1,4 +1,13 @@
-import { cmdConfig, cmdGo, cmdList, cmdRemove, cmdRename, cmdStart, cmdStop } from './commands';
+import {
+  cmdConfig,
+  cmdGo,
+  cmdKey,
+  cmdList,
+  cmdRemove,
+  cmdRename,
+  cmdStart,
+  cmdStop,
+} from './commands';
 
 const GO_ALIASES = new Set(['go', 'a', 'run', 'attach', 'open']);
 
@@ -23,6 +32,7 @@ function printHelp(): void {
       row('stop', 'Stop the webtty server'),
       row('start', 'Start the webtty server'),
       row('config', 'Open the config file in $VISUAL, $EDITOR, or a default editor'),
+      row('key', 'Capture a key combo and print its chars value for keyboardBindings'),
       row('help', 'Show this help message'),
     ].join('\n'),
   );
@@ -57,6 +67,9 @@ if (!cmd) {
       break;
     case 'config':
       cmdConfig();
+      break;
+    case 'key':
+      cmdKey();
       break;
     case 'help':
     case '--help':

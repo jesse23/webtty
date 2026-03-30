@@ -1,6 +1,5 @@
 # SPEC: Client
 
-**Author:** jesse23
 **Last Updated:** 2026-03-27
 
 ---
@@ -110,7 +109,7 @@ A capture-phase `keydown` listener on the terminal container fires before ghostt
 
 **`chars` encoding:** The client sends `binding.chars` verbatim. Standard JSON escapes (`\uXXXX`, `\r`, `\n`, `\t`) are resolved by `JSON.parse` at config load — no further processing occurs.
 
-See [config SPEC](config.md#keyboard-binding-objects) for the binding object schema and built-in defaults.
+See [key-bindings spec](key-bindings.md) for the binding object schema and examples.
 
 ## Copy Behavior
 
@@ -148,4 +147,4 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Cursor style | `cursorStyle` / `cursorStyleBlink` defaults; DECSCUSR from PTY overrides at runtime via client-side intercept | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
 | Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), wheel events are forwarded as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
-| Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.client.keyboard-bindings.md) | ✅ |
+| Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.key-bindings.config-support.md) | ✅ |
