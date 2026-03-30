@@ -29,6 +29,7 @@ const tmpHome = makeTmpHome('cli-test');
 
 afterAll(() => {
   cleanupTmpHome(tmpHome);
+  mock.restore();
 });
 
 async function runCli(
