@@ -117,9 +117,11 @@ See [key-bindings spec](key-bindings.md) for the binding object schema and examp
 
 | Key | Action |
 |-----|--------|
-| `Ctrl/Cmd` + `=` | Increase font size by 1 (max 32) |
+| `Ctrl/Cmd` + `=` or `+` | Increase font size by 1 (max 32) |
 | `Ctrl/Cmd` + `-` | Decrease font size by 1 (min 6) |
-| `Ctrl/Cmd` + `0` | Reset to `config.fontSize` |
+| `Ctrl/Cmd` + `0` | Reset to `config.fontSize` (clamped to 6–32) |
+
+Numpad `+`, `-`, and `0` are also recognised.
 
 A capture-phase `keydown` listener on `window` fires first. It calls `preventDefault()` to suppress browser page-zoom and `stopPropagation()` to prevent the key from reaching ghostty-web's PTY input path. Font size is not persisted — reload returns to `config.fontSize`.
 
