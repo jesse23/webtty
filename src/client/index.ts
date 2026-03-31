@@ -203,6 +203,33 @@ container.addEventListener(
   { capture: true },
 );
 
+// Intercept Ctrl/Cmd +/- to resize the font without Shift, matching VS Code.
+// Uses window so it fires regardless of focus, and preventDefault stops the
+// browser's own page-zoom from triggering at the same time. stopPropagation
+// prevents ghostty-web from forwarding the key as literal PTY input.
+// e.code is used for physical key identity, independent of keyboard layout.
+// currentFontSize is clamped to [6, 32] on init so a config value outside
+// that range never inverts the zoom direction on the first keypress.
+let currentFontSize = Math.min(32, Math.max(6, config.fontSize));
+window.addEventListener(
+  'keydown',
+  (e: KeyboardEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return;
+    const zoomIn = e.code === 'Equal' || e.code === 'NumpadAdd';
+    const zoomOut = (e.code === 'Minus' && !e.shiftKey) || e.code === 'NumpadSubtract';
+    const zoomReset = (e.code === 'Digit0' && !e.shiftKey) || e.code === 'Numpad0';
+    if (!zoomIn && !zoomOut && !zoomReset) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (zoomIn) currentFontSize = Math.min(32, currentFontSize + 1);
+    else if (zoomOut) currentFontSize = Math.max(6, currentFontSize - 1);
+    else currentFontSize = Math.min(32, Math.max(6, config.fontSize));
+    term.options.fontSize = currentFontSize;
+    fit();
+  },
+  { capture: true },
+);
+
 // Forward terminal keystrokes and input to the PTY over WebSocket.
 term.onData((data: string) => {
   if (ws && ws.readyState === WebSocket.OPEN) {

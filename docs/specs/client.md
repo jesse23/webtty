@@ -1,6 +1,6 @@
 # SPEC: Client
 
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-03-31
 
 ---
 
@@ -111,6 +111,22 @@ A capture-phase `keydown` listener on the terminal container fires before ghostt
 
 See [key-bindings spec](key-bindings.md) for the binding object schema and examples.
 
+## Font-size Zoom
+
+`Ctrl/Cmd` + `=`, `-`, or `0` adjust the terminal font size in-session, matching VS Code and native terminal conventions. These shortcuts are **not configurable** — they are a fixed client-side UI gesture, not PTY input, and cannot be overridden via `keyboardBindings`.
+
+| Key | Action |
+|-----|--------|
+| `Ctrl/Cmd` + `=` or `+` | Increase font size by 1 (max 32) |
+| `Ctrl/Cmd` + `-` | Decrease font size by 1 (min 6) |
+| `Ctrl/Cmd` + `0` | Reset to `config.fontSize` (clamped to 6–32) |
+
+Numpad `+`, `-`, and `0` are also recognised.
+
+A capture-phase `keydown` listener on `window` fires first. It calls `preventDefault()` to suppress browser page-zoom and `stopPropagation()` to prevent the key from reaching ghostty-web's PTY input path. Font size is not persisted — reload returns to `config.fontSize`.
+
+See [ADR 023](../adrs/023.client.font-size-zoom.md).
+
 ## Copy Behavior
 
 Controlled by two config keys from `GET /api/config`:
@@ -148,3 +164,5 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
 | Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), wheel events are forwarded as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
 | Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.key-bindings.config-support.md) | ✅ |
+| Canvas gap fill | After each fit, distribute the gap between the container and canvas as symmetric padding so the canvas is centred at the new size | [ADR 022](../adrs/022.client.canvas-fill.md) | ✅ |
+| Font-size zoom | `Ctrl/Cmd` + `=`/`-`/`0` adjust terminal font size in-session; not configurable; same shortcuts as VS Code | [ADR 023](../adrs/023.client.font-size-zoom.md) | ✅ |
