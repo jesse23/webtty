@@ -67,9 +67,31 @@ const fitAddon = new FitAddon();
 term.loadAddon(fitAddon);
 
 const container = document.getElementById('terminal') as HTMLElement;
+if (config.theme?.background) {
+  container.style.background = config.theme.background;
+}
 await term.open(container);
-fitAddon.fit();
-fitAddon.observeResize();
+
+// FitAddon computes cols = floor((containerWidth - scrollbarReserve) / charWidth),
+// leaving a gap larger than one sub-cell. Measure the actual canvas dimensions
+// after fitting and distribute the gap as padding so the canvas fills exactly.
+// Padding must be cleared first: FitAddon reads it from computed style and
+// subtracts it before computing cols, so stale padding would shrink the result.
+function fit(): void {
+  container.style.padding = '0';
+  fitAddon.fit();
+  const canvas = container.querySelector('canvas') as HTMLElement | null;
+  if (!canvas) return;
+  const hGap = Math.max(0, container.clientWidth - canvas.offsetWidth);
+  const vGap = Math.max(0, container.clientHeight - canvas.offsetHeight);
+  container.style.paddingLeft = `${Math.floor(hGap / 2)}px`;
+  container.style.paddingRight = `${Math.ceil(hGap / 2)}px`;
+  container.style.paddingTop = `${Math.floor(vGap / 2)}px`;
+  container.style.paddingBottom = `${Math.ceil(vGap / 2)}px`;
+}
+
+fit();
+new ResizeObserver(() => fit()).observe(container, { box: 'border-box' });
 
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 let ws: WebSocket;
@@ -193,11 +215,6 @@ term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({ type: 'resize', cols, rows }));
   }
-});
-
-// Refit the terminal whenever the browser window is resized.
-window.addEventListener('resize', () => {
-  fitAddon.fit();
 });
 
 // Copy the selected text to the clipboard whenever the selection changes.
