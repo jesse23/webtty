@@ -87,7 +87,7 @@ It just needs to be surfaced through `PtyProcess`, `Session`, and `sessionToJson
 
 ### Port discovery
 
-Vibe Island discovers running OpenCode instances via "multi-layer port discovery" (their phrasing). The most likely mechanism: scan common ports + read the process list (`ps aux | grep opencode serve --port`). webtty uses a fixed default port (`2346`) and respects `PORT` env var — the same convention is discoverable by the same scan.
+Vibe Island discovers running OpenCode instances via "multi-layer port discovery" (their phrasing). OpenCode's HTTP server starts automatically as part of normal operation — there is no separate `serve` command to opt into. The exact discovery mechanism is not published, but the likeliest approach is trying a known default port then falling back to a port range scan. webtty uses a fixed default port (`2346`) and respects the `PORT` env var — the same convention works with port-scan-based discovery.
 
 ### BroadcastChannel (focus-existing-tab)
 
