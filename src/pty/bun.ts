@@ -38,6 +38,7 @@ export function spawn(
   });
 
   return {
+    pid: proc.pid,
     onData(cb) {
       onDataCb = cb;
     },

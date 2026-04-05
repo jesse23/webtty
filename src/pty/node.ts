@@ -28,6 +28,7 @@ export function spawn(
   });
 
   return {
+    pid: ptyProc.pid,
     onData(cb) {
       ptyProc.onData(cb);
     },
