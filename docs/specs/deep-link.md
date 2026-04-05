@@ -111,7 +111,7 @@ webtty is an npm CLI — no `Info.plist`, no bundle. A `webtty://` scheme would 
 |---------|-------------|-----|-------|
 | Focus existing tab | New tab loading `/s/<id>` checks via BroadcastChannel whether that session is already open; if so, focuses the existing tab and shows a fallback UI | — | ⬜ |
 | PID in session API | `GET /api/sessions` includes `pid: number \| null` per session (null before first WS connection spawns the PTY) | — | ⬜ |
-| PID-based navigation | `GET /p/<pid>` — server looks up the session owning that PTY PID and 302-redirects to `/s/<id>`; 404 if no match | — | ⬜ |
+| PID-based navigation | `GET /p/<pid>` — server resolves the PTY PID to a session and renders the terminal page directly (same as `/s/<id>`); 404 if no match | — | ⬜ |
 
 ### Focus existing tab — detail
 
@@ -168,16 +168,16 @@ GET /p/<pid>
 
 1. Parse `<pid>` as integer; return 404 if not a valid positive integer
 2. Walk `sessionRegistry`, find the session where `session.pty?.pid === pid`
-3. If found: 302 redirect to `/s/<session.id>`
+3. If found: render the terminal page directly with the resolved session ID — same handler as `/s/<id>`, no redirect
 4. If not found: 404
 
-This is the URL Vibe Island (or any tool) opens to jump to a webtty session by PID, without needing to know the session ID:
+No 302 redirect. Rendering directly means one round-trip instead of two, the address bar stays at `/p/<pid>` (unambiguous — the user arrived here by PID), and the BroadcastChannel handshake fires immediately with the resolved session ID passed through to the client. The existing tab for that session gets focused either way since the channel is keyed on session ID, not the URL path.
+
+This is the URL Vibe Island (or any tool) opens to jump to a webtty session by PID:
 
 ```
 open http://127.0.0.1:2346/p/12345
 ```
-
-The redirect lands on `/s/main` (or whichever session owns PID 12345), and the BroadcastChannel focus handshake brings the existing tab forward.
 
 ### 3rd Party Integration
 
@@ -189,7 +189,7 @@ With the above three features in place, tools like Vibe Island can integrate wit
 | List sessions with PIDs | Same endpoint — returns `[{ id, createdAt, connected, pid }]` |
 | Watch session output | WebSocket `ws://127.0.0.1:2346/ws/<id>?cols=80&rows=24` |
 | Jump by session ID | `open http://127.0.0.1:2346/s/<id>` |
-| Jump by PTY PID | `open http://127.0.0.1:2346/p/<pid>` — server redirects to the right session |
+| Jump by PTY PID | `open http://127.0.0.1:2346/p/<pid>` — server renders terminal directly for the matching session |
 | Custom port | Respect `PORT` env var; default `2346` |
 
-**No Unix socket bridge, no config file injection, no hook setup.** The REST API + PID-based redirect + BroadcastChannel focus is the complete integration surface.
+**No Unix socket bridge, no config file injection, no hook setup.** The REST API + PID-based navigation + BroadcastChannel focus is the complete integration surface.
