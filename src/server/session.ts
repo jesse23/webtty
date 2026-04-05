@@ -74,5 +74,5 @@ export function createSession(id: string): Session {
  * @returns A JSON-safe object with session ID, creation timestamp, and connection status.
  */
 export function sessionToJson(s: Session) {
-  return { id: s.id, createdAt: s.createdAt, connected: s.clients.size > 0 };
+  return { id: s.id, createdAt: s.createdAt, connected: s.clients.size > 0, pid: s.pty?.pid ?? null };
 }
