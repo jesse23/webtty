@@ -109,9 +109,9 @@ webtty is an npm CLI — no `Info.plist`, no bundle. A `webtty://` scheme would 
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Focus existing tab | New tab loading `/s/<id>` checks via BroadcastChannel whether that session is already open; if so, focuses the existing tab and shows a fallback UI | — | ⬜ |
-| PID in session API | `GET /api/sessions` includes `pid: number \| null` per session (null before first WS connection spawns the PTY) | — | ⬜ |
-| PID-based navigation | `GET /p/<pid>` — server resolves the PTY PID to a session and renders the terminal page directly (same as `/s/<id>`); 404 if no match | — | ⬜ |
+| Focus existing tab | New tab loading `/s/<id>` checks via BroadcastChannel whether that session is already open; if so, focuses the existing tab and shows a fallback UI | — | ✅ |
+| PID in session API | `GET /api/sessions` includes `pid: number \| null` per session (null before first WS connection spawns the PTY) | — | ✅ |
+| PID-based navigation | `GET /p/<pid>` — server resolves the PTY PID to a session and renders the terminal page directly (same as `/s/<id>`); 404 if no match | — | ✅ |
 
 ### Focus existing tab — detail
 
@@ -168,10 +168,8 @@ GET /p/<pid>
 
 1. Parse `<pid>` as integer; return 404 if not a valid positive integer
 2. Walk `sessionRegistry`, find the session where `session.pty?.pid === pid`
-3. If found: render the terminal page directly with the resolved session ID — same handler as `/s/<id>`, no redirect
+3. If found: `302 Location: /s/<id>` — browser lands at the canonical session URL
 4. If not found: 404
-
-No 302 redirect. Rendering directly means one round-trip instead of two, the address bar stays at `/p/<pid>` (unambiguous — the user arrived here by PID), and the BroadcastChannel handshake fires immediately with the resolved session ID passed through to the client. The existing tab for that session gets focused either way since the channel is keyed on session ID, not the URL path.
 
 This is the URL Vibe Island (or any tool) opens to jump to a webtty session by PID:
 
