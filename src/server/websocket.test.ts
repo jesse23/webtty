@@ -193,10 +193,10 @@ describe('websocket', () => {
 
     const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-resize?cols=80&rows=24`);
     await waitForMessages(messages, 1);
+    await waitForPrompt(messages);
 
     ws.send(JSON.stringify({ type: 'resize', cols: 120, rows: 40 }));
 
-    await waitForPrompt(messages);
     ws.send('echo resize-ok\n');
     await waitForContent(messages, 'resize-ok');
     await closeWs(ws);
