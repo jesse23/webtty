@@ -1,6 +1,6 @@
 # SPEC: Deep Link
 
-**Last Updated:** 2026-04-05 (amended: reorganized, PID-based API, 3rd party integration)
+**Last Updated:** 2026-04-06 (amended: focus-existing-tab dropped — see ADR 024)
 
 ---
 
@@ -10,14 +10,14 @@
 
 Two related problems:
 
-1. **Duplicate tabs** — `webtty go <id>` opens a new browser tab every time. If the session is already open, the user ends up with two identical tabs.
+1. **Duplicate tabs** — `webtty go <id>` opens a new browser tab every time. If the session is already open, the user ends up with two identical tabs. *(Focus-existing-tab was attempted via BroadcastChannel but dropped — see ADR 024.)*
 2. **No PID-based navigation** — Third-party tools (e.g. Vibe Island) track AI agent processes by PTY shell PID, not by session name. They have no way to map a PID to a webtty session or navigate directly to it.
 
 ### What this spec covers
 
 | Area | Change |
 |------|--------|
-| Client | BroadcastChannel focus handshake — focus existing tab instead of opening a duplicate |
+| ~~Client~~ | ~~BroadcastChannel focus handshake~~ — dropped, see ADR 024 |
 | Server API | Expose `pid` in `GET /api/sessions` response |
 | Server routing | `GET /p/<pid>` — redirect to the session that owns that PTY PID |
 
@@ -109,34 +109,15 @@ webtty is an npm CLI — no `Info.plist`, no bundle. A `webtty://` scheme would 
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Focus existing tab | New tab loading `/s/<id>` checks via BroadcastChannel whether that session is already open; if so, focuses the existing tab and shows a fallback UI | — | ✅ |
+| ~~Focus existing tab~~ | ~~BroadcastChannel handshake~~ | [ADR 024](../adrs/024.client.focus-existing-tab.md) | ❌ dropped |
 | PID in session API | `GET /api/sessions` includes `pid: number \| null` per session (null before first WS connection spawns the PTY) | — | ✅ |
 | PID-based navigation | `GET /p/<pid>` — server resolves the PTY PID to a session and responds with `302 Location: /s/<id>`; 404 if no match | — | ✅ |
 
 ### Focus existing tab — detail
 
-**Client changes** (`src/client/index.ts`):
+**Status: dropped. See [ADR 024](../adrs/024.client.focus-existing-tab.md).**
 
-On page load, open a `BroadcastChannel` named `webtty:focus:<sessionId>` and run the handshake before mounting the terminal:
-
-```
-// 1. Post focus-request immediately on load
-channel.postMessage({ type: 'focus-request', sessionId });
-
-// 2. Wait up to 200ms for focus-ack from an existing tab
-//    → if ack received: show "Session already open in another tab" UI, skip terminal mount
-//    → if no ack: mount terminal normally (this is the first tab)
-
-// 3. Also listen for incoming focus-requests (this tab is already open)
-channel.onmessage = (e) => {
-  if (e.data.type === 'focus-request') {
-    window.focus();
-    channel.postMessage({ type: 'focus-ack' });
-  }
-};
-```
-
-**Server changes**: none.
+`window.focus()` on macOS raises the browser window but cannot switch tabs without a user gesture — a hard browser security constraint. `window.close()` is blocked for tabs not opened by script. The BroadcastChannel handshake was implemented but removed: the new tab cannot meaningfully self-close or pull focus to the existing tab. `webtty go <id>` continues to open a new browser tab unconditionally.
 
 ### PID in session API — detail
 
@@ -190,4 +171,4 @@ With the above three features in place, tools like Vibe Island can integrate wit
 | Jump by PTY PID | `open http://127.0.0.1:2346/p/<pid>` — server responds with `302 Location: /s/<id>` for the matching session |
 | Custom port | Respect `PORT` env var; default `2346` |
 
-**No Unix socket bridge, no config file injection, no hook setup.** The REST API + PID-based navigation + BroadcastChannel focus is the complete integration surface.
+**No Unix socket bridge, no config file injection, no hook setup.** The REST API + PID-based navigation is the complete integration surface.
