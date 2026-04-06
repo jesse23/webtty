@@ -89,6 +89,15 @@ describe('server — routes', () => {
     expect(Array.isArray(body)).toBe(true);
   });
 
+  test('GET /api/sessions includes pid field (null before PTY spawns)', async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`);
+    const body = (await res.json()) as Array<{ id: string; pid: number | null }>;
+    expect(body.length).toBeGreaterThan(0);
+    for (const s of body) {
+      expect('pid' in s).toBe(true);
+    }
+  });
+
   test('POST /api/sessions creates session with given id', async () => {
     const res = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
@@ -173,6 +182,16 @@ describe('server — routes', () => {
 
   test('DELETE /api/sessions/:id returns 404 for unknown id', async () => {
     const res = await fetch(`${baseUrl}/api/sessions/does-not-exist`, { method: 'DELETE' });
+    expect(res.status).toBe(404);
+  });
+
+  test('GET /p/:pid returns 404 for unknown pid', async () => {
+    const res = await fetch(`${baseUrl}/p/99999999`, { redirect: 'manual' });
+    expect(res.status).toBe(404);
+  });
+
+  test('GET /p/:pid returns 404 for non-numeric pid', async () => {
+    const res = await fetch(`${baseUrl}/p/notanumber`, { redirect: 'manual' });
     expect(res.status).toBe(404);
   });
 

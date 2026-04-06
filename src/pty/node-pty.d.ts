@@ -15,6 +15,7 @@
  */
 declare module '@lydell/node-pty' {
   interface IPty {
+    pid: number;
     onData(cb: (data: string) => void): void;
     onExit(cb: (e: { exitCode: number; signal?: number }) => void): void;
     write(data: string): void;

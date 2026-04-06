@@ -90,6 +90,17 @@ describe('sessionToJson', () => {
     expect(json.id).toBe('test');
     expect(typeof json.createdAt).toBe('number');
   });
+
+  test('pid is null when pty is not yet spawned', () => {
+    const session = createSession('test-pid-null');
+    expect(sessionToJson(session).pid).toBeNull();
+  });
+
+  test('pid reflects pty pid when pty is set', () => {
+    const session = createSession('test-pid-set');
+    session.pty = { pid: 12345 } as never;
+    expect(sessionToJson(session).pid).toBe(12345);
+  });
 });
 
 describe('setLastUsedId', () => {

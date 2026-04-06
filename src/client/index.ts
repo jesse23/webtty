@@ -46,6 +46,7 @@ interface ClientConfig {
 }
 
 const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
+
 const config: ClientConfig = await fetch('/api/config').then((r) => r.json());
 
 document.title = `${sessionId} | webtty`;

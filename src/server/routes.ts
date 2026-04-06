@@ -244,6 +244,25 @@ export async function handleRequest(
     return;
   }
 
+  const pidMatch = pathname.match(/^\/p\/(\d+)$/);
+  if (req.method === 'GET' && pidMatch) {
+    const pid = parseInt(pidMatch[1], 10);
+    if (!Number.isFinite(pid) || pid <= 0) {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
+    const session = [...sessionRegistry.values()].find((s) => s.pty?.pid === pid);
+    if (!session) {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
+    res.writeHead(302, { Location: `/s/${session.id}` });
+    res.end();
+    return;
+  }
+
   if (pathname.startsWith('/dist/')) {
     const relativePath = pathname.slice(6);
     const ownFile = path.resolve(clientDistPath, relativePath);
