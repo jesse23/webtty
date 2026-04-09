@@ -12,7 +12,10 @@ const __dirname = path.dirname(__filename);
 
 const config = loadConfig();
 const HTTP_PORT = Number(process.env.PORT) || config.port;
-const HTTP_HOST = config.host;
+// 'localhost' resolves to ::1 (IPv6) on modern macOS/Node; bind to 127.0.0.1 instead
+// but keep 'localhost' as the display host so browser URLs use it as intended.
+const HTTP_HOST_DISPLAY = config.host;
+const HTTP_HOST = config.host === 'localhost' ? '127.0.0.1' : config.host;
 
 const { distPath, wasmPath } = findGhosttyWeb();
 const projectRoot = path.resolve(__dirname, '..', '..');
@@ -46,5 +49,5 @@ process.on('SIGINT', () => {
 });
 
 httpServer.listen(HTTP_PORT, HTTP_HOST, () => {
-  console.log(`listening on http://${HTTP_HOST}:${HTTP_PORT}`);
+  console.log(`listening on http://${HTTP_HOST_DISPLAY}:${HTTP_PORT}`);
 });

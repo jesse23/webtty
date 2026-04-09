@@ -1,8 +1,20 @@
 import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { configDir } from '../config';
-import { BASE_URL, isServerRunning, openBrowser, startServer, stopServer } from './http';
+import { configDir, loadConfig } from '../config';
+import { BASE_URL, isServerRunning, openBrowser, PORT, startServer, stopServer } from './http';
+
+/**
+ * Converts a bind host to a browser-navigable host.
+ * - Bind-all addresses (`0.0.0.0`, `::`) become `localhost`.
+ * - Bare IPv6 addresses are bracketed (`::1` → `[::1]`).
+ * - All other values pass through unchanged.
+ */
+export function toBrowserHost(host: string): string {
+  if (host === '0.0.0.0' || host === '::') return 'localhost';
+  if (host.includes(':') && !host.startsWith('[')) return `[${host}]`;
+  return host;
+}
 
 /**
  * Opens (or creates) session `id`, starts the server if needed, and opens the URL in the browser.
@@ -33,7 +45,7 @@ export async function cmdGo(id = 'main'): Promise<void> {
     sessionId = session.id;
   }
 
-  const url = `${BASE_URL}/s/${sessionId}`;
+  const url = `http://${toBrowserHost(loadConfig().host)}:${PORT}/s/${sessionId}`;
   console.log(url);
   openBrowser(url);
 }

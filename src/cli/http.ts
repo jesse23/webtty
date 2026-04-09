@@ -10,7 +10,7 @@ const __dirname = path.dirname(__filename);
 /** Active server port, resolved from `PORT` env or config default. */
 export const PORT = Number(process.env.PORT) || 2346;
 
-/** Base URL for the local server (always 127.0.0.1). */
+/** Base URL for internal CLI↔server API calls (always 127.0.0.1, avoids IPv6 lookup). */
 export const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 /** Returns the path to the server log file: `~/.config/webtty/server.log`. */

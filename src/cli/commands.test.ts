@@ -11,7 +11,7 @@ import {
   waitForServerDown,
   waitForServerReady,
 } from '../utils.test';
-import { bytesToChars, bytesToDisplay } from './commands';
+import { bytesToChars, bytesToDisplay, toBrowserHost } from './commands';
 import * as httpModule from './http';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -180,6 +180,32 @@ describe('cli — session management', () => {
     const { stdout, exitCode } = await runCli(port + 1, 'ls');
     expect(exitCode).toBe(1);
     expect(stdout).toContain('not running');
+  });
+});
+
+describe('toBrowserHost', () => {
+  test('localhost passes through unchanged', () => {
+    expect(toBrowserHost('localhost')).toBe('localhost');
+  });
+
+  test('127.0.0.1 passes through unchanged', () => {
+    expect(toBrowserHost('127.0.0.1')).toBe('127.0.0.1');
+  });
+
+  test('0.0.0.0 maps to localhost', () => {
+    expect(toBrowserHost('0.0.0.0')).toBe('localhost');
+  });
+
+  test(':: maps to localhost', () => {
+    expect(toBrowserHost('::')).toBe('localhost');
+  });
+
+  test('bare IPv6 address gets bracketed', () => {
+    expect(toBrowserHost('::1')).toBe('[::1]');
+  });
+
+  test('already-bracketed IPv6 passes through unchanged', () => {
+    expect(toBrowserHost('[::1]')).toBe('[::1]');
   });
 });
 
@@ -543,6 +569,18 @@ describe('cli — unit (mocked http)', () => {
     const log = spyOn(console, 'log').mockImplementation(() => {});
     await cmds.cmdGo('main');
     expect(log).toHaveBeenCalledWith(expect.stringContaining('/s/main'));
+    isRunning.mockRestore();
+    log.mockRestore();
+  });
+
+  test('cmdGo URL uses toBrowserHost applied to config host', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    await cmds.cmdGo('main');
+    const printed: string = (log.mock.calls[0] as string[])[0];
+    // URL must be a valid http URL ending in /s/main — host comes from config via toBrowserHost
+    expect(printed).toMatch(/^http:\/\/.+:\d+\/s\/main$/);
     isRunning.mockRestore();
     log.mockRestore();
   });
