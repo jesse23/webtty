@@ -1,6 +1,7 @@
 export type { PtyProcess } from './types';
 
-const isBun = !!process.versions.bun;
+// Bun.Terminal does not support the `terminal` option on Windows; fall back to node-pty.
+const isBun = !!process.versions.bun && process.platform !== 'win32';
 console.log(`pty: ${isBun ? 'Bun.Terminal' : 'node-pty'}`);
 
 const { spawn: _spawn } = await (isBun ? import('./bun') : import('./node'));
