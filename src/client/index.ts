@@ -139,6 +139,20 @@ function connect(): void {
 
 connect();
 
+// ghostty-web reports hover mousemove events (e.buttons === 0) as button-32
+// SGR drags to the PTY. Vim with `set mouse=a` interprets button-32 as
+// "extend selection" and enters visual mode. Block no-button mousemove events
+// before ghostty-web sees them so hover never triggers a drag report.
+container.addEventListener(
+  'mousemove',
+  (e: MouseEvent) => {
+    if (term.hasMouseTracking() && e.buttons === 0) {
+      e.stopPropagation();
+    }
+  },
+  { capture: true },
+);
+
 // ghostty-web's Terminal.handleWheel sends \x1b[A/\x1b[B (arrow keys) on the
 // alternate screen regardless of mouse tracking state, moving the cursor instead
 // of scrolling. When the PTY application has enabled mouse tracking (e.g. vim
