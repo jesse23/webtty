@@ -99,6 +99,7 @@ let ws: WebSocket;
 
 function connect(): void {
   const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}?cols=${term.cols}&rows=${term.rows}`;
+  console.log(`[webtty] connecting to ${wsUrl}`);
   ws = new WebSocket(wsUrl);
 
   const DIM = '\x1b[2m',
@@ -109,15 +110,19 @@ function connect(): void {
   const msg = (text: string): string => `\r\n${tag} ${DIM}${ITALIC}${text}${RESET}\r\n`;
 
   ws.onopen = () => {
+    console.log(`[webtty] ws open cols=${term.cols} rows=${term.rows}`);
     ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
   };
 
+  let msgCount = 0;
   ws.onmessage = (event: MessageEvent<string>) => {
+    if (msgCount++ < 5) console.log(`[webtty] ws message #${msgCount} ${event.data.length}B`);
     applyDecscusr(term, event.data);
     term.write(event.data);
   };
 
   ws.onclose = (event: CloseEvent) => {
+    console.log(`[webtty] ws close code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`);
     if (event.code === 4001) {
       term.write(msg('Session removed.'));
       setTimeout(() => window.close(), 500);
@@ -132,7 +137,8 @@ function connect(): void {
     setTimeout(connect, 2000);
   };
 
-  ws.onerror = () => {
+  ws.onerror = (event: Event) => {
+    console.log(`[webtty] ws error`, event);
     term.write(msg('WebSocket error.'));
   };
 }

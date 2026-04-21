@@ -99,17 +99,21 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
   httpServer.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+    console.log(`[ws] upgrade request: ${req.url}`);
     if (url.pathname.match(/^\/ws\/([^/]+)$/)) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else {
+      console.log(`[ws] upgrade rejected (bad path): ${url.pathname}`);
       socket.destroy();
     }
   });
 
   wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
+    console.log(`[ws] connection: ${req.url}`);
     const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
     if (!wsMatch) {
+      console.log(`[ws] closing: no path match`);
       ws.close();
       return;
     }
@@ -118,6 +122,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
     try {
       id = decodeURIComponent(wsMatch[1]);
     } catch {
+      console.log(`[ws] closing: bad session id`);
       ws.close(WS_CLOSE.BAD_REQUEST, 'Bad Request');
       return;
     }
@@ -130,22 +135,28 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       Math.min(500, Number.parseInt(url.searchParams.get('rows') ?? '24', 10) || 24),
     );
 
+    console.log(`[ws] session id="${id}" cols=${cols} rows=${rows} registry_has=${sessionRegistry.has(id)}`);
     if (!sessionRegistry.has(id)) {
+      console.log(`[ws] closing 4001: session not in registry`);
       ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
       return;
     }
 
     const session = sessionRegistry.get(id);
     if (!session) {
+      console.log(`[ws] closing 4001: session get returned undefined`);
       ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
       return;
     }
     session.clients.add(ws);
     setLastUsedId(id);
+    console.log(`[ws] session found hasPty=${session.pty != null} clients=${session.clients.size}`);
 
     if (!session.pty) {
       const config = loadConfig();
+      console.log(`[ws] spawning PTY shell=${config.shell}`);
       session.pty = spawnForSession(cols, rows, config.shell, config.term, config.colorTerm);
+      console.log(`[ws] PTY spawned pid=${session.pty.pid}`);
 
       session.pty.onData((data: string) => {
         session.scrollback = (session.scrollback + data).slice(-config.scrollback);
@@ -156,10 +167,12 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
         }
       });
 
-      session.pty.onExit(() => {
+      session.pty.onExit(({ exitCode }) => {
+        console.log(`[ws] PTY exited exitCode=${exitCode} session="${session.id}" clients=${session.clients.size}`);
         sessionRegistry.delete(session.id);
         for (const client of session.clients) {
           if (client.readyState === client.OPEN) {
+            console.log(`[ws] closing client 4001 (shell exited)`);
             client.close(WS_CLOSE.SESSION_GONE, 'shell exited');
           }
         }
@@ -196,11 +209,14 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       session.pty?.write(message);
     });
 
-    ws.on('close', () => {
+    ws.on('close', (code: number, reason: Buffer) => {
+      console.log(`[ws] client disconnected code=${code} reason="${reason.toString()}" session="${id}"`);
       session.clients.delete(ws);
     });
 
-    ws.on('error', () => {});
+    ws.on('error', (err: Error) => {
+      console.log(`[ws] client error: ${err.message}`);
+    });
   });
 
   return wss;
