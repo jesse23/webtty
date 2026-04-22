@@ -162,6 +162,11 @@ describe('startServer', () => {
       return new Response('[]', { status: 200 });
     }) as unknown as typeof fetch;
 
+    const configModule = await import('../config');
+    const configSpy = spyOn(configModule, 'loadConfig').mockReturnValue({
+      ...configModule.DEFAULT_CONFIG,
+    });
+
     const { startServer } = await import('./http');
     await startServer(10000, spawnMock as never);
 
@@ -169,6 +174,7 @@ describe('startServer', () => {
     expect(fakeChild.unref).toHaveBeenCalled();
 
     existsSpy.mockRestore();
+    configSpy.mockRestore();
   });
 
   test('exits with error when server does not start within timeout', async () => {
@@ -181,6 +187,11 @@ describe('startServer', () => {
       throw new Error('not yet');
     }) as unknown as typeof fetch;
 
+    const configModule = await import('../config');
+    const configSpy = spyOn(configModule, 'loadConfig').mockReturnValue({
+      ...configModule.DEFAULT_CONFIG,
+    });
+
     const { startServer } = await import('./http');
     await startServer(100, spawnMock as never);
 
@@ -190,6 +201,7 @@ describe('startServer', () => {
     existsSpy.mockRestore();
     exitSpy.mockRestore();
     errorSpy.mockRestore();
+    configSpy.mockRestore();
   });
 });
 
