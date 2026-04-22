@@ -74,7 +74,9 @@ export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn
     env: { ...process.env, PORT: String(PORT) },
   });
   child.on('error', (err) => {
-    const hint = useNode ? ' (Node.js must be on PATH when running webtty under Bun on Windows)' : '';
+    const hint = useNode
+      ? ' (Node.js must be on PATH when running webtty under Bun on Windows)'
+      : '';
     console.error(`webtty: failed to start server: ${err.message}${hint}`);
     process.exit(1);
   });
