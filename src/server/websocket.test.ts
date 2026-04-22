@@ -221,9 +221,9 @@ describe('websocket', () => {
     }>;
     const session = sessions.find((s) => s.id === 'ws-test-pid-route');
     expect(session).toBeDefined();
-    expect(typeof session!.pid).toBe('number');
+    expect(typeof session?.pid).toBe('number');
 
-    const res = await fetch(`${baseUrl}/p/${session!.pid}`, { redirect: 'manual' });
+    const res = await fetch(`${baseUrl}/p/${session?.pid}`, { redirect: 'manual' });
     expect(res.status).toBe(302);
     expect(res.headers.get('location')).toBe('/s/ws-test-pid-route');
   });

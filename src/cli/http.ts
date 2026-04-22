@@ -54,7 +54,8 @@ export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn
   const serverEntry = path.resolve(__dirname, isTs ? '../server/index.ts' : '../server/index.js');
   if (!fs.existsSync(serverEntry)) {
     console.error(`webtty: server entry not found at ${serverEntry}`);
-    process.exit(1);
+    (process.exit as (code?: number) => void)(1);
+    return;
   }
 
   const config = loadConfig();

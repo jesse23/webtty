@@ -101,7 +101,7 @@ describe('startServer', () => {
     const mkdirSpy = spyOn(fs, 'mkdirSync').mockImplementation(() => undefined);
     const openSpy = spyOn(fs, 'openSync').mockReturnValue(99);
     const closeSpy = spyOn(fs, 'closeSync').mockImplementation(() => {});
-    const fakeChild = { unref: mock(() => {}) };
+    const fakeChild = { unref: mock(() => {}), on: mock(() => {}) };
     const spawnMock = mock(() => fakeChild);
 
     globalThis.fetch = mock(
@@ -152,7 +152,7 @@ describe('startServer', () => {
 
   test('spawns server and resolves when it becomes reachable', async () => {
     const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
-    const fakeChild = { unref: mock(() => {}) };
+    const fakeChild = { unref: mock(() => {}), on: mock(() => {}) };
     const spawnMock = mock(() => fakeChild);
 
     let calls = 0;
@@ -173,7 +173,7 @@ describe('startServer', () => {
 
   test('exits with error when server does not start within timeout', async () => {
     const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
-    const spawnMock = mock(() => ({ unref: () => {} }));
+    const spawnMock = mock(() => ({ unref: () => {}, on: () => {} }));
     const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
