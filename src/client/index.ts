@@ -154,16 +154,6 @@ function connect(): void {
 
 connect();
 
-// When dragging inside the terminal (e.g. vim split resize), the pointer can
-// leave the canvas boundary and the browser stops delivering mousemove to it.
-// Setting pointer capture on the canvas on pointerdown redirects all subsequent
-// pointer and synthesized mouse events to that element for the duration of the
-// press, so drags never lose tracking mid-gesture.
-container.addEventListener('pointerdown', (e: PointerEvent) => {
-  const canvas = container.querySelector('canvas');
-  canvas?.setPointerCapture(e.pointerId);
-});
-
 // ghostty-web reports hover mousemove events (e.buttons === 0) as button-32
 // SGR drags to the PTY. Vim with `set mouse=a` interprets button-32 as
 // "extend selection" and enters visual mode. Block no-button mousemove events
