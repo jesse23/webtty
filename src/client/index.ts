@@ -91,12 +91,23 @@ function fit(): void {
   container.style.paddingBottom = `${Math.ceil(vGap / 2)}px`;
 }
 
-fit();
-new ResizeObserver(() => fit()).observe(container, { box: 'border-box' });
+// Both ResizeObserver and window 'resize' can fire for the same physical event.
+// Schedule through rAF so multiple signals coalesce into one fit per frame.
+let pendingFitFrame: number | null = null;
+function scheduleFit(): void {
+  if (pendingFitFrame !== null) return;
+  pendingFitFrame = window.requestAnimationFrame(() => {
+    pendingFitFrame = null;
+    fit();
+  });
+}
+
+scheduleFit();
+new ResizeObserver(() => scheduleFit()).observe(container, { box: 'border-box' });
 // ResizeObserver misses monitor hot-plug and DPI changes because those resize
 // the viewport without changing the container's layout box. window resize fires
 // reliably for both, so use both observers together.
-window.addEventListener('resize', fit);
+window.addEventListener('resize', scheduleFit);
 
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 let ws: WebSocket;

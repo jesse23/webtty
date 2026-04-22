@@ -134,7 +134,7 @@ describe('startServer', () => {
   test('exits with error when server entry not found', async () => {
     const realExistsSync = fs.existsSync.bind(fs);
     const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) =>
-      String(p).includes('server/index') ? false : realExistsSync(p),
+      String(p).replace(/\\/g, '/').includes('server/index') ? false : realExistsSync(p),
     );
     const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});

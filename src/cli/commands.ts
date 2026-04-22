@@ -2,7 +2,7 @@ import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configDir, loadConfig } from '../config';
-import { BASE_URL, isServerRunning, openBrowser, PORT, startServer, stopServer } from './http';
+import { getBaseUrl, getPort, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
 /**
  * Converts a bind host to a browser-navigable host.
@@ -27,11 +27,11 @@ export async function cmdGo(id = 'main'): Promise<void> {
   }
 
   let sessionId: string;
-  const check = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`);
+  const check = await fetch(`${getBaseUrl()}/api/sessions/${encodeURIComponent(id)}`);
   if (check.status === 200) {
     sessionId = id;
   } else {
-    const res = await fetch(`${BASE_URL}/api/sessions`, {
+    const res = await fetch(`${getBaseUrl()}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id }),
@@ -45,7 +45,7 @@ export async function cmdGo(id = 'main'): Promise<void> {
     sessionId = session.id;
   }
 
-  const url = `http://${toBrowserHost(loadConfig().host)}:${PORT}/s/${sessionId}`;
+  const url = `http://${toBrowserHost(loadConfig().host)}:${getPort()}/s/${sessionId}`;
   console.log(url);
   openBrowser(url);
 }
@@ -58,7 +58,7 @@ export async function cmdGo(id = 'main'): Promise<void> {
 export async function cmdList(filter?: string): Promise<void> {
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}/api/sessions`);
+    res = await fetch(`${getBaseUrl()}/api/sessions`);
   } catch {
     console.log('webtty is not running');
     process.exit(1);
@@ -92,7 +92,7 @@ export async function cmdRemove(id?: string): Promise<void> {
   }
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`, {
+    res = await fetch(`${getBaseUrl()}/api/sessions/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   } catch {
@@ -127,7 +127,7 @@ export async function cmdRename(id?: string, newId?: string): Promise<void> {
   }
   let res: Response;
   try {
-    res = await fetch(`${BASE_URL}/api/sessions/${encodeURIComponent(id)}`, {
+    res = await fetch(`${getBaseUrl()}/api/sessions/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id: newId }),

@@ -7,11 +7,15 @@ import { configDir, loadConfig } from '../config';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Active server port, resolved from config (env PORT is intentionally ignored). */
-export const PORT = loadConfig().port;
+/** Active server port, read from config on first call (env PORT is intentionally ignored). */
+export function getPort(): number {
+  return loadConfig().port;
+}
 
 /** Base URL for internal CLI↔server API calls (always 127.0.0.1, avoids IPv6 lookup). */
-export const BASE_URL = `http://127.0.0.1:${PORT}`;
+export function getBaseUrl(): string {
+  return `http://127.0.0.1:${getPort()}`;
+}
 
 /** Returns the path to the server log file: `~/.config/webtty/server.log`. */
 export function logPath(): string {
@@ -21,7 +25,7 @@ export function logPath(): string {
 /** Returns `true` if the webtty server is reachable and responding to API requests. */
 export async function isServerRunning(): Promise<boolean> {
   try {
-    const res = await fetch(`${BASE_URL}/api/sessions`);
+    const res = await fetch(`${getBaseUrl()}/api/sessions`);
     if (!res.ok) return false;
     const body = await res.json();
     return Array.isArray(body);
@@ -82,7 +86,7 @@ export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn
   const child = _spawn(serverExec, [serverEntry], {
     detached: true,
     stdio,
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(getPort()) },
   });
   child.on('error', (err) => {
     const hint = useNode
@@ -106,11 +110,14 @@ export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn
 /**
  * Sends `POST /api/server/stop`, then polls until the server is no longer reachable.
  *
- * @param baseUrl - The server base URL (default: BASE_URL).
+ * @param baseUrl - The server base URL (default: getBaseUrl()).
  * @param timeoutMs - Maximum time to wait for the server to stop (default: 5000 ms).
  * @returns `true` if the server stopped successfully, `false` otherwise.
  */
-export async function stopServer(baseUrl: string = BASE_URL, timeoutMs = 5000): Promise<boolean> {
+export async function stopServer(
+  baseUrl: string = getBaseUrl(),
+  timeoutMs = 5000,
+): Promise<boolean> {
   try {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
     if (!res.ok) return false;
