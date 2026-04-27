@@ -106,9 +106,7 @@ export function configDir(): string {
   // an absolute path — guarding against accidental env pollution such as the
   // string "undefined" being assigned when HOME was originally unset on Windows.
   const home =
-    process.env.HOME && path.isAbsolute(process.env.HOME)
-      ? process.env.HOME
-      : os.homedir();
+    process.env.HOME && path.isAbsolute(process.env.HOME) ? process.env.HOME : os.homedir();
   return path.join(home, '.config', 'webtty');
 }
 

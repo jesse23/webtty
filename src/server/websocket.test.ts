@@ -50,6 +50,7 @@ function waitForPrompt(messages: string[], timeout = 3000): Promise<void> {
     const deadline = Date.now() + timeout;
     const check = () => {
       const all = messages.join('');
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: ESC (\x1b) is intentional — matching terminal escape sequences in PTY output
       if (all.includes('\x1b]133;B') || all.match(/[$%#>➜](?:\s|\x1b|$)/m)) return resolve();
       if (Date.now() > deadline) return reject(new Error('Timeout waiting for shell prompt'));
       setTimeout(check, 50);

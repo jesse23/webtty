@@ -23,7 +23,8 @@ const TEST_SHELL = process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.e
 // so skip the interactive data test under Bun on Windows — it passes in CI (Linux)
 // and under Node on Windows.
 const isBunOnWindows =
-  process.platform === 'win32' && typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+  process.platform === 'win32' &&
+  typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
 
 describe('spawnForSession', () => {
   test('returns a PtyProcess with the expected interface', () => {
