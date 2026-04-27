@@ -101,7 +101,15 @@ export interface Config {
 
 /** Returns the webtty config directory: `~/.config/webtty`. */
 export function configDir(): string {
-  return path.join(process.env.HOME ?? os.homedir(), '.config', 'webtty');
+  // os.homedir() is the authoritative home directory. process.env.HOME is used
+  // as an override in tests (e.g. to isolate config state), but only when it is
+  // an absolute path — guarding against accidental env pollution such as the
+  // string "undefined" being assigned when HOME was originally unset on Windows.
+  const home =
+    process.env.HOME && path.isAbsolute(process.env.HOME)
+      ? process.env.HOME
+      : os.homedir();
+  return path.join(home, '.config', 'webtty');
 }
 
 function getConfigPath(): string {

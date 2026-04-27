@@ -21,3 +21,6 @@ lcov.info
 .agents/
 .claude/
 .sisyphus/
+
+# Artifact from tests running with HOME unset (HOME=undefined pollutes cwd)
+undefined/
