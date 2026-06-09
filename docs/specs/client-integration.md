@@ -17,20 +17,20 @@ webtty's HTTP server is already running whenever a session is open. The integrat
 ## Architecture
 
 ```
-┌─────────────────┐        POST /s/:id/publish        ┌──────────────────────┐
-│   CLI / Agent   │ ────────────────────────────────► │                      │
+┌─────────────────┐        ws /ws/:id/pty              ┌──────────────────────┐
+│  Browser tab    │ ◄───────────────────────────────── │                      │
+│  (terminal)     │ ─────────────────────────────────► │   session.clients    │
+└─────────────────┘        keyboard / resize           └──────────────────────┘
+
+┌─────────────────┐        POST /s/:id/publish         ┌──────────────────────┐
+│   CLI / Agent   │ ─────────────────────────────────► │                      │
 │  (publisher)    │                                    │   webtty server      │
 └─────────────────┘                                    │                      │
                                                        │  session.subscribers │
-┌─────────────────┐        ws /s/:id/subscribe         │                      │
+┌─────────────────┐        ws /ws/:id/events           │                      │
 │  Browser panel  │ ◄───────────────────────────────── │                      │
 │  (subscriber)   │      one WS frame per event        │                      │
 └─────────────────┘                                    └──────────────────────┘
-
-┌─────────────────┐        ws /ws/:id  (PTY)           ┌──────────────────────┐
-│  Browser tab    │ ◄───────────────────────────────── │                      │
-│  (terminal)     │ ────────────────────────────────►  │   session.clients    │
-└─────────────────┘        keyboard / resize           └──────────────────────┘
 ```
 
 Subscribers (integration channel) and terminal clients (PTY) are independent. A browser tab can be one, the other, or both.
@@ -51,10 +51,11 @@ Projects like Fusion today ship a standalone `sync-server.ts` on a separate port
 
 ## How It Works
 
-1. `bunx webtty go my-session` — the only process to start; publish and subscribe endpoints are available immediately
-2. Browser panels subscribe via WebSocket on the session's subscribe endpoint
-3. CLI tools or agents POST JSON to the session's publish endpoint — one-shot or as a stream of lines
-4. Each JSON line is broadcast to all subscribers as a discrete WebSocket frame as it arrives
+1. `bunx webtty go my-session` — the only process to start
+2. A terminal client connects to `/ws/:id/pty` — this spawns the PTY and activates the channel
+3. Browser panels subscribe via `/ws/:id/events` (requires an active PTY)
+4. CLI tools or agents POST JSON to `/s/:id/publish` — one-shot or as a stream of lines
+5. Each JSON line is broadcast to all subscribers as a discrete WebSocket frame as it arrives
 
 For interface details, channel flow, and API reference see [ADR 025](../adrs/025.server.channel.md).
 
