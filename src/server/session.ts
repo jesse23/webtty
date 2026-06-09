@@ -11,6 +11,8 @@ export interface Session {
   pty: PtyProcess | null;
   /** All currently connected WebSocket clients for this session. */
   clients: Set<WS>;
+  /** All currently connected event subscribers for this session. */
+  subscribers: Set<WS>;
   /** Accumulated PTY output retained for replay when a new client joins. */
   scrollback: string;
 }
@@ -61,6 +63,7 @@ export function createSession(id: string): Session {
     createdAt: Date.now(),
     pty: null,
     clients: new Set(),
+    subscribers: new Set(),
     scrollback: '',
   };
   sessionRegistry.set(id, session);

@@ -195,6 +195,43 @@ describe('server — routes', () => {
     expect(res.status).toBe(404);
   });
 
+  test('POST /s/:id/publish returns 404 for unknown session', async () => {
+    const res = await fetch(`${baseUrl}/s/no-such-session/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'test' }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /s/:id/publish returns 400 for wrong content-type', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'publish-ct-test' }),
+    });
+    const res = await fetch(`${baseUrl}/s/publish-ct-test/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: 'hello',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /s/:id/publish returns 409 when PTY not running', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'publish-no-pty' }),
+    });
+    const res = await fetch(`${baseUrl}/s/publish-no-pty/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'test' }),
+    });
+    expect(res.status).toBe(409);
+  });
+
   test('POST /api/server/stop returns 200 and stops server', async () => {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
     expect(res.status).toBe(200);

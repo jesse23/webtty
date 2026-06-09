@@ -114,7 +114,7 @@ const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 let ws: WebSocket;
 
 function connect(): void {
-  const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}?cols=${term.cols}&rows=${term.rows}`;
+  const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}/pty?cols=${term.cols}&rows=${term.rows}`;
   ws = new WebSocket(wsUrl);
 
   const DIM = '\x1b[2m',
