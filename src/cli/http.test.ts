@@ -197,7 +197,7 @@ describe('startServer', () => {
     const { startServer } = await import('./http');
     await startServer(10000, spawnMock as never);
 
-    const [exec] = spawnMock.mock.calls[0] as [string, string[]];
+    const [exec] = spawnMock.mock.calls[0] as unknown as [string, string[]];
     expect(exec).toBe('node');
 
     Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });

@@ -146,15 +146,16 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
     const ptyMatch = url.pathname.match(/^\/ws\/([^/]+)\/pty$/);
     const eventsMatch = url.pathname.match(/^\/ws\/([^/]+)\/events$/);
+    const match = ptyMatch ?? eventsMatch;
 
-    if (!ptyMatch && !eventsMatch) {
+    if (!match) {
       ws.close();
       return;
     }
 
     let id: string;
     try {
-      id = decodeURIComponent((ptyMatch ?? eventsMatch)![1]);
+      id = decodeURIComponent(match[1]);
     } catch {
       ws.close(WS_CLOSE.BAD_REQUEST, 'Bad Request');
       return;
