@@ -10,7 +10,7 @@ A pattern for pushing live updates from a CLI tool or agent into a browser UI �
 
 **Persona:** Developers building CLI agents or tools that produce structured output and want to surface that output in a browser UI in real-time.
 
-**Core idea:** webtty's HTTP server is already running whenever a terminal session is open. A named pub/sub channel piggybacks on that server so any CLI process can `POST` a JSON payload and any number of browser tabs receive it immediately over WebSocket — no extra port, no extra process.
+**Core idea:** webtty's HTTP server is already running whenever a session is open. Each session has a built-in sidecar channel: a CLI process can `POST` JSON to the session's publish endpoint and any number of browser tabs receive it immediately over WebSocket — no extra port, no extra process, no separate channel name to manage.
 
 ---
 
@@ -21,12 +21,12 @@ A pattern for pushing live updates from a CLI tool or agent into a browser UI �
 An AI agent or search tool runs in the terminal and streams structured results (search hits, status updates, progress) to a browser panel that renders them as they arrive.
 
 ```
-CLI agent  →  POST /channel/my-agent/publish  →  webtty server  →  WS  →  browser panel
+CLI agent  →  POST /s/:id/publish  →  webtty server  →  WS  →  browser panel
 ```
 
 ### Replacing a bespoke sync server
 
-Today, projects like Fusion ship a standalone `sync-server.ts` that must be started separately on a dedicated port. The client-integration channel replaces this with two routes on the webtty port that is already running.
+Projects like Fusion today ship a standalone `sync-server.ts` that must be started separately on a dedicated port. The session channel replaces this with two routes on the webtty port that is already running.
 
 ---
 
@@ -38,35 +38,54 @@ Today, projects like Fusion ship a standalone `sync-server.ts` that must be star
 bunx webtty go my-session
 ```
 
-This is the only process needed. The channel endpoints are always-on.
+This is the only process needed. The publish and subscribe endpoints are always-on for every session.
 
 ### 2. Subscribe in the browser
 
 ```js
-const ws = new WebSocket('ws://localhost:2346/channel/my-agent/subscribe');
+const ws = new WebSocket('ws://localhost:2346/s/my-session/subscribe');
 ws.onmessage = (e) => {
   const payload = JSON.parse(e.data);
   // render payload in UI
 };
 ```
 
+Each published event arrives as a single WebSocket text frame containing a JSON string.
+
 ### 3. Publish from the CLI
 
-From a shell script, agent, or MCP tool:
+**One-shot** — a single JSON object posted in one request:
 
 ```sh
-curl -X POST http://localhost:2346/channel/my-agent/publish \
+curl -X POST http://localhost:2346/s/my-session/publish \
   -H 'Content-Type: application/json' \
   -d '{"type":"result","items":[...]}'
+```
+
+**Streaming** — newline-delimited JSON (NDJSON) over a single chunked request; the server broadcasts each line as it arrives:
+
+```sh
+my-agent --stream | curl -X POST http://localhost:2346/s/my-session/publish \
+  -H 'Content-Type: application/x-ndjson' \
+  --data-binary @-
 ```
 
 Or from Node/Bun:
 
 ```ts
-await fetch('http://localhost:2346/channel/my-agent/publish', {
+// one-shot
+await fetch('http://localhost:2346/s/my-session/publish', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({ type: 'status', progress: 0.42 }),
+});
+
+// streaming (NDJSON)
+const { writable } = new TransformStream();
+await fetch('http://localhost:2346/s/my-session/publish', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/x-ndjson' },
+  body: readable, // ReadableStream of newline-terminated JSON strings
 });
 ```
 
@@ -74,19 +93,20 @@ await fetch('http://localhost:2346/channel/my-agent/publish', {
 
 ## Channel Semantics
 
-- **Implicit lifecycle** — channels are created on first subscriber and torn down when the last subscriber disconnects. No create/delete API.
+- **Session-scoped** — each session has exactly one channel; the session ID is the channel name. No separate channel creation or naming needed.
+- **Implicit lifecycle** — the channel is live as long as the session exists. Subscribers can connect and disconnect freely.
 - **No persistence** — payloads are not stored or replayed. A subscriber that connects late misses earlier messages (acceptable for live-streaming use cases).
-- **Multiple channels** — use distinct names (e.g. `search`, `agent-status`) so independent features on the same webtty instance don't interfere.
-- **Channel names** — `a-z`, `0-9`, `-`, `_`, `.`, 1–64 characters (same rules as session IDs).
+- **Multiple subscribers** — any number of browser tabs can subscribe to the same session channel simultaneously.
 
 ---
 
 ## API Reference
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/channel/:name/publish` | Broadcast a JSON payload to all current subscribers; `204` on success; `400` if body is not valid JSON; `415` if `Content-Type` is not `application/json` |
-| `GET`  | `/channel/:name/subscribe` | WebSocket upgrade — joins the subscriber set for `:name`; receives published payloads as JSON text frames |
+| Method | Path | Content-Type | Description |
+|--------|------|-------------|-------------|
+| `POST` | `/s/:id/publish` | `application/json` | Broadcast a single JSON payload to all current subscribers; `204` on success; `400` if body is not valid JSON; `404` if session does not exist |
+| `POST` | `/s/:id/publish` | `application/x-ndjson` | Stream NDJSON; each newline-terminated line is parsed and broadcast as it arrives; connection held open until publisher closes it |
+| `GET`  | `/s/:id/subscribe` | — | WebSocket upgrade — joins the subscriber set for the session; receives published payloads as JSON text frames; `404` if session does not exist |
 
 ---
 
@@ -94,4 +114,6 @@ await fetch('http://localhost:2346/channel/my-agent/publish', {
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Named pub/sub channel | POST publish + WebSocket subscribe on the existing webtty server | [ADR 025](../adrs/025.server.channel.md) | ❌ |
+| Session channel — one-shot publish | `POST /s/:id/publish` with `application/json` broadcasts a single event to all WebSocket subscribers | [ADR 025](../adrs/025.server.channel.md) | ❌ |
+| Session channel — streaming publish | `POST /s/:id/publish` with `application/x-ndjson` broadcasts each line as it arrives | [ADR 025](../adrs/025.server.channel.md) | ❌ |
+| Session channel — subscribe | `GET /s/:id/subscribe` WebSocket upgrade; receives published events as discrete frames | [ADR 025](../adrs/025.server.channel.md) | ❌ |
