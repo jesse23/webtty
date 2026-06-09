@@ -11,7 +11,7 @@ import {
   setLastUsedId,
 } from './session';
 import { serveFile } from './static';
-import { closeSession } from './websocket';
+import { broadcastToSubscribers, closeSession } from './websocket';
 
 const MAX_BODY = 64 * 1024;
 
@@ -241,6 +241,63 @@ export async function handleRequest(
     }
     const clientHtml = path.resolve(clientDistPath, 'client.html');
     serveFile(clientHtml, res);
+    return;
+  }
+
+  const publishMatch = pathname.match(/^\/s\/([^/]+)\/publish$/);
+  if (req.method === 'POST' && publishMatch) {
+    const id = decodeId(publishMatch[1]);
+    if (!id) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
+    if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
+    const session = sessionRegistry.get(id);
+    if (!session) {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
+    if (session.pty === null) {
+      res.writeHead(409);
+      res.end('PTY not running');
+      return;
+    }
+    let buf = '';
+    req.on('data', (chunk: Buffer) => {
+      buf += chunk.toString('utf8');
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        try {
+          JSON.parse(line);
+          broadcastToSubscribers(session, line);
+        } catch {
+          // skip invalid JSON lines
+        }
+      }
+    });
+    req.on('end', () => {
+      if (buf) {
+        try {
+          JSON.parse(buf);
+          broadcastToSubscribers(session, buf);
+        } catch {
+          // skip invalid JSON
+        }
+      }
+      res.writeHead(204);
+      res.end();
+    });
+    req.on('error', () => {
+      res.writeHead(500);
+      res.end();
+    });
     return;
   }
 

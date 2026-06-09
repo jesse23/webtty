@@ -177,6 +177,107 @@ describe('startServer', () => {
     configSpy.mockRestore();
   });
 
+  test('uses node executor on win32 with Bun', async () => {
+    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
+    const fakeChild = { unref: mock(() => {}), on: mock(() => {}) };
+    const spawnMock = mock(() => fakeChild);
+
+    globalThis.fetch = mock(
+      async () => new Response('[]', { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const configModule = await import('../config');
+    const configSpy = spyOn(configModule, 'loadConfig').mockReturnValue({
+      ...configModule.DEFAULT_CONFIG,
+    });
+
+    const origPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+    const { startServer } = await import('./http');
+    await startServer(10000, spawnMock as never);
+
+    const [exec] = spawnMock.mock.calls[0] as [string, string[]];
+    expect(exec).toBe('node');
+
+    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
+    existsSpy.mockRestore();
+    configSpy.mockRestore();
+  });
+
+  test('logs error and exits when spawn emits error (non-windows hint)', async () => {
+    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
+    const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    const fakeChild = {
+      unref: mock(() => {}),
+      on: mock((event: string, cb: (err: Error) => void) => {
+        if (event === 'error') cb(new Error('spawn ENOENT'));
+      }),
+    };
+    const spawnMock = mock(() => fakeChild);
+
+    globalThis.fetch = mock(
+      async () => new Response('[]', { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const configModule = await import('../config');
+    const configSpy = spyOn(configModule, 'loadConfig').mockReturnValue({
+      ...configModule.DEFAULT_CONFIG,
+    });
+
+    const { startServer } = await import('./http');
+    await startServer(10000, spawnMock as never);
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('failed to start server'));
+    expect(errorSpy).toHaveBeenCalledWith(expect.not.stringContaining('Node.js must be on PATH'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    existsSpy.mockRestore();
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+    configSpy.mockRestore();
+  });
+
+  test('logs error with win32 hint when spawn emits error on win32', async () => {
+    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
+    const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    const fakeChild = {
+      unref: mock(() => {}),
+      on: mock((event: string, cb: (err: Error) => void) => {
+        if (event === 'error') cb(new Error('spawn ENOENT'));
+      }),
+    };
+    const spawnMock = mock(() => fakeChild);
+
+    globalThis.fetch = mock(
+      async () => new Response('[]', { status: 200 }),
+    ) as unknown as typeof fetch;
+
+    const configModule = await import('../config');
+    const configSpy = spyOn(configModule, 'loadConfig').mockReturnValue({
+      ...configModule.DEFAULT_CONFIG,
+    });
+
+    const origPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32', configurable: true });
+
+    const { startServer } = await import('./http');
+    await startServer(10000, spawnMock as never);
+
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('Node.js must be on PATH'));
+    expect(exitSpy).toHaveBeenCalledWith(1);
+
+    Object.defineProperty(process, 'platform', { value: origPlatform, configurable: true });
+    existsSpy.mockRestore();
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+    configSpy.mockRestore();
+  });
+
   test('exits with error when server does not start within timeout', async () => {
     const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(true);
     const spawnMock = mock(() => ({ unref: () => {}, on: () => {} }));

@@ -10,11 +10,14 @@ const WS_CLOSE = {
   SERVER_STOPPED: 1001 as const, // RFC 6455: server going away
   BAD_REQUEST: 1008 as const, // RFC 6455: policy violation / bad data
   SESSION_GONE: 4001 as const, // app-level: session deleted or shell exited
+  PTY_NOT_RUNNING: 4002 as const, // app-level: PTY not running
 } as const;
 
 function closeClients(session: Session, code: number, reason: string): void {
   session.pty?.kill();
   for (const client of session.clients) client.close(code, reason);
+  for (const sub of session.subscribers) sub.close(code, reason);
+  session.subscribers.clear();
 }
 
 /**
@@ -30,6 +33,18 @@ export function closeSession(session: Session): void {
 export function closeAllSessions(): void {
   for (const session of sessionRegistry.values()) {
     closeClients(session, WS_CLOSE.SERVER_STOPPED, 'server stopped');
+  }
+}
+
+/**
+ * Sends `line` to all open event subscribers of `session`.
+ *
+ * @param session - The session whose subscribers to notify.
+ * @param line - The line to send.
+ */
+export function broadcastToSubscribers(session: Session, line: string): void {
+  for (const sub of session.subscribers) {
+    if (sub.readyState === sub.OPEN) sub.send(line);
   }
 }
 
@@ -87,9 +102,27 @@ function sessionBanner(): string {
   ].join('');
 }
 
+function handleSubscribe(ws: WS, id: string): void {
+  const session = sessionRegistry.get(id);
+  if (!session) {
+    ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
+    return;
+  }
+  if (session.pty === null) {
+    ws.close(WS_CLOSE.PTY_NOT_RUNNING, 'PTY not running');
+    return;
+  }
+  session.subscribers.add(ws);
+  ws.on('close', () => {
+    session.subscribers.delete(ws);
+  });
+  ws.on('error', () => {});
+}
+
 /**
  * Attaches a WebSocket server to `httpServer`, handling PTY I/O, session management,
- * scrollback replay, and terminal resize for all `/ws/:id` connections.
+ * scrollback replay, and terminal resize for all `/ws/:id/pty` connections,
+ * and event subscriptions for `/ws/:id/events` connections.
  *
  * @param httpServer - The HTTP server to attach the WebSocket server to.
  * @returns The configured {@link WebSocketServer}.
@@ -99,7 +132,10 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
   httpServer.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
-    if (url.pathname.match(/^\/ws\/([^/]+)$/)) {
+    if (
+      url.pathname.match(/^\/ws\/([^/]+)\/pty$/) ||
+      url.pathname.match(/^\/ws\/([^/]+)\/events$/)
+    ) {
       wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
     } else {
       socket.destroy();
@@ -108,19 +144,27 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
   wss.on('connection', (ws: WS, req: http.IncomingMessage) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
-    const wsMatch = url.pathname.match(/^\/ws\/([^/]+)$/);
-    if (!wsMatch) {
+    const ptyMatch = url.pathname.match(/^\/ws\/([^/]+)\/pty$/);
+    const eventsMatch = url.pathname.match(/^\/ws\/([^/]+)\/events$/);
+
+    if (!ptyMatch && !eventsMatch) {
       ws.close();
       return;
     }
 
     let id: string;
     try {
-      id = decodeURIComponent(wsMatch[1]);
+      id = decodeURIComponent((ptyMatch ?? eventsMatch)![1]);
     } catch {
       ws.close(WS_CLOSE.BAD_REQUEST, 'Bad Request');
       return;
     }
+
+    if (eventsMatch) {
+      handleSubscribe(ws, id);
+      return;
+    }
+
     const cols = Math.max(
       1,
       Math.min(1000, Number.parseInt(url.searchParams.get('cols') ?? '80', 10) || 80),
@@ -163,6 +207,12 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
             client.close(WS_CLOSE.SESSION_GONE, 'shell exited');
           }
         }
+        for (const sub of session.subscribers) {
+          if (sub.readyState === sub.OPEN) {
+            sub.close(WS_CLOSE.SESSION_GONE, 'shell exited');
+          }
+        }
+        session.subscribers.clear();
         session.pty = null;
         if (sessionRegistry.size === 0) onLastSessionClosed?.();
       });

@@ -114,7 +114,7 @@ describe('websocket', () => {
   });
 
   test('rejects connection for non-existent session with code 4001', async () => {
-    const ws = new WebSocket(`${wsBase}/ws/no-such-session`);
+    const ws = new WebSocket(`${wsBase}/ws/no-such-session/pty`);
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
     expect(code).toBe(4001);
   });
@@ -126,7 +126,7 @@ describe('websocket', () => {
       body: JSON.stringify({ id: 'ws-test-banner' }),
     });
 
-    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-banner?cols=80&rows=24`);
+    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-banner/pty?cols=80&rows=24`);
     await waitForMessages(messages, 1);
     await closeWs(ws);
 
@@ -141,13 +141,13 @@ describe('websocket', () => {
     });
 
     const { ws: ws1, messages: m1 } = await connectWs(
-      `${wsBase}/ws/ws-test-replay?cols=80&rows=24`,
+      `${wsBase}/ws/ws-test-replay/pty?cols=80&rows=24`,
     );
     await waitForMessages(m1, 1);
     await closeWs(ws1);
 
     const { ws: ws2, messages: m2 } = await connectWs(
-      `${wsBase}/ws/ws-test-replay?cols=80&rows=24`,
+      `${wsBase}/ws/ws-test-replay/pty?cols=80&rows=24`,
     );
     await waitForMessages(m2, 1);
     await closeWs(ws2);
@@ -165,12 +165,12 @@ describe('websocket', () => {
     });
 
     const { ws: ws1, messages: m1 } = await connectWs(
-      `${wsBase}/ws/ws-test-fanout?cols=80&rows=24`,
+      `${wsBase}/ws/ws-test-fanout/pty?cols=80&rows=24`,
     );
     await waitForMessages(m1, 1);
 
     const { ws: ws2, messages: m2 } = await connectWs(
-      `${wsBase}/ws/ws-test-fanout?cols=80&rows=24`,
+      `${wsBase}/ws/ws-test-fanout/pty?cols=80&rows=24`,
     );
     await waitForMessages(m2, 1);
 
@@ -194,7 +194,7 @@ describe('websocket', () => {
       body: JSON.stringify({ id: 'ws-test-exit' }),
     });
 
-    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-exit?cols=80&rows=24`);
+    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-exit/pty?cols=80&rows=24`);
     await waitForMessages(messages, 1);
 
     const closeCode = new Promise<number>((resolve) => ws.on('close', (code) => resolve(code)));
@@ -212,7 +212,7 @@ describe('websocket', () => {
       body: JSON.stringify({ id: 'ws-test-resize' }),
     });
 
-    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-resize?cols=80&rows=24`);
+    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-resize/pty?cols=80&rows=24`);
     await waitForMessages(messages, 1);
     await waitForPrompt(messages);
 
@@ -232,7 +232,7 @@ describe('websocket', () => {
       body: JSON.stringify({ id: 'ws-test-pid-route' }),
     });
 
-    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-pid-route?cols=80&rows=24`);
+    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-pid-route/pty?cols=80&rows=24`);
     await waitForMessages(messages, 1);
     await closeWs(ws);
 
@@ -249,6 +249,130 @@ describe('websocket', () => {
     expect(res.headers.get('location')).toBe('/s/ws-test-pid-route');
   });
 
+  test('GET /ws/:id/events rejects with 4001 for non-existent session', async () => {
+    const ws = new WebSocket(`${wsBase}/ws/no-such-session/events`);
+    const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    expect(code).toBe(4001);
+  });
+
+  test('GET /ws/:id/events rejects with 4002 when PTY not running', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'events-no-pty' }),
+    });
+    const ws = new WebSocket(`${wsBase}/ws/events-no-pty/events`);
+    const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+    expect(code).toBe(4002);
+  });
+
+  test('subscriber receives published event', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'events-pubsub' }),
+    });
+    const { ws: ptyWs, messages: ptyMessages } = await connectWs(
+      `${wsBase}/ws/events-pubsub/pty?cols=80&rows=24`,
+    );
+    await waitForMessages(ptyMessages, 1);
+
+    const { ws: subWs, messages: subMessages } = await connectWs(
+      `${wsBase}/ws/events-pubsub/events`,
+    );
+
+    await fetch(`${baseUrl}/s/events-pubsub/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'test', value: 42 }),
+    });
+
+    await waitForMessages(subMessages, 1);
+    expect(JSON.parse(subMessages[0])).toEqual({ type: 'test', value: 42 });
+
+    await closeWs(subWs);
+    await closeWs(ptyWs);
+  });
+
+  test('multi-line publish delivers one frame per line', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'events-multiline' }),
+    });
+    const { ws: ptyWs, messages: ptyMessages } = await connectWs(
+      `${wsBase}/ws/events-multiline/pty?cols=80&rows=24`,
+    );
+    await waitForMessages(ptyMessages, 1);
+
+    const { ws: subWs, messages: subMessages } = await connectWs(
+      `${wsBase}/ws/events-multiline/events`,
+    );
+
+    await fetch(`${baseUrl}/s/events-multiline/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: [{ seq: 1 }, { seq: 2 }, { seq: 3 }].map((o) => JSON.stringify(o)).join('\n'),
+    });
+
+    await waitForMessages(subMessages, 3);
+    expect(JSON.parse(subMessages[0])).toEqual({ seq: 1 });
+    expect(JSON.parse(subMessages[1])).toEqual({ seq: 2 });
+    expect(JSON.parse(subMessages[2])).toEqual({ seq: 3 });
+
+    await closeWs(subWs);
+    await closeWs(ptyWs);
+  });
+
+  test('invalid JSON lines are silently skipped', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'events-skip-invalid' }),
+    });
+    const { ws: ptyWs, messages: ptyMessages } = await connectWs(
+      `${wsBase}/ws/events-skip-invalid/pty?cols=80&rows=24`,
+    );
+    await waitForMessages(ptyMessages, 1);
+
+    const { ws: subWs, messages: subMessages } = await connectWs(
+      `${wsBase}/ws/events-skip-invalid/events`,
+    );
+
+    await fetch(`${baseUrl}/s/events-skip-invalid/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: [JSON.stringify({ seq: 1 }), 'not valid json', JSON.stringify({ seq: 2 })].join('\n'),
+    });
+
+    await waitForMessages(subMessages, 2);
+    expect(JSON.parse(subMessages[0])).toEqual({ seq: 1 });
+    expect(JSON.parse(subMessages[1])).toEqual({ seq: 2 });
+    expect(subMessages.length).toBe(2);
+
+    await closeWs(subWs);
+    await closeWs(ptyWs);
+  });
+
+  test('subscribers are closed with 4001 when shell exits', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'events-shell-exit' }),
+    });
+    const { ws: ptyWs, messages: ptyMessages } = await connectWs(
+      `${wsBase}/ws/events-shell-exit/pty?cols=80&rows=24`,
+    );
+    await waitForMessages(ptyMessages, 1);
+    await waitForPrompt(ptyMessages);
+
+    const { ws: subWs } = await connectWs(`${wsBase}/ws/events-shell-exit/events`);
+    const closeCode = new Promise<number>((resolve) => subWs.on('close', (c) => resolve(c)));
+
+    ptyWs.send(`exit${NL}`);
+    expect(await closeCode).toBe(4001);
+  });
+
   test('server shuts down when last session exits', async () => {
     await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
@@ -263,7 +387,7 @@ describe('websocket', () => {
       }
     }
 
-    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-last?cols=80&rows=24`);
+    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-last/pty?cols=80&rows=24`);
     await waitForMessages(messages, 1);
 
     ws.send(`exit${NL}`);
