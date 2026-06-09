@@ -65,5 +65,5 @@ For interface details, channel flow, and API reference see [ADR 025](../adrs/025
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Session channel — publish | CLI tools POST JSON (one-shot or streaming) to the session; each event broadcast to subscribers in real-time | [ADR 025](../adrs/025.server.channel.md) | ❌ |
-| Session channel — subscribe | Browser panels subscribe via WebSocket and receive one JSON object per frame | [ADR 025](../adrs/025.server.channel.md) | ❌ |
+| Session channel — publish | CLI tools POST JSON (one-shot or streaming) to the session; each event broadcast to subscribers in real-time | [ADR 025](../adrs/025.server.channel.md) | ✅ |
+| Session channel — subscribe | Browser panels subscribe via WebSocket and receive one JSON object per frame | [ADR 025](../adrs/025.server.channel.md) | ✅ |

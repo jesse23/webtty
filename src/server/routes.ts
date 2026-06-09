@@ -273,20 +273,24 @@ export async function handleRequest(
       buf += chunk.toString('utf8');
       const lines = buf.split('\n');
       buf = lines.pop() ?? '';
+      if (buf.length > MAX_BODY) buf = '';
       for (const line of lines) {
+        const trimmed = line.replace(/\r$/, '');
+        if (!trimmed) continue;
         try {
-          JSON.parse(line);
-          broadcastToSubscribers(session, line);
+          JSON.parse(trimmed);
+          broadcastToSubscribers(session, trimmed);
         } catch {
           // skip invalid JSON lines
         }
       }
     });
     req.on('end', () => {
-      if (buf) {
+      const trimmed = buf.replace(/\r$/, '');
+      if (trimmed) {
         try {
-          JSON.parse(buf);
-          broadcastToSubscribers(session, buf);
+          JSON.parse(trimmed);
+          broadcastToSubscribers(session, trimmed);
         } catch {
           // skip invalid JSON
         }
