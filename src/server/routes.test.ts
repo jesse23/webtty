@@ -232,6 +232,100 @@ describe('server — routes', () => {
     expect(res.status).toBe(409);
   });
 
+  test('POST /s/:id/execute returns 404 for unknown session', async () => {
+    const res = await fetch(`${baseUrl}/s/no-such-session/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'echo', args: [] }),
+    });
+    expect(res.status).toBe(404);
+  });
+
+  test('POST /s/:id/execute returns 400 for wrong content-type', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'execute-ct-test' }),
+    });
+    const res = await fetch(`${baseUrl}/s/execute-ct-test/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: 'hello',
+    });
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /s/:id/execute returns 409 when PTY not running', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'execute-no-pty' }),
+    });
+    const res = await fetch(`${baseUrl}/s/execute-no-pty/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'echo', args: [] }),
+    });
+    expect(res.status).toBe(409);
+  });
+
+  test('POST /s/:id/execute returns 400 for invalid body', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'execute-bad-body' }),
+    });
+    const wsUrl = baseUrl.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/execute-bad-body/pty?cols=80&rows=24`);
+    await new Promise<void>((resolve, reject) => {
+      ws.onmessage = () => resolve();
+      ws.onerror = () => reject(new Error('WS error'));
+      setTimeout(() => reject(new Error('WS timeout')), 5000);
+    });
+    const res = await fetch(`${baseUrl}/s/execute-bad-body/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 123, args: [] }),
+    });
+    ws.close();
+    expect(res.status).toBe(400);
+  });
+
+  test('POST /s/:id/execute streams ndjson stdout and exit line', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'execute-happy' }),
+    });
+    const wsUrl = baseUrl.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/execute-happy/pty?cols=80&rows=24`);
+    await new Promise<void>((resolve, reject) => {
+      ws.onmessage = () => resolve();
+      ws.onerror = () => reject(new Error('WS error'));
+      setTimeout(() => reject(new Error('WS timeout')), 5000);
+    });
+    const res = await fetch(`${baseUrl}/s/execute-happy/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: 'echo', args: ['hello-execute'] }),
+    });
+    ws.close();
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('application/x-ndjson');
+    const text = await res.text();
+    const lines = text
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    const stdoutLine = lines.find((l) => l['stream'] === 'stdout');
+    expect(stdoutLine).toBeDefined();
+    expect(String(stdoutLine?.['data'])).toContain('hello-execute');
+    const exitLine = lines.find((l) => 'exit' in l);
+    expect(exitLine).toBeDefined();
+    expect(exitLine?.['exit']).toBe(0);
+  });
+
   test('POST /api/server/stop returns 200 and stops server', async () => {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
     expect(res.status).toBe(200);

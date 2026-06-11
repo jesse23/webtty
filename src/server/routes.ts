@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import type http from 'node:http';
 import path from 'node:path';
 import { loadConfig } from '../config';
@@ -301,6 +302,79 @@ export async function handleRequest(
     req.on('error', () => {
       res.writeHead(500);
       res.end();
+    });
+    return;
+  }
+
+  const executeMatch = pathname.match(/^\/s\/([^/]+)\/execute$/);
+  if (req.method === 'POST' && executeMatch) {
+    const id = decodeId(executeMatch[1]);
+    if (!id) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
+    if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
+      res.writeHead(400);
+      res.end('Bad Request');
+      return;
+    }
+    const session = sessionRegistry.get(id);
+    if (!session) {
+      res.writeHead(404);
+      res.end('Not Found');
+      return;
+    }
+    if (session.pty === null) {
+      res.writeHead(409);
+      res.end('PTY not running');
+      return;
+    }
+    let execBody: unknown;
+    try {
+      execBody = await readJson(req);
+    } catch (err) {
+      const status = (err as { status?: number }).status === 413 ? 413 : 400;
+      res.writeHead(status);
+      res.end(status === 413 ? 'Payload Too Large' : 'invalid JSON');
+      return;
+    }
+    const { cmd, args, stdin } = execBody as { cmd?: unknown; args?: unknown; stdin?: unknown };
+    if (typeof cmd !== 'string' || cmd.length === 0) {
+      res.writeHead(400);
+      res.end('invalid body');
+      return;
+    }
+    if (!Array.isArray(args) || !args.every((a) => typeof a === 'string')) {
+      res.writeHead(400);
+      res.end('invalid body');
+      return;
+    }
+    res.writeHead(200, {
+      'Content-Type': 'application/x-ndjson',
+      'Cache-Control': 'no-cache',
+    });
+    const child = spawn(cmd, args as string[], { env: process.env });
+    let childExited = false;
+    if (typeof stdin === 'string') {
+      child.stdin?.write(stdin);
+    }
+    child.stdin?.end();
+    child.stdout?.on('data', (chunk: Buffer) => {
+      res.write(JSON.stringify({ stream: 'stdout', data: chunk.toString() }) + '\n');
+    });
+    child.stderr?.on('data', (chunk: Buffer) => {
+      res.write(JSON.stringify({ stream: 'stderr', data: chunk.toString() }) + '\n');
+    });
+    child.on('close', (code: number | null) => {
+      childExited = true;
+      res.write(JSON.stringify({ exit: code ?? 1 }) + '\n');
+      res.end();
+    });
+    req.on('close', () => {
+      if (!childExited) {
+        child.kill();
+      }
     });
     return;
   }
