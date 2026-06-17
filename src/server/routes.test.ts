@@ -23,7 +23,12 @@ describe('server — routes', () => {
     const port = await getFreePort();
     baseUrl = `http://127.0.0.1:${port}`;
     proc = spawn(process.execPath, [SERVER_ENTRY], {
-      env: { ...process.env, PORT: String(port), HOME: tmpHome },
+      env: {
+        ...process.env,
+        PORT: String(port),
+        HOME: tmpHome,
+        ...(process.platform !== 'win32' && { SHELL: '/bin/sh' }),
+      },
       stdio: 'ignore',
     });
     await waitForServer(baseUrl);
