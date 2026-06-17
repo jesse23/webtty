@@ -16,6 +16,16 @@ import { broadcastToSubscribers, closeSession } from './websocket';
 
 const MAX_BODY = 64 * 1024;
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type',
+};
+
+function setCors(res: http.ServerResponse): void {
+  for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v);
+}
+
 function decodeId(raw: string): string | null {
   try {
     return decodeURIComponent(raw);
@@ -74,6 +84,14 @@ export async function handleRequest(
 ): Promise<void> {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`);
   const pathname = url.pathname;
+
+  setCors(res);
+
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204);
+    res.end();
+    return;
+  }
 
   if (req.method === 'POST' && pathname === '/api/server/stop') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
