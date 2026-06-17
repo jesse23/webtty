@@ -278,7 +278,7 @@ describe('server — routes', () => {
     const wsUrl = baseUrl.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/execute-bad-body/pty?cols=80&rows=24`);
     await new Promise<void>((resolve, reject) => {
-      ws.onmessage = () => resolve();
+      ws.onopen = () => resolve();
       ws.onerror = () => reject(new Error('WS error'));
       setTimeout(() => reject(new Error('WS timeout')), 5000);
     });
@@ -300,7 +300,7 @@ describe('server — routes', () => {
     const wsUrl = baseUrl.replace(/^http/, 'ws');
     const ws = new WebSocket(`${wsUrl}/ws/execute-happy/pty?cols=80&rows=24`);
     await new Promise<void>((resolve, reject) => {
-      ws.onmessage = () => resolve();
+      ws.onopen = () => resolve();
       ws.onerror = () => reject(new Error('WS error'));
       setTimeout(() => reject(new Error('WS timeout')), 5000);
     });
