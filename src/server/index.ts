@@ -36,8 +36,21 @@ function shutdown() {
   });
 }
 
+process.on('uncaughtException', (err) => {
+  console.error('[webtty] uncaughtException:', err);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('[webtty] unhandledRejection:', reason);
+});
+
 const httpServer = http.createServer((req, res) => {
-  handleRequest(req, res, distPath, wasmPath, clientDistPath, shutdown);
+  handleRequest(req, res, distPath, wasmPath, clientDistPath, shutdown).catch((err) => {
+    console.error('[webtty] unhandled route error:', err);
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end('Internal Server Error');
+    }
+  });
 });
 
 const wss = createWebSocketServer(httpServer);

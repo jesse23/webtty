@@ -368,12 +368,28 @@ export async function handleRequest(
       res.end('invalid body');
       return;
     }
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(cmd, args as string[], { env: process.env });
+    } catch (err) {
+      res.writeHead(500);
+      res.end(`spawn error: ${String(err)}`);
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': 'application/x-ndjson',
       'Cache-Control': 'no-cache',
     });
-    const child = spawn(cmd, args as string[], { env: process.env });
-    let childExited = false;
+    let done = false;
+    child.on('error', (err) => {
+      if (done) return;
+      done = true;
+      const msg = err.message;
+      const code = (err as NodeJS.ErrnoException).code;
+      res.write(JSON.stringify({ stream: 'stderr', data: `${msg}\n` }) + '\n');
+      res.write(JSON.stringify({ exit: 1, error: msg, ...(code ? { code } : {}) }) + '\n');
+      res.end();
+    });
     if (typeof stdin === 'string') {
       child.stdin?.write(stdin);
     }
@@ -385,14 +401,13 @@ export async function handleRequest(
       res.write(JSON.stringify({ stream: 'stderr', data: chunk.toString() }) + '\n');
     });
     child.on('close', (code: number | null) => {
-      childExited = true;
+      if (done) return;
+      done = true;
       res.write(JSON.stringify({ exit: code ?? 1 }) + '\n');
       res.end();
     });
     req.on('close', () => {
-      if (!childExited) {
-        child.kill();
-      }
+      if (!done) child.kill();
     });
     return;
   }

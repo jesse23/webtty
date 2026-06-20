@@ -63,7 +63,7 @@ Any browser-based tool (extension, localhost web app) that needs to call a local
 6. On process exit: `{"exit":0}` — then response ends
 7. If the request is cancelled mid-stream, the child process is killed
 
-For API reference and design rationale see [ADR 026](../adrs/026.server.pipe.md).
+For API reference and design rationale see [ADR 026](../adrs/026.server.headless-execute.md).
 
 ---
 
@@ -71,4 +71,5 @@ For API reference and design rationale see [ADR 026](../adrs/026.server.pipe.md)
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| Execute endpoint | `POST /s/:id/execute` — spawn a CLI command alongside a running session, stream stdout/stderr as ndjson, close with exit code | [ADR 026](../adrs/026.server.pipe.md) | ☐ |
+| Execute endpoint | `POST /s/:id/execute` — spawn a CLI command alongside a running session, stream stdout/stderr as ndjson, close with exit code | [ADR 026](../adrs/026.server.headless-execute.md) | ✓ |
+| Execute resilience & structured errors | Process-level crash guards; `child.on('error')` handler; exit line carries `error`+`code` on spawn failure so agents can branch without parsing stderr text | [ADR 027](../adrs/027.server.execute-resilience.md) | ✓ |
