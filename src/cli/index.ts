@@ -1,6 +1,7 @@
 import path from 'node:path';
 import {
   cmdConfig,
+  cmdExec,
   cmdGo,
   cmdKey,
   cmdList,
@@ -33,6 +34,7 @@ function printHelp(): void {
       row('stop', 'Stop the webtty server'),
       row('start', 'Start the webtty server'),
       row('config', 'Open the config file in $VISUAL, $EDITOR, or a default editor'),
+      row('exec <id> <cmd>', 'Run a command in a session and stream its output'),
       row('key', 'Capture a key combo and print its chars value for keyboardBindings'),
       row('help', 'Show this help message'),
     ].join('\n'),
@@ -76,6 +78,15 @@ if (!cmd) {
     case 'config':
       cmdConfig();
       break;
+    case 'exec': {
+      const [id, cmd, ...execArgs] = rest;
+      if (!id || !cmd) {
+        console.error('usage: webtty exec <id> <cmd> [args...]');
+        process.exit(1);
+      }
+      await cmdExec(id, cmd, execArgs);
+      break;
+    }
     case 'key':
       cmdKey();
       break;

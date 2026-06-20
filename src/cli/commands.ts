@@ -217,6 +217,60 @@ export function bytesToDisplay(buf: Buffer): string {
     .join(' ');
 }
 
+export async function cmdExec(id: string, cmd: string, args: string[]): Promise<void> {
+  if (!(await isServerRunning())) {
+    console.error('webtty: server is not running');
+    process.exit(1);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${getBaseUrl()}/s/${encodeURIComponent(id)}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd, args }),
+    });
+  } catch {
+    console.error('webtty: server is not running');
+    process.exit(1);
+  }
+
+  if (res.status === 404) {
+    console.error(`webtty: session not found: ${id}`);
+    process.exit(1);
+  }
+  if (res.status === 409) {
+    console.error(`webtty: PTY not running for session: ${id}`);
+    process.exit(1);
+  }
+  if (!res.ok || !res.body) {
+    console.error(`webtty: exec failed (${res.status})`);
+    process.exit(1);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop()!;
+    for (const line of lines) {
+      if (!line) continue;
+      const msg = JSON.parse(line) as Record<string, unknown>;
+      if (msg['stream'] === 'stdout') process.stdout.write(String(msg['data']));
+      else if (msg['stream'] === 'stderr') process.stderr.write(String(msg['data']));
+      else if ('exit' in msg) {
+        if (msg['error']) console.error(`webtty: ${msg['error']}`);
+        process.exit((msg['exit'] as number) ?? 1);
+      }
+    }
+  }
+}
+
 export function cmdKey(): void {
   if (!process.stdin.isTTY) {
     console.error('webtty key: requires an interactive terminal');
