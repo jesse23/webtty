@@ -28,6 +28,7 @@ export function spawnForSession(
   term: string,
   colorTerm: string,
   cwd: string,
+  env: Record<string, string>,
 ) {
-  return _spawn(shell, cols, rows, term, colorTerm, cwd);
+  return _spawn(shell, cols, rows, term, colorTerm, cwd, env);
 }

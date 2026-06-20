@@ -19,6 +19,7 @@ export function spawn(
   term: string,
   colorTerm: string,
   cwd: string,
+  env: Record<string, string>,
 ): PtyProcess {
   // On Windows, cmd.exe may have an AutoRun registry key that launches shell
   // enhancers (e.g. clink). These take over the ConPTY pipe and cause
@@ -30,7 +31,7 @@ export function spawn(
     cols,
     rows,
     cwd,
-    env: { ...process.env, TERM: term, COLORTERM: colorTerm },
+    env: { ...process.env, ...env, TERM: term, COLORTERM: colorTerm },
   });
 
   return {

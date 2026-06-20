@@ -383,7 +383,8 @@ export async function handleRequest(
     }
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(cmd, args as string[], { env: process.env, cwd: session.baseDir });
+      const execConfig = loadConfig();
+      child = spawn(cmd, args as string[], { env: { ...process.env, ...execConfig.env }, cwd: session.baseDir });
     } catch (err) {
       res.writeHead(500);
       res.end(`spawn error: ${String(err)}`);

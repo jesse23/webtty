@@ -18,6 +18,7 @@ export function spawn(
   term: string,
   colorTerm: string,
   cwd: string,
+  env: Record<string, string>,
 ): PtyProcess {
   let onDataCb: ((data: string) => void) | undefined;
   let onExitCb: ((e: { exitCode: number }) => void) | undefined;
@@ -31,7 +32,7 @@ export function spawn(
       },
     },
     cwd,
-    env: { ...process.env, TERM: term, COLORTERM: colorTerm },
+    env: { ...process.env, ...env, TERM: term, COLORTERM: colorTerm },
   });
 
   proc.exited.then((exitCode) => {
