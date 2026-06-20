@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import type http from 'node:http';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../config';
 import {
@@ -131,9 +133,9 @@ export async function handleRequest(
     }
 
     if (req.method === 'POST') {
-      let body: { id?: string };
+      let body: { id?: string; baseDir?: string };
       try {
-        body = (await readJson(req)) as { id?: string };
+        body = (await readJson(req)) as { id?: string; baseDir?: string };
       } catch (err) {
         const status = (err as { status?: number }).status === 413 ? 413 : 400;
         res.writeHead(status);
@@ -152,7 +154,18 @@ export async function handleRequest(
         res.end(JSON.stringify({ error: `session already exists: ${id}` }));
         return;
       }
-      const session = createSession(id);
+      const baseDir = body.baseDir ?? homedir();
+      if (!path.isAbsolute(baseDir)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'baseDir must be an absolute path' }));
+        return;
+      }
+      if (!fs.existsSync(baseDir)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `baseDir does not exist: ${baseDir}` }));
+        return;
+      }
+      const session = createSession(id, baseDir);
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessionToJson(session)));
       return;
@@ -370,7 +383,7 @@ export async function handleRequest(
     }
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(cmd, args as string[], { env: process.env });
+      child = spawn(cmd, args as string[], { env: process.env, cwd: session.baseDir });
     } catch (err) {
       res.writeHead(500);
       res.end(`spawn error: ${String(err)}`);

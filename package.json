@@ -23,7 +23,8 @@
     "build": "bun run scripts/build.ts",
     "server": "bun run dist/server/index.js",
     "server:node": "node dist/server/index.js",
-    "webtty": "bun -- dist/cli/index.js",
+    "webtty:prod": "bun -- dist/cli/index.js",
+    "webtty": "bun run src/cli/index.ts",
     "prepack": "bun scripts/clean-pkg-scripts.ts strip",
     "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },

@@ -1,4 +1,3 @@
-import { homedir } from 'node:os';
 import nodePty from '@lydell/node-pty';
 import type { PtyProcess } from './types';
 
@@ -10,6 +9,7 @@ import type { PtyProcess } from './types';
  * @param rows - Terminal height in rows.
  * @param term - `$TERM` environment variable (e.g., `xterm-256color`).
  * @param colorTerm - `$COLORTERM` environment variable (e.g., `truecolor`).
+ * @param cwd - Working directory for the shell.
  * @returns A {@link PtyProcess} handle for reading/writing and managing the PTY.
  */
 export function spawn(
@@ -18,6 +18,7 @@ export function spawn(
   rows: number,
   term: string,
   colorTerm: string,
+  cwd: string,
 ): PtyProcess {
   // On Windows, cmd.exe may have an AutoRun registry key that launches shell
   // enhancers (e.g. clink). These take over the ConPTY pipe and cause
@@ -28,7 +29,7 @@ export function spawn(
     name: term,
     cols,
     rows,
-    cwd: homedir(),
+    cwd,
     env: { ...process.env, TERM: term, COLORTERM: colorTerm },
   });
 

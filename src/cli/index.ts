@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   cmdConfig,
   cmdGo,
@@ -38,12 +39,19 @@ function printHelp(): void {
   );
 }
 
-const [, , cmd, ...rest] = process.argv;
+const allArgs = process.argv.slice(2);
+const dirFlagIdx = allArgs.indexOf('--dir');
+let cliBaseDir: string | undefined;
+if (dirFlagIdx !== -1) {
+  cliBaseDir = path.resolve(allArgs[dirFlagIdx + 1] ?? '.');
+  allArgs.splice(dirFlagIdx, 2);
+}
+const [cmd, ...rest] = allArgs;
 
 if (!cmd) {
-  await cmdGo();
+  await cmdGo('main', cliBaseDir);
 } else if (GO_ALIASES.has(cmd)) {
-  await cmdGo(rest[0]);
+  await cmdGo(rest[0] ?? 'main', cliBaseDir);
 } else {
   switch (cmd) {
     case 'ls':

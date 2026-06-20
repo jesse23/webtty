@@ -1,4 +1,3 @@
-import { homedir } from 'node:os';
 import type { PtyProcess } from './types';
 
 /**
@@ -9,6 +8,7 @@ import type { PtyProcess } from './types';
  * @param rows - Terminal height in rows.
  * @param term - `$TERM` environment variable (e.g., `xterm-256color`).
  * @param colorTerm - `$COLORTERM` environment variable (e.g., `truecolor`).
+ * @param cwd - Working directory for the shell.
  * @returns A {@link PtyProcess} handle for reading/writing and managing the PTY.
  */
 export function spawn(
@@ -17,6 +17,7 @@ export function spawn(
   rows: number,
   term: string,
   colorTerm: string,
+  cwd: string,
 ): PtyProcess {
   let onDataCb: ((data: string) => void) | undefined;
   let onExitCb: ((e: { exitCode: number }) => void) | undefined;
@@ -29,7 +30,7 @@ export function spawn(
         onDataCb?.(Buffer.from(data).toString('utf8'));
       },
     },
-    cwd: homedir(),
+    cwd,
     env: { ...process.env, TERM: term, COLORTERM: colorTerm },
   });
 

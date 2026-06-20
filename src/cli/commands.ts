@@ -20,8 +20,9 @@ export function toBrowserHost(host: string): string {
  * Opens (or creates) session `id`, starts the server if needed, and opens the URL in the browser.
  *
  * @param id - The session ID to open (default: `'main'`).
+ * @param baseDir - Working directory for the PTY shell (optional).
  */
-export async function cmdGo(id = 'main'): Promise<void> {
+export async function cmdGo(id = 'main', baseDir?: string): Promise<void> {
   if (!(await isServerRunning())) {
     await startServer();
   }
@@ -34,7 +35,7 @@ export async function cmdGo(id = 'main'): Promise<void> {
     const res = await fetch(`${getBaseUrl()}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, ...(baseDir ? { baseDir } : {}) }),
     });
     if (!res.ok) {
       const body = (await res.json()) as { error?: string };
