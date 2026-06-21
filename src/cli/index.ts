@@ -1,17 +1,17 @@
 import path from 'node:path';
 import {
   cmdConfig,
-  cmdExec,
   cmdGo,
   cmdKey,
   cmdList,
   cmdRemove,
   cmdRename,
+  cmdRun,
   cmdStart,
   cmdStop,
 } from './commands';
 
-const GO_ALIASES = new Set(['go', 'a', 'run', 'attach', 'open']);
+const GO_ALIASES = new Set(['go', 'a', 'attach', 'open']);
 
 function printHelp(): void {
   const indent = '  ';
@@ -31,10 +31,10 @@ function printHelp(): void {
       row('ls [id]', 'List all sessions, or filter by id substring'),
       row('rm <id>', 'Destroy a session'),
       row('mv <id> <new-id>', 'Rename a session'),
+      row('run <id> [cmd]', 'Start PTY (no browser) or run a command in a session'),
       row('stop', 'Stop the webtty server'),
       row('start', 'Start the webtty server'),
       row('config', 'Open the config file in $VISUAL, $EDITOR, or a default editor'),
-      row('exec <id> <cmd>', 'Run a command in a session and stream its output'),
       row('key', 'Capture a key combo and print its chars value for keyboardBindings'),
       row('help', 'Show this help message'),
     ].join('\n'),
@@ -78,13 +78,13 @@ if (!cmd) {
     case 'config':
       cmdConfig();
       break;
-    case 'exec': {
-      const [id, cmd, ...execArgs] = rest;
-      if (!id || !cmd) {
-        console.error('usage: webtty exec <id> <cmd> [args...]');
+    case 'run': {
+      const [id, runCmd, ...runArgs] = rest;
+      if (!id) {
+        console.error('usage: webtty run <id> [cmd [args...]]');
         process.exit(1);
       }
-      await cmdExec(id, cmd, execArgs);
+      await cmdRun(id, runCmd, runArgs);
       break;
     }
     case 'key':

@@ -1,6 +1,7 @@
 import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { WebSocket } from 'ws';
 import { configDir, loadConfig } from '../config';
 import { getBaseUrl, getPort, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
@@ -217,7 +218,51 @@ export function bytesToDisplay(buf: Buffer): string {
     .join(' ');
 }
 
-export async function cmdExec(id: string, cmd: string, args: string[]): Promise<void> {
+export async function cmdRun(id: string, cmd?: string, args: string[] = []): Promise<void> {
+  if (!cmd) {
+    // Warm-up mode: start server + session + PTY, no browser
+    if (!(await isServerRunning())) {
+      await startServer();
+    }
+
+    const check = await fetch(`${getBaseUrl()}/api/sessions/${encodeURIComponent(id)}`);
+    if (check.status !== 200) {
+      const res = await fetch(`${getBaseUrl()}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        console.error(`webtty: ${body.error ?? `failed to create session (${res.status})`}`);
+        process.exit(1);
+      }
+    }
+
+    const wsUrl = `ws://127.0.0.1:${getPort()}/ws/${encodeURIComponent(id)}/pty?cols=80&rows=24`;
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      let opened = false;
+      ws.on('open', () => {
+        opened = true;
+        ws.close(1000);
+        resolve();
+      });
+      ws.on('error', (err) => reject(err));
+      ws.on('close', (code) => {
+        if (!opened) reject(new Error(`failed to start PTY (code ${code})`));
+      });
+    }).catch((err: Error) => {
+      console.error(`webtty: failed to start PTY: ${err.message}`);
+      process.exit(1);
+    });
+
+    const url = `http://${toBrowserHost(loadConfig().host)}:${getPort()}/s/${id}`;
+    console.log(url);
+    return;
+  }
+
+  // Exec mode: headless command execution
   if (!(await isServerRunning())) {
     console.error('webtty: server is not running');
     process.exit(1);
@@ -244,7 +289,7 @@ export async function cmdExec(id: string, cmd: string, args: string[]): Promise<
     process.exit(1);
   }
   if (!res.ok || !res.body) {
-    console.error(`webtty: exec failed (${res.status})`);
+    console.error(`webtty: run failed (${res.status})`);
     process.exit(1);
   }
 
