@@ -1,3 +1,4 @@
+import { homedir } from 'node:os';
 import type { WebSocket as WS } from 'ws';
 import type { PtyProcess } from '../pty';
 
@@ -7,6 +8,8 @@ export interface Session {
   id: string;
   /** Unix timestamp (ms) when the session was created. */
   createdAt: number;
+  /** Working directory for the PTY shell. */
+  baseDir: string;
   /** The underlying PTY process, or `null` if no shell has been spawned yet. */
   pty: PtyProcess | null;
   /** All currently connected WebSocket clients for this session. */
@@ -55,12 +58,14 @@ export function generateId(): string {
  * Creates a new session, registers it in {@link sessionRegistry}, and returns it.
  *
  * @param id - The session ID.
+ * @param baseDir - Working directory for the PTY shell (default: `homedir()`).
  * @returns The newly created {@link Session}.
  */
-export function createSession(id: string): Session {
+export function createSession(id: string, baseDir = homedir()): Session {
   const session: Session = {
     id,
     createdAt: Date.now(),
+    baseDir,
     pty: null,
     clients: new Set(),
     subscribers: new Set(),
@@ -80,6 +85,7 @@ export function sessionToJson(s: Session) {
   return {
     id: s.id,
     createdAt: s.createdAt,
+    baseDir: s.baseDir,
     connected: s.clients.size > 0,
     pid: s.pty?.pid ?? null,
   };

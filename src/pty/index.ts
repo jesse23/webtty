@@ -18,6 +18,7 @@ export const spawn = _spawn;
  * @param shell - Shell executable path (e.g., `/bin/bash`).
  * @param term - `$TERM` environment variable (e.g., `xterm-256color`).
  * @param colorTerm - `$COLORTERM` environment variable (e.g., `truecolor`).
+ * @param cwd - Working directory for the shell.
  * @returns A {@link PtyProcess} handle for reading/writing and managing the PTY.
  */
 export function spawnForSession(
@@ -26,6 +27,8 @@ export function spawnForSession(
   shell: string,
   term: string,
   colorTerm: string,
+  cwd: string,
+  env: Record<string, string>,
 ) {
-  return _spawn(shell, cols, rows, term, colorTerm);
+  return _spawn(shell, cols, rows, term, colorTerm, cwd, env);
 }

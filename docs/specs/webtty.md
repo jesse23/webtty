@@ -60,7 +60,7 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/sessions` | List all sessions; connection refused = server not running |
-| `POST` | `/api/sessions` | Create session; body `{ id? }`; auto-generates ID if omitted; `409` if ID exists; validates ID rules |
+| `POST` | `/api/sessions` | Create session; body `{ id?, baseDir? }`; auto-generates ID if omitted; `409` if ID exists; validates ID rules; `baseDir` must be an absolute path that exists on disk (default: `homedir()`) |
 | `GET` | `/api/sessions/:id` | Get single session; `404` if absent |
 | `PATCH` | `/api/sessions/:id` | Rename session; body `{ id }`; `409` if new ID exists; `404` if session absent; validates ID rules |
 | `DELETE` | `/api/sessions/:id` | Kill PTY, close connected WebSocket, remove session; `204` with `X-Sessions-Remaining: <n>` header, or `404` |
@@ -81,3 +81,4 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | Multi-client sessions | Multiple browser tabs can attach to the same session; PTY output broadcast to all; scrollback replayed on reconnect | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
 | Config file | Shell, port, font, theme from `~/.config/webtty/config.json`; hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Client integration (CLI → Web) | `POST /s/:id/publish` (one-shot or streaming JSON) + `ws /ws/:id/events` subscribe; channel active only while PTY is running; no extra process or port | [ADR 025](../adrs/025.server.channel.md) | ✅ |
+| Session base directory | `POST /api/sessions` accepts `baseDir` (absolute path); PTY shell spawns there instead of `homedir()`; CLI `webtty [go] [id] --dir <path>` resolves and forwards it; ignored when attaching to an existing session | [ADR 028](../adrs/028.session.base-dir.md) | ✅ |

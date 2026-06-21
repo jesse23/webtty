@@ -97,6 +97,8 @@ export interface Config {
   theme: Theme;
   /** Custom key-to-sequence bindings. Merged with built-in defaults by `(key, mods)` identity. */
   keyboardBindings: KeyboardBinding[];
+  /** Additional environment variables injected into PTY shells and execute commands. Merges over `process.env`; `TERM` and `COLORTERM` always take precedence for PTY spawns. */
+  env: Record<string, string>;
 }
 
 /** Returns the webtty config directory: `~/.config/webtty`. */
@@ -164,6 +166,7 @@ export const DEFAULT_CONFIG: Config = {
   logs: false,
   theme: DEFAULT_THEME,
   keyboardBindings: DEFAULT_KEYBOARD_BINDINGS,
+  env: {},
 };
 
 function bindingKey(b: KeyboardBinding): string {
@@ -283,6 +286,15 @@ export function loadConfig(): Config {
         p.keyboardBindings.filter(isValidBinding).map(normalizeBinding),
       ),
     }),
+    ...(p.env &&
+      typeof p.env === 'object' &&
+      !Array.isArray(p.env) && {
+        env: Object.fromEntries(
+          Object.entries(p.env as Record<string, unknown>).filter(
+            ([k, v]) => typeof k === 'string' && typeof v === 'string',
+          ) as [string, string][],
+        ),
+      }),
   };
 }
 

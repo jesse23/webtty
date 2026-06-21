@@ -190,7 +190,15 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
     if (!session.pty) {
       const config = loadConfig();
-      session.pty = spawnForSession(cols, rows, config.shell, config.term, config.colorTerm);
+      session.pty = spawnForSession(
+        cols,
+        rows,
+        config.shell,
+        config.term,
+        config.colorTerm,
+        session.baseDir,
+        config.env,
+      );
 
       session.pty.onData((data: string) => {
         session.scrollback = (session.scrollback + data).slice(-config.scrollback);

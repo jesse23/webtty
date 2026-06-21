@@ -210,3 +210,4 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
 | Keyboard bindings | `keyboardBindings` — configurable key-to-sequence mappings sent to PTY; defaults to `[]` | [ADR 018](../adrs/018.key-bindings.config-support.md), [key-bindings spec](key-bindings.md) | ✅ |
+| Env injection | `env` — flat `Record<string,string>` merged over `process.env` and injected into PTY shells and execute commands; same contract as `~/.claude/settings.json` | [ADR 030](../adrs/030.config.env-inject.md) | ✅ |

@@ -1,5 +1,7 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import type http from 'node:http';
+import { homedir } from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../config';
 import {
@@ -131,9 +133,9 @@ export async function handleRequest(
     }
 
     if (req.method === 'POST') {
-      let body: { id?: string };
+      let body: { id?: string; baseDir?: string };
       try {
-        body = (await readJson(req)) as { id?: string };
+        body = (await readJson(req)) as { id?: string; baseDir?: string };
       } catch (err) {
         const status = (err as { status?: number }).status === 413 ? 413 : 400;
         res.writeHead(status);
@@ -152,7 +154,23 @@ export async function handleRequest(
         res.end(JSON.stringify({ error: `session already exists: ${id}` }));
         return;
       }
-      const session = createSession(id);
+      const baseDir = body.baseDir ?? homedir();
+      if (!path.isAbsolute(baseDir)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'baseDir must be an absolute path' }));
+        return;
+      }
+      if (!fs.existsSync(baseDir)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `baseDir does not exist: ${baseDir}` }));
+        return;
+      }
+      if (!fs.statSync(baseDir).isDirectory()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `baseDir is not a directory: ${baseDir}` }));
+        return;
+      }
+      const session = createSession(id, baseDir);
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessionToJson(session)));
       return;
@@ -368,31 +386,50 @@ export async function handleRequest(
       res.end('invalid body');
       return;
     }
+    let child: ReturnType<typeof spawn>;
+    try {
+      const execConfig = loadConfig();
+      child = spawn(cmd, args as string[], {
+        env: { ...process.env, ...execConfig.env },
+        cwd: session.baseDir,
+      });
+    } catch (err) {
+      res.writeHead(500);
+      res.end(`spawn error: ${String(err)}`);
+      return;
+    }
     res.writeHead(200, {
       'Content-Type': 'application/x-ndjson',
       'Cache-Control': 'no-cache',
     });
-    const child = spawn(cmd, args as string[], { env: process.env });
-    let childExited = false;
+    let done = false;
+    child.on('error', (err) => {
+      if (done) return;
+      done = true;
+      const msg = err.message;
+      const code = (err as NodeJS.ErrnoException).code;
+      res.write(`${JSON.stringify({ stream: 'stderr', data: `${msg}\n` })}\n`);
+      res.write(`${JSON.stringify({ exit: 1, error: msg, ...(code ? { code } : {}) })}\n`);
+      res.end();
+    });
     if (typeof stdin === 'string') {
       child.stdin?.write(stdin);
     }
     child.stdin?.end();
     child.stdout?.on('data', (chunk: Buffer) => {
-      res.write(JSON.stringify({ stream: 'stdout', data: chunk.toString() }) + '\n');
+      res.write(`${JSON.stringify({ stream: 'stdout', data: chunk.toString() })}\n`);
     });
     child.stderr?.on('data', (chunk: Buffer) => {
-      res.write(JSON.stringify({ stream: 'stderr', data: chunk.toString() }) + '\n');
+      res.write(`${JSON.stringify({ stream: 'stderr', data: chunk.toString() })}\n`);
     });
     child.on('close', (code: number | null) => {
-      childExited = true;
-      res.write(JSON.stringify({ exit: code ?? 1 }) + '\n');
+      if (done) return;
+      done = true;
+      res.write(`${JSON.stringify({ exit: code ?? 1 })}\n`);
       res.end();
     });
     req.on('close', () => {
-      if (!childExited) {
-        child.kill();
-      }
+      if (!done) child.kill();
     });
     return;
   }

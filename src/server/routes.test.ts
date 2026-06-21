@@ -144,6 +144,28 @@ describe('server — routes', () => {
     expect(res.status).toBe(400);
   });
 
+  test('POST /api/sessions returns 400 for non-existent baseDir', async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'basedir-missing', baseDir: '/no/such/path' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('does not exist');
+  });
+
+  test('POST /api/sessions returns 400 when baseDir is a file not a directory', async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'basedir-file', baseDir: import.meta.path }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('not a directory');
+  });
+
   test('GET /api/sessions/:id returns session', async () => {
     const res = await fetch(`${baseUrl}/api/sessions/test-session`);
     expect(res.status).toBe(200);
@@ -323,12 +345,47 @@ describe('server — routes', () => {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Record<string, unknown>);
-    const stdoutLine = lines.find((l) => l['stream'] === 'stdout');
+    const stdoutLine = lines.find((l) => l.stream === 'stdout');
     expect(stdoutLine).toBeDefined();
-    expect(String(stdoutLine?.['data'])).toContain('hello-execute');
+    expect(String(stdoutLine?.data)).toContain('hello-execute');
     const exitLine = lines.find((l) => 'exit' in l);
     expect(exitLine).toBeDefined();
-    expect(exitLine?.['exit']).toBe(0);
+    expect(exitLine?.exit).toBe(0);
+  });
+
+  test('POST /s/:id/execute streams stderr and exit:1 for unknown command', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'execute-enoent' }),
+    });
+    const wsUrl = baseUrl.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/execute-enoent/pty?cols=80&rows=24`);
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new Error('WS error'));
+      setTimeout(() => reject(new Error('WS timeout')), 5000);
+    });
+    const res = await fetch(`${baseUrl}/s/execute-enoent/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd: '__no_such_command__', args: [] }),
+    });
+    ws.close();
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const lines = text
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    const stderrLine = lines.find((l) => l.stream === 'stderr');
+    expect(stderrLine).toBeDefined();
+    const exitLine = lines.find((l) => 'exit' in l);
+    expect(exitLine).toBeDefined();
+    expect(exitLine?.exit).toBe(1);
+    expect(exitLine?.code).toBe('ENOENT');
+    expect(typeof exitLine?.error).toBe('string');
   });
 
   test('POST /api/server/stop returns 200 and stops server', async () => {

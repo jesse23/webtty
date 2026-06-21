@@ -20,8 +20,9 @@ export function toBrowserHost(host: string): string {
  * Opens (or creates) session `id`, starts the server if needed, and opens the URL in the browser.
  *
  * @param id - The session ID to open (default: `'main'`).
+ * @param baseDir - Working directory for the PTY shell (optional).
  */
-export async function cmdGo(id = 'main'): Promise<void> {
+export async function cmdGo(id = 'main', baseDir?: string): Promise<void> {
   if (!(await isServerRunning())) {
     await startServer();
   }
@@ -34,7 +35,7 @@ export async function cmdGo(id = 'main'): Promise<void> {
     const res = await fetch(`${getBaseUrl()}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, ...(baseDir ? { baseDir } : {}) }),
     });
     if (!res.ok) {
       const body = (await res.json()) as { error?: string };
@@ -214,6 +215,106 @@ export function bytesToDisplay(buf: Buffer): string {
       return `\\x${b.toString(16).padStart(2, '0')}`;
     })
     .join(' ');
+}
+
+export async function cmdRun(id: string, cmd?: string, args: string[] = []): Promise<void> {
+  if (!cmd) {
+    // Warm-up mode: start server + session + PTY, no browser
+    if (!(await isServerRunning())) {
+      await startServer();
+    }
+
+    const check = await fetch(`${getBaseUrl()}/api/sessions/${encodeURIComponent(id)}`);
+    if (check.status !== 200) {
+      const res = await fetch(`${getBaseUrl()}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) {
+        const body = (await res.json()) as { error?: string };
+        console.error(`webtty: ${body.error ?? `failed to create session (${res.status})`}`);
+        process.exit(1);
+      }
+    }
+
+    const wsUrl = `ws://127.0.0.1:${getPort()}/ws/${encodeURIComponent(id)}/pty?cols=80&rows=24`;
+    await new Promise<void>((resolve, reject) => {
+      const ws = new WebSocket(wsUrl);
+      let opened = false;
+      ws.onopen = () => {
+        opened = true;
+        ws.close(1000);
+        resolve();
+      };
+      ws.onerror = () => reject(new Error('failed to connect to PTY'));
+      ws.onclose = (evt) => {
+        if (!opened) reject(new Error(`failed to start PTY (code ${(evt as CloseEvent).code})`));
+      };
+    }).catch((err: Error) => {
+      console.error(`webtty: failed to start PTY: ${err.message}`);
+      process.exit(1);
+    });
+
+    const url = `http://${toBrowserHost(loadConfig().host)}:${getPort()}/s/${id}`;
+    console.log(url);
+    return;
+  }
+
+  // Exec mode: headless command execution
+  if (!(await isServerRunning())) {
+    console.error('webtty: server is not running');
+    process.exit(1);
+  }
+
+  let res: Response;
+  try {
+    res = await fetch(`${getBaseUrl()}/s/${encodeURIComponent(id)}/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cmd, args }),
+    });
+  } catch {
+    console.error('webtty: server is not running');
+    process.exit(1);
+  }
+
+  if (res.status === 404) {
+    console.error(`webtty: session not found: ${id}`);
+    process.exit(1);
+  }
+  if (res.status === 409) {
+    console.error(`webtty: PTY not running for session: ${id}`);
+    process.exit(1);
+  }
+  if (!res.ok || !res.body) {
+    console.error(`webtty: run failed (${res.status})`);
+    process.exit(1);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    const lines = buf.split('\n');
+    buf = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line) continue;
+      const msg = JSON.parse(line) as Record<string, unknown>;
+      if (msg.stream === 'stdout') process.stdout.write(String(msg.data));
+      else if (msg.stream === 'stderr') process.stderr.write(String(msg.data));
+      else if ('exit' in msg) {
+        if (msg.error) console.error(`webtty: ${msg.error}`);
+        process.exit((msg.exit as number) ?? 1);
+      }
+    }
+  }
+  console.error('webtty: connection closed unexpectedly');
+  process.exit(1);
 }
 
 export function cmdKey(): void {

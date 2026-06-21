@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
   cmdConfig,
   cmdGo,
@@ -5,11 +6,12 @@ import {
   cmdList,
   cmdRemove,
   cmdRename,
+  cmdRun,
   cmdStart,
   cmdStop,
 } from './commands';
 
-const GO_ALIASES = new Set(['go', 'a', 'run', 'attach', 'open']);
+const GO_ALIASES = new Set(['go', 'a', 'attach', 'open']);
 
 function printHelp(): void {
   const indent = '  ';
@@ -29,6 +31,7 @@ function printHelp(): void {
       row('ls [id]', 'List all sessions, or filter by id substring'),
       row('rm <id>', 'Destroy a session'),
       row('mv <id> <new-id>', 'Rename a session'),
+      row('run <id> [cmd]', 'Start PTY (no browser) or run a command in a session'),
       row('stop', 'Stop the webtty server'),
       row('start', 'Start the webtty server'),
       row('config', 'Open the config file in $VISUAL, $EDITOR, or a default editor'),
@@ -38,12 +41,19 @@ function printHelp(): void {
   );
 }
 
-const [, , cmd, ...rest] = process.argv;
+const allArgs = process.argv.slice(2);
+const dirFlagIdx = allArgs.indexOf('--dir');
+let cliBaseDir: string | undefined;
+if (dirFlagIdx !== -1) {
+  cliBaseDir = path.resolve(allArgs[dirFlagIdx + 1] ?? '.');
+  allArgs.splice(dirFlagIdx, 2);
+}
+const [cmd, ...rest] = allArgs;
 
 if (!cmd) {
-  await cmdGo();
+  await cmdGo('main', cliBaseDir);
 } else if (GO_ALIASES.has(cmd)) {
-  await cmdGo(rest[0]);
+  await cmdGo(rest[0] ?? 'main', cliBaseDir);
 } else {
   switch (cmd) {
     case 'ls':
@@ -68,6 +78,15 @@ if (!cmd) {
     case 'config':
       cmdConfig();
       break;
+    case 'run': {
+      const [id, runCmd, ...runArgs] = rest;
+      if (!id) {
+        console.error('usage: webtty run <id> [cmd [args...]]');
+        process.exit(1);
+      }
+      await cmdRun(id, runCmd, runArgs);
+      break;
+    }
     case 'key':
       cmdKey();
       break;

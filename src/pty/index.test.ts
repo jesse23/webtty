@@ -28,7 +28,15 @@ const isBunOnWindows =
 
 describe('spawnForSession', () => {
   test('returns a PtyProcess with the expected interface', () => {
-    const pty = spawnForSession(80, 24, TEST_SHELL, 'xterm-256color', 'truecolor');
+    const pty = spawnForSession(
+      80,
+      24,
+      TEST_SHELL,
+      'xterm-256color',
+      'truecolor',
+      process.cwd(),
+      {},
+    );
 
     expect(typeof pty.onData).toBe('function');
     expect(typeof pty.onExit).toBe('function');
@@ -41,7 +49,15 @@ describe('spawnForSession', () => {
   });
 
   test.skipIf(isBunOnWindows)('spawned process can receive data', async () => {
-    const pty = spawnForSession(80, 24, TEST_SHELL, 'xterm-256color', 'truecolor');
+    const pty = spawnForSession(
+      80,
+      24,
+      TEST_SHELL,
+      'xterm-256color',
+      'truecolor',
+      process.cwd(),
+      {},
+    );
     const received: string[] = [];
     pty.onData((data) => received.push(data));
 
