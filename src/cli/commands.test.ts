@@ -818,7 +818,9 @@ describe('cli — unit (mocked http)', () => {
     const enc = new TextEncoder();
     const body = new ReadableStream({
       start(controller) {
-        controller.enqueue(enc.encode(`${JSON.stringify({ stream: 'stdout', data: 'hello\n' })}\n`));
+        controller.enqueue(
+          enc.encode(`${JSON.stringify({ stream: 'stdout', data: 'hello\n' })}\n`),
+        );
         controller.enqueue(enc.encode(`${JSON.stringify({ exit: 0 })}\n`));
         controller.close();
       },
@@ -841,7 +843,9 @@ describe('cli — unit (mocked http)', () => {
     const enc = new TextEncoder();
     const body = new ReadableStream({
       start(controller) {
-        controller.enqueue(enc.encode(`${JSON.stringify({ stream: 'stdout', data: 'partial\n' })}\n`));
+        controller.enqueue(
+          enc.encode(`${JSON.stringify({ stream: 'stdout', data: 'partial\n' })}\n`),
+        );
         controller.close();
       },
     });
@@ -868,9 +872,7 @@ describe('cli — unit (mocked http)', () => {
         controller.enqueue(
           enc.encode(`${JSON.stringify({ stream: 'stderr', data: 'err output\n' })}\n`),
         );
-        controller.enqueue(
-          enc.encode(`${JSON.stringify({ exit: 1, error: 'command failed' })}\n`),
-        );
+        controller.enqueue(enc.encode(`${JSON.stringify({ exit: 1, error: 'command failed' })}\n`));
         controller.close();
       },
     });
@@ -916,9 +918,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdRun warm-up when server running and session exists prints url', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
-    global.fetch = mock(
-      async () => new Response(null, { status: 200 }),
-    ) as unknown as typeof fetch;
+    global.fetch = mock(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
     const origWS = global.WebSocket;
     global.WebSocket = makeMockWebSocket('open');
     const log = spyOn(console, 'log').mockImplementation(() => {});
@@ -932,9 +932,7 @@ describe('cli — unit (mocked http)', () => {
   test('cmdRun warm-up when server not running starts it', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(false);
     const start = spyOn(httpModule, 'startServer').mockResolvedValueOnce(undefined);
-    global.fetch = mock(
-      async () => new Response(null, { status: 200 }),
-    ) as unknown as typeof fetch;
+    global.fetch = mock(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
     const origWS = global.WebSocket;
     global.WebSocket = makeMockWebSocket('open');
     const log = spyOn(console, 'log').mockImplementation(() => {});
@@ -987,9 +985,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdRun warm-up when WebSocket errors exits with error', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
-    global.fetch = mock(
-      async () => new Response(null, { status: 200 }),
-    ) as unknown as typeof fetch;
+    global.fetch = mock(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
     const origWS = global.WebSocket;
     global.WebSocket = makeMockWebSocket('error');
     const err = spyOn(console, 'error').mockImplementation(() => {});
@@ -1006,9 +1002,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdRun warm-up when WebSocket closes before open exits with error', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
-    global.fetch = mock(
-      async () => new Response(null, { status: 200 }),
-    ) as unknown as typeof fetch;
+    global.fetch = mock(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
     const origWS = global.WebSocket;
     global.WebSocket = makeMockWebSocket('close-without-open');
     const err = spyOn(console, 'error').mockImplementation(() => {});
