@@ -59,4 +59,4 @@ The command exits when the editor exits.
 | Help and config | `webtty help` — show all commands; `webtty config` — open config in `$VISUAL`/`$EDITOR`/`vi` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Help formatting | Description first, all-caps headings, aligned params, frequency-ordered commands, annotated usage lines | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Stop on last rm | `webtty rm` auto-stops the server when the last session is removed | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| Run | `webtty run <id>` — start PTY without browser (auto-starts server + session); `webtty run <id> <cmd> [args...]` — run command headlessly, stream stdout/stderr, forward exit code | [ADR 029](../adrs/029.cli.exec.md) | ☐ |
+| Run | `webtty run <id>` — start PTY without browser (auto-starts server + session); `webtty run <id> <cmd> [args...]` — run command headlessly, stream stdout/stderr, forward exit code | [ADR 029](../adrs/029.cli.exec.md) | ✅ |

@@ -165,6 +165,11 @@ export async function handleRequest(
         res.end(JSON.stringify({ error: `baseDir does not exist: ${baseDir}` }));
         return;
       }
+      if (!fs.statSync(baseDir).isDirectory()) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: `baseDir is not a directory: ${baseDir}` }));
+        return;
+      }
       const session = createSession(id, baseDir);
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessionToJson(session)));

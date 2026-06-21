@@ -313,6 +313,8 @@ export async function cmdRun(id: string, cmd?: string, args: string[] = []): Pro
       }
     }
   }
+  console.error('webtty: connection closed unexpectedly');
+  process.exit(1);
 }
 
 export function cmdKey(): void {

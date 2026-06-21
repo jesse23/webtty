@@ -144,6 +144,28 @@ describe('server — routes', () => {
     expect(res.status).toBe(400);
   });
 
+  test('POST /api/sessions returns 400 for non-existent baseDir', async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'basedir-missing', baseDir: '/no/such/path' }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('does not exist');
+  });
+
+  test('POST /api/sessions returns 400 when baseDir is a file not a directory', async () => {
+    const res = await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'basedir-file', baseDir: import.meta.path }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toContain('not a directory');
+  });
+
   test('GET /api/sessions/:id returns session', async () => {
     const res = await fetch(`${baseUrl}/api/sessions/test-session`);
     expect(res.status).toBe(200);

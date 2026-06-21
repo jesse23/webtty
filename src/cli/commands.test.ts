@@ -836,6 +836,30 @@ describe('cli — unit (mocked http)', () => {
     exit.mockRestore();
   });
 
+  test('cmdRun with cmd exits 1 when stream ends without exit line', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    const enc = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(enc.encode(`${JSON.stringify({ stream: 'stdout', data: 'partial\n' })}\n`));
+        controller.close();
+      },
+    });
+    global.fetch = mock(async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+    const write = spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('sess', 'cmd')).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: connection closed unexpectedly');
+    expect(exit).toHaveBeenCalledWith(1);
+    isRunning.mockRestore();
+    write.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
   test('cmdRun with cmd streams stderr and exits 1 with error message', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
     const enc = new TextEncoder();
