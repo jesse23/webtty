@@ -1,7 +1,6 @@
 import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { WebSocket } from 'ws';
 import { configDir, loadConfig } from '../config';
 import { getBaseUrl, getPort, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
@@ -243,15 +242,15 @@ export async function cmdRun(id: string, cmd?: string, args: string[] = []): Pro
     await new Promise<void>((resolve, reject) => {
       const ws = new WebSocket(wsUrl);
       let opened = false;
-      ws.on('open', () => {
+      ws.onopen = () => {
         opened = true;
         ws.close(1000);
         resolve();
-      });
-      ws.on('error', (err) => reject(err));
-      ws.on('close', (code) => {
-        if (!opened) reject(new Error(`failed to start PTY (code ${code})`));
-      });
+      };
+      ws.onerror = () => reject(new Error('failed to connect to PTY'));
+      ws.onclose = (evt) => {
+        if (!opened) reject(new Error(`failed to start PTY (code ${(evt as CloseEvent).code})`));
+      };
     }).catch((err: Error) => {
       console.error(`webtty: failed to start PTY: ${err.message}`);
       process.exit(1);

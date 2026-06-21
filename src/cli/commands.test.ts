@@ -739,4 +739,263 @@ describe('cli — unit (mocked http)', () => {
     onceSpy.mockRestore();
     log.mockRestore();
   });
+
+  // cmdRun — exec mode
+
+  test('cmdRun with cmd when server not running exits with error', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(false);
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('sess', 'echo', ['hi'])).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: server is not running');
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun with cmd when fetch throws exits with error', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(async () => {
+      throw new Error('ECONNREFUSED');
+    }) as unknown as typeof fetch;
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('sess', 'echo', ['hi'])).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: server is not running');
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun with cmd 404 exits with session not found', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(async () => new Response(null, { status: 404 })) as unknown as typeof fetch;
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('sess', 'echo', ['hi'])).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: session not found: sess');
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun with cmd 409 exits with PTY not running message', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(async () => new Response(null, { status: 409 })) as unknown as typeof fetch;
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('sess', 'echo', ['hi'])).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: PTY not running for session: sess');
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun with cmd non-ok status exits with run failed', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(async () => new Response(null, { status: 500 })) as unknown as typeof fetch;
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('sess', 'echo', ['hi'])).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: run failed (500)');
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun with cmd streams stdout and exits 0', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    const enc = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(enc.encode(`${JSON.stringify({ stream: 'stdout', data: 'hello\n' })}\n`));
+        controller.enqueue(enc.encode(`${JSON.stringify({ exit: 0 })}\n`));
+        controller.close();
+      },
+    });
+    global.fetch = mock(async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+    const write = spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit0');
+    });
+    await expect(cmds.cmdRun('sess', 'echo', ['hello'])).rejects.toThrow('exit0');
+    expect(write).toHaveBeenCalledWith('hello\n');
+    expect(exit).toHaveBeenCalledWith(0);
+    isRunning.mockRestore();
+    write.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun with cmd streams stderr and exits 1 with error message', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    const enc = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          enc.encode(`${JSON.stringify({ stream: 'stderr', data: 'err output\n' })}\n`),
+        );
+        controller.enqueue(
+          enc.encode(`${JSON.stringify({ exit: 1, error: 'command failed' })}\n`),
+        );
+        controller.close();
+      },
+    });
+    global.fetch = mock(async () => new Response(body, { status: 200 })) as unknown as typeof fetch;
+    const writeErr = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit1');
+    });
+    await expect(cmds.cmdRun('sess', 'bad-cmd')).rejects.toThrow('exit1');
+    expect(writeErr).toHaveBeenCalledWith('err output\n');
+    expect(err).toHaveBeenCalledWith('webtty: command failed');
+    expect(exit).toHaveBeenCalledWith(1);
+    isRunning.mockRestore();
+    writeErr.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  // cmdRun — warm-up mode (uses global WebSocket)
+
+  function makeMockWebSocket(behavior: 'open' | 'error' | 'close-without-open') {
+    return class MockWebSocket {
+      onopen: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      onclose: ((evt: CloseEvent) => void) | null = null;
+      constructor(_url: string) {
+        queueMicrotask(() => {
+          if (behavior === 'open') {
+            this.onopen?.();
+          } else if (behavior === 'error') {
+            this.onerror?.();
+          } else {
+            this.onclose?.({ code: 1006 } as CloseEvent);
+          }
+        });
+      }
+      close(_code?: number) {
+        queueMicrotask(() => this.onclose?.({ code: 1000 } as CloseEvent));
+      }
+    } as unknown as typeof WebSocket;
+  }
+
+  test('cmdRun warm-up when server running and session exists prints url', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const origWS = global.WebSocket;
+    global.WebSocket = makeMockWebSocket('open');
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    await cmds.cmdRun('warmup-sess');
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('/s/warmup-sess'));
+    isRunning.mockRestore();
+    log.mockRestore();
+    global.WebSocket = origWS;
+  });
+
+  test('cmdRun warm-up when server not running starts it', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(false);
+    const start = spyOn(httpModule, 'startServer').mockResolvedValueOnce(undefined);
+    global.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const origWS = global.WebSocket;
+    global.WebSocket = makeMockWebSocket('open');
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    await cmds.cmdRun('warmup-sess2');
+    expect(start).toHaveBeenCalled();
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('/s/warmup-sess2'));
+    isRunning.mockRestore();
+    start.mockRestore();
+    log.mockRestore();
+    global.WebSocket = origWS;
+  });
+
+  test('cmdRun warm-up when session not found creates it', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    let callCount = 0;
+    global.fetch = mock(async () => {
+      callCount++;
+      if (callCount === 1) return new Response(null, { status: 404 }); // session check
+      return new Response(JSON.stringify({ id: 'new-sess' }), { status: 200 }); // create session
+    }) as unknown as typeof fetch;
+    const origWS = global.WebSocket;
+    global.WebSocket = makeMockWebSocket('open');
+    const log = spyOn(console, 'log').mockImplementation(() => {});
+    await cmds.cmdRun('new-sess');
+    expect(callCount).toBe(2);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('/s/new-sess'));
+    isRunning.mockRestore();
+    log.mockRestore();
+    global.WebSocket = origWS;
+  });
+
+  test('cmdRun warm-up when session creation fails exits with error', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    let callCount = 0;
+    global.fetch = mock(async () => {
+      callCount++;
+      if (callCount === 1) return new Response(null, { status: 404 });
+      return new Response(JSON.stringify({ error: 'bad' }), { status: 500 });
+    }) as unknown as typeof fetch;
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('fail-sess')).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith('webtty: bad');
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+  });
+
+  test('cmdRun warm-up when WebSocket errors exits with error', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const origWS = global.WebSocket;
+    global.WebSocket = makeMockWebSocket('error');
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('ws-err-sess')).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('failed to start PTY'));
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+    global.WebSocket = origWS;
+  });
+
+  test('cmdRun warm-up when WebSocket closes before open exits with error', async () => {
+    const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
+    global.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof fetch;
+    const origWS = global.WebSocket;
+    global.WebSocket = makeMockWebSocket('close-without-open');
+    const err = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('exit');
+    });
+    await expect(cmds.cmdRun('ws-close-sess')).rejects.toThrow('exit');
+    expect(err).toHaveBeenCalledWith(expect.stringContaining('failed to start PTY'));
+    isRunning.mockRestore();
+    err.mockRestore();
+    exit.mockRestore();
+    global.WebSocket = origWS;
+  });
 });
