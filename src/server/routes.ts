@@ -384,7 +384,10 @@ export async function handleRequest(
     let child: ReturnType<typeof spawn>;
     try {
       const execConfig = loadConfig();
-      child = spawn(cmd, args as string[], { env: { ...process.env, ...execConfig.env }, cwd: session.baseDir });
+      child = spawn(cmd, args as string[], {
+        env: { ...process.env, ...execConfig.env },
+        cwd: session.baseDir,
+      });
     } catch (err) {
       res.writeHead(500);
       res.end(`spawn error: ${String(err)}`);
@@ -400,8 +403,8 @@ export async function handleRequest(
       done = true;
       const msg = err.message;
       const code = (err as NodeJS.ErrnoException).code;
-      res.write(JSON.stringify({ stream: 'stderr', data: `${msg}\n` }) + '\n');
-      res.write(JSON.stringify({ exit: 1, error: msg, ...(code ? { code } : {}) }) + '\n');
+      res.write(`${JSON.stringify({ stream: 'stderr', data: `${msg}\n` })}\n`);
+      res.write(`${JSON.stringify({ exit: 1, error: msg, ...(code ? { code } : {}) })}\n`);
       res.end();
     });
     if (typeof stdin === 'string') {
@@ -409,15 +412,15 @@ export async function handleRequest(
     }
     child.stdin?.end();
     child.stdout?.on('data', (chunk: Buffer) => {
-      res.write(JSON.stringify({ stream: 'stdout', data: chunk.toString() }) + '\n');
+      res.write(`${JSON.stringify({ stream: 'stdout', data: chunk.toString() })}\n`);
     });
     child.stderr?.on('data', (chunk: Buffer) => {
-      res.write(JSON.stringify({ stream: 'stderr', data: chunk.toString() }) + '\n');
+      res.write(`${JSON.stringify({ stream: 'stderr', data: chunk.toString() })}\n`);
     });
     child.on('close', (code: number | null) => {
       if (done) return;
       done = true;
-      res.write(JSON.stringify({ exit: code ?? 1 }) + '\n');
+      res.write(`${JSON.stringify({ exit: code ?? 1 })}\n`);
       res.end();
     });
     req.on('close', () => {

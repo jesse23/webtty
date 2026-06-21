@@ -302,15 +302,15 @@ export async function cmdRun(id: string, cmd?: string, args: string[] = []): Pro
     if (done) break;
     buf += decoder.decode(value, { stream: true });
     const lines = buf.split('\n');
-    buf = lines.pop()!;
+    buf = lines.pop() ?? '';
     for (const line of lines) {
       if (!line) continue;
       const msg = JSON.parse(line) as Record<string, unknown>;
-      if (msg['stream'] === 'stdout') process.stdout.write(String(msg['data']));
-      else if (msg['stream'] === 'stderr') process.stderr.write(String(msg['data']));
+      if (msg.stream === 'stdout') process.stdout.write(String(msg.data));
+      else if (msg.stream === 'stderr') process.stderr.write(String(msg.data));
       else if ('exit' in msg) {
-        if (msg['error']) console.error(`webtty: ${msg['error']}`);
-        process.exit((msg['exit'] as number) ?? 1);
+        if (msg.error) console.error(`webtty: ${msg.error}`);
+        process.exit((msg.exit as number) ?? 1);
       }
     }
   }

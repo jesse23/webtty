@@ -323,12 +323,12 @@ describe('server — routes', () => {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Record<string, unknown>);
-    const stdoutLine = lines.find((l) => l['stream'] === 'stdout');
+    const stdoutLine = lines.find((l) => l.stream === 'stdout');
     expect(stdoutLine).toBeDefined();
-    expect(String(stdoutLine?.['data'])).toContain('hello-execute');
+    expect(String(stdoutLine?.data)).toContain('hello-execute');
     const exitLine = lines.find((l) => 'exit' in l);
     expect(exitLine).toBeDefined();
-    expect(exitLine?.['exit']).toBe(0);
+    expect(exitLine?.exit).toBe(0);
   });
 
   test('POST /s/:id/execute streams stderr and exit:1 for unknown command', async () => {
@@ -357,13 +357,13 @@ describe('server — routes', () => {
       .split('\n')
       .filter(Boolean)
       .map((l) => JSON.parse(l) as Record<string, unknown>);
-    const stderrLine = lines.find((l) => l['stream'] === 'stderr');
+    const stderrLine = lines.find((l) => l.stream === 'stderr');
     expect(stderrLine).toBeDefined();
     const exitLine = lines.find((l) => 'exit' in l);
     expect(exitLine).toBeDefined();
-    expect(exitLine?.['exit']).toBe(1);
-    expect(exitLine?.['code']).toBe('ENOENT');
-    expect(typeof exitLine?.['error']).toBe('string');
+    expect(exitLine?.exit).toBe(1);
+    expect(exitLine?.code).toBe('ENOENT');
+    expect(typeof exitLine?.error).toBe('string');
   });
 
   test('POST /api/server/stop returns 200 and stops server', async () => {
