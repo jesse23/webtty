@@ -392,6 +392,7 @@ export async function handleRequest(
       child = spawn(cmd, args as string[], {
         env: { ...process.env, ...execConfig.env },
         cwd: session.baseDir,
+        windowsHide: true,
       });
     } catch (err) {
       res.writeHead(500);
