@@ -12,6 +12,9 @@ const __dirname = path.dirname(__filename);
 
 const config = loadConfig();
 const HTTP_PORT = Number(process.env.PORT) || config.port;
+// PORT is consumed for our own listen port above; clear it so it doesn't leak
+// into PTY shells and `/execute` invocations, which inherit process.env.
+delete process.env.PORT;
 // 'localhost' resolves to ::1 (IPv6) on modern macOS/Node; bind to 127.0.0.1 instead
 // but keep 'localhost' as the display host so browser URLs use it as intended.
 const HTTP_HOST_DISPLAY = config.host;
