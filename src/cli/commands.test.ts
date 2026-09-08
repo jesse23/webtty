@@ -712,12 +712,13 @@ describe('cli — unit (mocked http)', () => {
     const log = spyOn(console, 'log').mockImplementation(() => {});
 
     let capturedExitHandler: (() => void) | undefined;
-    const onceSpy = spyOn(process, 'once').mockImplementation(
-      (event: string | symbol, handler: (...args: unknown[]) => void) => {
-        if (event === 'exit') capturedExitHandler = handler as () => void;
-        return process;
-      },
-    );
+    const onceSpy = spyOn(process, 'once').mockImplementation(((
+      event: string | symbol,
+      handler: (...args: unknown[]) => void,
+    ) => {
+      if (event === 'exit') capturedExitHandler = handler as () => void;
+      return process;
+    }) as typeof process.once);
 
     cmds.cmdKey();
 
