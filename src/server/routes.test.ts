@@ -388,6 +388,40 @@ describe('server — routes', () => {
     expect(typeof exitLine?.error).toBe('string');
   });
 
+  test('POST /s/:id/execute does not leak server PORT into child env', async () => {
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'execute-port-leak' }),
+    });
+    const wsUrl = baseUrl.replace(/^http/, 'ws');
+    const ws = new WebSocket(`${wsUrl}/ws/execute-port-leak/pty?cols=80&rows=24`);
+    await new Promise<void>((resolve, reject) => {
+      ws.onopen = () => resolve();
+      ws.onerror = () => reject(new Error('WS error'));
+      setTimeout(() => reject(new Error('WS timeout')), 5000);
+    });
+    const res = await fetch(`${baseUrl}/s/execute-port-leak/execute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cmd: process.execPath,
+        args: ['-e', 'console.log(process.env.PORT ?? "")'],
+      }),
+    });
+    ws.close();
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    const lines = text
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, unknown>);
+    const stdoutLine = lines.find((l) => l.stream === 'stdout');
+    expect(stdoutLine).toBeDefined();
+    expect(String(stdoutLine?.data).trim()).toBe('');
+  });
+
   test('POST /api/server/stop returns 200 and stops server', async () => {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
     expect(res.status).toBe(200);
