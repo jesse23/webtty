@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <title>webtty</title>
   <rect x="5" y="5" width="90" height="90" rx="18" fill="white"/>
   <text x="8" y="73" font-size="58" font-family="monospace" font-weight="bold" fill="#161b22">&gt;_</text>
 </svg>
