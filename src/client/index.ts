@@ -110,6 +110,29 @@ new ResizeObserver(() => scheduleFit()).observe(container, { box: 'border-box' }
 // reliably for both, so use both observers together.
 window.addEventListener('resize', scheduleFit);
 
+// Chromium can still be loading config.fontFamily when ghostty-web's
+// CanvasRenderer measures font metrics synchronously on open, so mouse-to-cell
+// hit testing gets captured against the fallback font's glyph width instead of
+// the real one — clicks land on the wrong cell until something happens to
+// resize the terminal. Firefox blocks first layout on web font load and
+// doesn't hit this race. Remeasure once the real font is confirmed ready;
+// ghostty-web's render loop then notices the canvas-vs-metrics mismatch on
+// its next frame and self-corrects with a forced full repaint. See ADR 031.
+document.fonts.ready.then(() => term.renderer?.remeasureFont());
+
+// Chromium can evict a hidden tab's canvas backing store to reclaim GPU
+// memory; Firefox does not. ghostty-web's render loop only repaints
+// WASM-dirty rows, so a cleared canvas can stay blank/partial after switching
+// back to the tab until content happens to change. Force a full repaint on
+// visibility restore. See ADR 031 and ADR 015 for the same forced-repaint
+// pattern used for the DECSCUSR ghost-cursor fix.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (term.renderer && term.wasmTerm) {
+    term.renderer.render(term.wasmTerm, true, term.viewportY);
+  }
+});
+
 // ghostty-web sets the mouse cursor to 'text' (I-beam) whenever the pointer
 // isn't over a detected hyperlink — it only ever writes 'text' or 'pointer'
 // (see the hover-link logic in ghostty-web's dist bundle). The I-beam reads
