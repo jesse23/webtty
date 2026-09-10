@@ -8,7 +8,7 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
-    container: oven/bun:1.3.11-alpine
+    container: oven/bun:1.4.2-alpine
     permissions:
       contents: write
     steps:
