@@ -343,38 +343,64 @@ if (config.rightClickBehavior === 'copyPaste') {
 }
 
 // ghostty-web swallows Ctrl+V without sending \x16 to the PTY (unlike
-// xterm.js). When clipboard has no text/plain, its paste handler drops it
-// too. Send \x16 so TUI apps can invoke their native OS clipboard read.
-// See ADR 014.
-//
-// When text/plain IS present, ghostty-web's own handlePaste sends it, but
-// always raw/unbracketed: its emitPasteData only wraps in ESC[200~/201~ when
-// a getModeCallback(2004) is wired up, and ghostty-web's Terminal wrapper
-// never wires one. So a pasted newline (e.g. a trailing one from a copied
-// line) reaches the PTY as a literal Enter — inside a Vim :terminal-hosted
-// fzf prompt this is read as "accept," closing the prompt instead of
-// pasting. Take over here: bracket the paste ourselves using Terminal's own
-// (correctly wired) getMode(2004).
+// xterm.js), relying entirely on the browser 'paste' event. On macOS that
+// event only fires for Cmd+V (the OS paste gesture) - Ctrl+V produces no
+// event at all. See ADR 014.
+function sendCtrlV(): void {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send('\x16');
+}
+
+// A pasted newline is the only thing that can be misread as literal Enter
+// by the receiving program, so a single-line paste is always safe to send
+// as-is - e.g. a password into a sudo/ssh/mysql prompt, none of which
+// request bracketed paste for themselves. Only a multi-line paste needs
+// bracketed-paste mode (2004) to land as literal text: Vim keeps that mode
+// on while editing normally (confirmed: plain-buffer paste works), but
+// doesn't propagate it out while focus is in a nested :terminal job - e.g.
+// an fzf popup running under `<leader>ff`. When it's off, don't guess by
+// sending raw multi-line text: an embedded newline would be read as literal
+// Enter (fzf reads that as "accept," closing the popup instead of receiving
+// the paste). Fall back to \x16 instead and let the app fetch the clipboard
+// itself - e.g. Vim's `tnoremap <C-v> <C-w>"+` terminal-mode mapping.
+function sendPaste(text: string): void {
+  if (!text) {
+    sendCtrlV();
+    return;
+  }
+  if (!text.includes('\n')) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(text);
+    return;
+  }
+  if (!term.getMode(2004)) {
+    sendCtrlV();
+    return;
+  }
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(`\x1b[200~${text}\x1b[201~`);
+  }
+}
+
+// Ctrl+V never reaches us as a 'paste' event on macOS (see above), so read
+// the clipboard ourselves on keydown to make it behave like Cmd+V.
+container.addEventListener(
+  'keydown',
+  (e: KeyboardEvent) => {
+    if (!e.ctrlKey || e.metaKey || e.code !== 'KeyV') return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    navigator.clipboard.readText().then(sendPaste, sendCtrlV);
+  },
+  { capture: true },
+);
+
 container.addEventListener(
   'paste',
   (e: ClipboardEvent) => {
     const cd = e.clipboardData;
     if (!cd) return;
-    const text = cd.getData('text/plain');
-    if (!text) {
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send('\x16');
-      }
-      return;
-    }
     e.preventDefault();
     e.stopImmediatePropagation();
-    const payload = term.getMode(2004) ? `\x1b[200~${text}\x1b[201~` : text;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(payload);
-    }
+    sendPaste(cd.getData('text/plain'));
   },
   { capture: true },
 );
