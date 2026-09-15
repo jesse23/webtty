@@ -346,16 +346,34 @@ if (config.rightClickBehavior === 'copyPaste') {
 // xterm.js). When clipboard has no text/plain, its paste handler drops it
 // too. Send \x16 so TUI apps can invoke their native OS clipboard read.
 // See ADR 014.
+//
+// When text/plain IS present, ghostty-web's own handlePaste sends it, but
+// always raw/unbracketed: its emitPasteData only wraps in ESC[200~/201~ when
+// a getModeCallback(2004) is wired up, and ghostty-web's Terminal wrapper
+// never wires one. So a pasted newline (e.g. a trailing one from a copied
+// line) reaches the PTY as a literal Enter — inside a Vim :terminal-hosted
+// fzf prompt this is read as "accept," closing the prompt instead of
+// pasting. Take over here: bracket the paste ourselves using Terminal's own
+// (correctly wired) getMode(2004).
 container.addEventListener(
   'paste',
   (e: ClipboardEvent) => {
     const cd = e.clipboardData;
     if (!cd) return;
-    if (cd.getData('text/plain')) return;
+    const text = cd.getData('text/plain');
+    if (!text) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send('\x16');
+      }
+      return;
+    }
     e.preventDefault();
     e.stopImmediatePropagation();
+    const payload = term.getMode(2004) ? `\x1b[200~${text}\x1b[201~` : text;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send('\x16');
+      ws.send(payload);
     }
   },
   { capture: true },
