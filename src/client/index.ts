@@ -228,25 +228,33 @@ term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
   return true;
 });
 
+// Shared by the configured-binding listener below and the Ctrl+V paste
+// listener further down, so the latter can tell whether a user has already
+// claimed the combo (including an intentional no-op binding meant to
+// suppress default behavior) before adding its own handling on top.
+function findBinding(e: KeyboardEvent): KeyboardBinding | undefined {
+  const key = e.key.toLowerCase();
+  const active = new Set([
+    ...(e.shiftKey ? ['shift'] : []),
+    ...(e.ctrlKey ? ['ctrl'] : []),
+    ...(e.altKey ? ['alt'] : []),
+    ...(e.metaKey ? ['meta'] : []),
+  ]);
+  return config.keyboardBindings.find((b) => {
+    if (b.key.toLowerCase() !== key) return false;
+    const required = new Set((Array.isArray(b.mods) ? b.mods : []).map((m) => m.toLowerCase()));
+    if (required.size !== active.size) return false;
+    for (const m of required) if (!active.has(m)) return false;
+    return true;
+  });
+}
+
 // Intercept configured key+mods combos before ghostty-web sees them and send
 // the bound chars directly to the PTY. See ADR 018.
 container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
-    const key = e.key.toLowerCase();
-    const active = new Set([
-      ...(e.shiftKey ? ['shift'] : []),
-      ...(e.ctrlKey ? ['ctrl'] : []),
-      ...(e.altKey ? ['alt'] : []),
-      ...(e.metaKey ? ['meta'] : []),
-    ]);
-    const binding = config.keyboardBindings.find((b) => {
-      if (b.key.toLowerCase() !== key) return false;
-      const required = new Set((Array.isArray(b.mods) ? b.mods : []).map((m) => m.toLowerCase()));
-      if (required.size !== active.size) return false;
-      for (const m of required) if (!active.has(m)) return false;
-      return true;
-    });
+    const binding = findBinding(e);
     if (!binding) return;
     e.preventDefault();
     e.stopPropagation();
@@ -381,11 +389,18 @@ function sendPaste(text: string): void {
 }
 
 // Ctrl+V never reaches us as a 'paste' event on macOS (see above), so read
-// the clipboard ourselves on keydown to make it behave like Cmd+V.
+// the clipboard ourselves on keydown to make it behave like Cmd+V. Both
+// listeners are on `container` and keydown targets it directly, so they run
+// in registration order regardless of the capture flag - this one runs
+// after the configured-binding listener above, so skip a combo the user has
+// already bound (including an intentionally empty binding meant to consume
+// the key and suppress default paste).
 container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
     if (!e.ctrlKey || e.metaKey || e.code !== 'KeyV') return;
+    if (findBinding(e)) return;
+    if (!navigator.clipboard?.readText) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     navigator.clipboard.readText().then(sendPaste, sendCtrlV);
