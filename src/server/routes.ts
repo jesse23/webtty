@@ -4,6 +4,7 @@ import type http from 'node:http';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { loadConfig } from '../config';
+import { getVersion } from '../version';
 import {
   createSession,
   generateId,
@@ -99,6 +100,12 @@ export async function handleRequest(
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('stopping');
     onStop();
+    return;
+  }
+
+  if (req.method === 'GET' && pathname === '/api/server/status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ version: getVersion() }));
     return;
   }
 

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { getVersion } from '../version';
 import {
   cmdConfig,
   cmdGo,
@@ -37,6 +38,7 @@ function printHelp(): void {
       row('config', 'Open the config file in $VISUAL, $EDITOR, or a default editor'),
       row('key', 'Capture a key combo and print its chars value for keyboardBindings'),
       row('help', 'Show this help message'),
+      row('-v, --version', 'Print the webtty version'),
     ].join('\n'),
   );
 }
@@ -89,6 +91,10 @@ if (!cmd) {
     }
     case 'key':
       cmdKey();
+      break;
+    case '-v':
+    case '--version':
+      console.log(getVersion());
       break;
     case 'help':
     case '--help':

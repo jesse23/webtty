@@ -9,6 +9,7 @@ import {
   waitForServer,
   waitForServerDown,
 } from '../utils.test';
+import { getVersion } from '../version';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_ENTRY = path.resolve(__dirname, 'index.ts');
@@ -69,6 +70,13 @@ describe('server — routes', () => {
   test('GET /s/:id returns 404 for unknown session', async () => {
     const res = await fetch(`${baseUrl}/s/does-not-exist`);
     expect(res.status).toBe(404);
+  });
+
+  test('GET /api/server/status returns the package version', async () => {
+    const res = await fetch(`${baseUrl}/api/server/status`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { version: string };
+    expect(body.version).toBe(getVersion());
   });
 
   test('GET /api/config returns client config keys', async () => {
