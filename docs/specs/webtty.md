@@ -1,6 +1,6 @@
 # SPEC: webtty
 
-**Last Updated:** 2026-03-24
+**Last Updated:** 2026-09-20
 
 ---
 
@@ -69,6 +69,7 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/server/status` | Server status; responds `200` with `{ version }` — the `package.json` version (`0.0.0-development` in dev checkouts) |
 | `POST` | `/api/server/stop` | Graceful shutdown — kills all PTYs, closes WebSocket server, exits |
 
 ## Features
