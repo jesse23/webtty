@@ -349,12 +349,15 @@ export function cellSpan(
   const sw = region.width;
   const sh = region.height;
   if (c && r) return { cols: c, rows: r };
-  if (c)
-    return { cols: c, rows: Math.max(1, Math.ceil(((c * cellWidth) / sw) * (sh / cellHeight))) };
-  if (r)
-    return { cols: Math.max(1, Math.ceil(((r * cellHeight) / sh) * (sw / cellWidth))), rows: r };
-  return {
-    cols: Math.max(1, Math.ceil(sw / cellWidth)),
-    rows: Math.max(1, Math.ceil(sh / cellHeight)),
-  };
+  if (c) return { cols: c, rows: cellsFor((c * cellWidth * sh) / sw, cellHeight) };
+  if (r) return { cols: cellsFor((r * cellHeight * sw) / sh, cellWidth), rows: r };
+  return { cols: cellsFor(sw, cellWidth), rows: cellsFor(sh, cellHeight) };
+}
+
+// Whole cells needed for `px`. A size that is exactly N cells, converted from
+// device to CSS pixels, can come out as N + a rounding error, which a plain
+// ceil turns into N + 1: the tolerance is far below any real fraction of a
+// cell.
+function cellsFor(px: number, cell: number): number {
+  return Math.max(1, Math.ceil(px / cell - 1e-6));
 }

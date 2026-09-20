@@ -362,3 +362,21 @@ describe('pngSizeFromBytes', () => {
     expect(pngSizeFromBytes(new Uint8Array(30))).toBeNull();
   });
 });
+
+describe('cellSpan at fractional display scales', () => {
+  // A program sizes an image as whole cells of the size it was told; converting
+  // that back to CSS pixels must give the same number of cells, not one more
+  // because of floating-point error.
+  test.each([1, 1.25, 1.5, 1.75, 2, 3])(
+    'a whole number of cells stays that many at dpr %p',
+    (dpr) => {
+      for (const css of [7.8, 8.4, 9.6, 10.2]) {
+        for (const cells of [1, 2, 3, 7, 80, 213]) {
+          const devCell = deviceCellSize(css, dpr);
+          const region = { width: (cells * devCell) / axisScale(css, dpr), height: 1 };
+          expect(cellSpan({}, region, css, 1).cols).toBe(cells);
+        }
+      }
+    },
+  );
+});
