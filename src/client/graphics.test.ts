@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { deflateSync } from 'node:zlib';
 import { KittyGraphics, type Limits } from './graphics';
+import { deviceCellSize } from './kitty';
 
 // KittyGraphics needs a DOM, a canvas and image decoding. These tests stub just
 // enough of them to drive its state handling: what is placed, what is answered,
@@ -99,7 +100,10 @@ interface Harness {
   clearDirty: () => void;
 }
 
-function harness(limits: Partial<Limits> = {}): Harness {
+function harness(
+  limits: Partial<Limits> = {},
+  cell: { width: number; height: number } = { width: 10, height: 20 },
+): Harness {
   const written: string[] = [];
   const sent: string[] = [];
   const cursor = { x: 2, y: 3 };
@@ -119,7 +123,7 @@ function harness(limits: Partial<Limits> = {}): Harness {
       },
     },
     wasmTerm: { isAlternateScreen: () => false, getScrollbackLength: () => 0 },
-    renderer: { getMetrics: () => ({ width: 10, height: 20 }) },
+    renderer: { getMetrics: () => cell },
   };
   const container = { appendChild: () => {}, querySelector: () => null };
   const g = new KittyGraphics(term as never, container as never, (d) => sent.push(d), limits);
@@ -451,4 +455,30 @@ describe('sequences split across chunks', () => {
     h.g.feed('2Jb');
     expect(h.written.join('')).toBe(`a${ESC}[2Jb`);
   });
+});
+
+describe('cursor movement at scaled display', () => {
+  // An image exactly cols x rows cells of the size the program was told must
+  // leave the cursor exactly that many columns and rows on. Converting device
+  // pixels back to CSS pixels adds a rounding error for some cell sizes, which a
+  // plain ceil turned into one cell too many. These combinations are ones where
+  // it happened: it depends on the values, so a single arbitrary size proves
+  // nothing.
+  test.each([
+    { dpr: 1.25, cell: { width: 9.6, height: 20.4 }, cols: 7, rows: 3 },
+    { dpr: 1.5, cell: { width: 8.4, height: 19.2 }, cols: 5, rows: 7 },
+    { dpr: 2, cell: { width: 9.6, height: 20.4 }, cols: 7, rows: 3 },
+    { dpr: 3, cell: { width: 9.6, height: 20.4 }, cols: 7, rows: 7 },
+  ])(
+    '$cols x $rows cells of $cell.width x $cell.height at dpr $dpr',
+    ({ dpr, cell, cols, rows }) => {
+      (globalThis as { window: { devicePixelRatio: number } }).window.devicePixelRatio = dpr;
+      const h = harness({}, cell);
+      const w = cols * deviceCellSize(cell.width, dpr);
+      const hgt = rows * deviceCellSize(cell.height, dpr);
+      h.g.feed(apc(`a=T,f=32,s=${w},v=${hgt},i=1`, zeros(w * hgt * 4)));
+      // the cursor starts at column 2: rows - 1 line feeds, then column 2 + cols + 1
+      expect(h.written).toEqual([`${'\n'.repeat(rows - 1)}${ESC}[${2 + cols + 1}G`]);
+    },
+  );
 });
