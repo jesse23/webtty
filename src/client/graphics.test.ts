@@ -30,7 +30,20 @@ interface FakeBitmap {
 }
 
 let bitmaps: FakeBitmap[] = [];
+let listeners = new Map<string, () => void>();
+let visibility = 'visible';
 let gate: Promise<void> | null = null;
+// Gates for the next decodes, in the order they start: lets a test finish them in any order.
+let gates: Array<Promise<void>> = [];
+const hold = (): (() => void) => {
+  let release = () => {};
+  gates.push(
+    new Promise<void>((r) => {
+      release = r;
+    }),
+  );
+  return release;
+};
 const saved: Record<string, unknown> = {};
 
 function makeBitmap(width: number, height: number): FakeBitmap {
@@ -49,6 +62,9 @@ function makeBitmap(width: number, height: number): FakeBitmap {
 beforeEach(() => {
   bitmaps = [];
   gate = null;
+  gates = [];
+  listeners = new Map();
+  visibility = 'visible';
   const g = globalThis as Record<string, unknown>;
   for (const key of [
     'document',
@@ -60,6 +76,10 @@ beforeEach(() => {
     saved[key] = g[key];
   }
   g.document = {
+    addEventListener: (type: string, cb: () => void) => listeners.set(type, cb),
+    get visibilityState() {
+      return visibility;
+    },
     createElement: () => ({ dataset: {}, style: {}, width: 0, height: 0, getContext: () => null }),
   };
   g.window = { devicePixelRatio: 1 };
@@ -73,6 +93,8 @@ beforeEach(() => {
   };
   g.createImageBitmap = async (src: { width?: number; height?: number } | Blob) => {
     if (gate) await gate;
+    const own = gates.shift();
+    if (own) await own;
     if (src instanceof Blob) {
       const head = new Uint8Array(await src.arrayBuffer());
       const view = new DataView(head.buffer, head.byteOffset);
@@ -326,8 +348,9 @@ describe('memory limits', () => {
   );
 
   test('the total decoded size is a budget: the oldest images go first, the newest stays', async () => {
-    // each 2x2 image is 16 bytes decoded; room for two
-    const h = harness({ maxTotalBytes: 40 });
+    // each 2x2 image is 16 bytes decoded and, while decoding, holds 40 (16 of
+    // RGBA plus its 24-character payload): room for two stored plus one decoding
+    const h = harness({ maxTotalBytes: 60 });
     for (const id of [1, 2, 3]) {
       h.g.feed(apc(`a=T,f=32,s=2,v=2,i=${id},C=1`, zeros(16)));
       await flush();
@@ -349,9 +372,9 @@ describe('memory limits', () => {
   });
 
   test('a chunked transmission over the size cap gets one error and its later chunks are ignored', async () => {
-    const h = harness({ maxTransmissionBytes: 10 });
-    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1,m=1', 'AAAAAA'));
-    h.g.feed(apc('m=1', 'AAAAAA')); // 12 > 10: dropped
+    const h = harness({ maxTransmissionBytes: 100 });
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1,m=1', 'A'.repeat(40)));
+    h.g.feed(apc('m=1', 'A'.repeat(70))); // 110 > 100: dropped
     h.g.feed(apc('m=1', 'AAAA'));
     expect(h.sent).toEqual([]);
     h.g.feed(apc('m=0', 'AA'));
@@ -481,4 +504,237 @@ describe('cursor movement at scaled display', () => {
       expect(h.written).toEqual([`${'\n'.repeat(rows - 1)}${ESC}[${2 + cols + 1}G`]);
     },
   );
+});
+
+describe('an oversized sequence', () => {
+  test('is answered with an error and none of its payload reaches the terminal', () => {
+    const h = harness({ maxTransmissionBytes: 200 });
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1', 'A'.repeat(300)));
+    expect(h.sent).toEqual([`${ESC}_Gi=1;EINVAL:transmission too large${ESC}\\`]);
+    expect(h.written).toEqual([]);
+    expect(h.images().size).toBe(0);
+  });
+
+  test('the rest of a chunked transmission it started is ignored, with one error', () => {
+    const h = harness({ maxTransmissionBytes: 200 });
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1,m=1', 'A'.repeat(300))); // the first chunk is itself too big
+    h.g.feed(apc('m=1', 'AAAA'));
+    expect(h.sent).toEqual([]);
+    h.g.feed(apc('m=0', 'AA'));
+    expect(h.sent).toEqual([`${ESC}_Gi=1;EINVAL:transmission too large${ESC}\\`]);
+  });
+
+  test('one that is never terminated is ended by CAN, and text resumes', () => {
+    const h = harness({ maxTransmissionBytes: 100 });
+    h.g.feed(`${ESC}_Ga=t,i=1;${'A'.repeat(300)}`);
+    h.g.feed('still payload');
+    expect(h.written).toEqual([]);
+    h.g.feed('\x18text again');
+    expect(h.written).toEqual(['text again']);
+  });
+});
+
+describe('decodes in flight', () => {
+  test('count against the memory budget, so a flood of transmissions is refused', async () => {
+    // each 2x2 image holds 40 while decoding: 16 of RGBA and a 24-character payload
+    const h = harness({ maxTotalBytes: 100 });
+    const release = [hold(), hold()];
+    h.g.feed(apc('a=t,f=32,s=2,v=2,i=1', zeros(16)) + apc('a=t,f=32,s=2,v=2,i=2', zeros(16)));
+    h.g.feed(apc('a=t,f=32,s=2,v=2,i=3', zeros(16)));
+    expect(h.sent).toEqual([`${ESC}_Gi=3;EINVAL:too many images being decoded${ESC}\\`]);
+    expect(h.images().has(3)).toBe(false);
+    for (const r of release) r();
+    await flush();
+    h.sent.length = 0;
+    // the reservations were released, so there is room again
+    h.g.feed(apc('a=t,f=32,s=2,v=2,i=4', zeros(16)));
+    await flush();
+    expect(h.images().get(4)?.bitmap).toBeDefined();
+  });
+
+  test('a compressed PNG, whose size is unknown until decoded, reserves the worst case', async () => {
+    // worst case: 100 pixels of RGBA (400 bytes) plus the payload
+    const h = harness({ maxImagePixels: 100, maxTotalBytes: 500 });
+    const release = hold();
+    h.g.feed(apc('a=t,f=100,o=z,i=1', b64(deflateSync(pngHeader(2, 2)))));
+    h.g.feed(apc('a=t,f=100,o=z,i=2', b64(deflateSync(pngHeader(2, 2)))));
+    expect(h.sent).toEqual([`${ESC}_Gi=2;EINVAL:too many images being decoded${ESC}\\`]);
+    release();
+    await flush();
+  });
+
+  test('a failed decode releases its reservation', async () => {
+    const h = harness({ maxTotalBytes: 500 });
+    const tooLittle = () => h.g.feed(apc('a=t,f=32,s=10,v=10,i=1', zeros(8))); // reserves 412
+    tooLittle();
+    await flush();
+    h.sent.length = 0;
+    tooLittle(); // refused if the first still held its 412
+    await flush();
+    expect(h.sent).toEqual([`${ESC}_Gi=1;ENODATA:not enough pixel data${ESC}\\`]);
+  });
+
+  test('stored images are dropped, oldest first, to make room for a new one', async () => {
+    const h = harness({ maxTotalBytes: 60 });
+    for (const id of [1, 2, 3]) {
+      h.g.feed(apc(`a=t,f=32,s=2,v=2,i=${id}`, zeros(16)));
+      await flush();
+    }
+    expect([...h.images().keys()]).toEqual([2, 3]);
+  });
+});
+
+describe('every transmission is answered', () => {
+  test('one removed while it decodes gets an error instead of silence', async () => {
+    const h = harness({ maxImages: 1 });
+    const releases = [hold(), hold()];
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1', zeros(4)));
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=2', zeros(4))); // evicts image 1 while it is still decoding
+    for (const r of releases) r();
+    await flush();
+    expect(h.sent).toContain(
+      `${ESC}_Gi=1;EINVAL:image was removed before it finished decoding${ESC}\\`,
+    );
+    expect(h.sent).toContain(`${ESC}_Gi=2;OK${ESC}\\`);
+    expect(h.images().has(1)).toBe(false);
+    expect(bitmaps[0].closed).toBe(true);
+  });
+
+  test('one deleted while it decodes gets the same error', async () => {
+    const h = harness();
+    const release = hold();
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1', zeros(4)));
+    h.g.feed(apc('a=d,d=I,i=1'));
+    release();
+    await flush();
+    expect(h.sent).toEqual([
+      `${ESC}_Gi=1;EINVAL:image was removed before it finished decoding${ESC}\\`,
+    ]);
+  });
+
+  test('one superseded by a newer transmission that already finished still gets its OK', async () => {
+    const h = harness();
+    const releaseOld = hold();
+    const releaseNew = hold();
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1', zeros(4)));
+    h.g.feed(apc('a=t,f=32,s=2,v=2,i=1', zeros(16))); // replaces it
+    releaseNew();
+    await flush();
+    expect(h.images().get(1)?.bitmap).toMatchObject({ width: 2 });
+    releaseOld();
+    await flush();
+    expect(h.sent).toEqual([`${ESC}_Gi=1;OK${ESC}\\`, `${ESC}_Gi=1;OK${ESC}\\`]);
+    expect(bitmaps.find((b) => b.width === 1)?.closed).toBe(true);
+    expect(h.images().get(1)?.bitmap).toMatchObject({ width: 2, closed: false });
+  });
+
+  test('an older transmission that finishes first is shown until the newer one is ready', async () => {
+    const h = harness();
+    const releaseOld = hold();
+    const releaseNew = hold();
+    h.g.feed(apc('a=T,f=32,s=1,v=1,i=1,C=1', zeros(4)));
+    h.g.feed(apc('a=T,f=32,s=2,v=2,i=1,C=1', zeros(16)));
+    releaseOld();
+    await flush();
+    // a stream of frames must not be blank while decoding lags behind it
+    expect(h.images().get(1)?.bitmap).toMatchObject({ width: 1 });
+    releaseNew();
+    await flush();
+    expect(h.images().get(1)?.bitmap).toMatchObject({ width: 2 });
+    expect(bitmaps[0].closed).toBe(true);
+  });
+
+  test('a stream reset answers nothing for decodes that were running', async () => {
+    const h = harness();
+    const release = hold();
+    h.g.feed(apc('a=t,f=32,s=1,v=1,i=1', zeros(4)));
+    h.g.reset();
+    release();
+    await flush();
+    expect(h.sent).toEqual([]);
+  });
+});
+
+describe('placements are sized from the current transmission', () => {
+  test('a=p of a compressed PNG replacing a decoded image does not borrow the old bitmap size', async () => {
+    const h = harness();
+    h.g.feed(apc('a=T,f=32,s=20,v=40,i=1,C=1', zeros(20 * 40 * 4)));
+    await flush();
+    const release = hold();
+    h.g.feed(apc('a=t,f=100,o=z,i=1', b64(deflateSync(pngHeader(20, 40)))));
+    h.sent.length = 0;
+    h.written.length = 0;
+    h.g.feed(apc('a=p,i=1'));
+    expect(h.sent).toHaveLength(1);
+    expect(h.sent[0]).toContain('C=1');
+    expect(h.written).toEqual([]);
+    release();
+    await flush();
+  });
+
+  test('a=p of a resized image moves the cursor by the new size, not the old bitmap', async () => {
+    const h = harness();
+    h.g.feed(apc('a=T,f=32,s=10,v=20,i=1,C=1', zeros(10 * 20 * 4))); // one cell
+    await flush();
+    const release = hold();
+    h.g.feed(apc('a=t,f=32,s=40,v=40,i=1', zeros(40 * 40 * 4))); // 4 columns, 2 rows
+    h.written.length = 0;
+    h.g.feed(apc('a=p,i=1'));
+    expect(h.written).toEqual([`\n${ESC}[7G`]); // column 2 + 4 + 1
+    release();
+    await flush();
+  });
+});
+
+describe('eviction order', () => {
+  test('enforcing the budget keeps the newest transmission, whichever decode finished last', async () => {
+    const h = harness();
+    for (const id of [1, 2, 3]) {
+      h.g.feed(apc(`a=t,f=32,s=2,v=2,i=${id}`, zeros(16)));
+      await flush();
+    }
+    const internals = h.g as unknown as { limits: Limits; enforceBudget(): boolean };
+    internals.limits.maxTotalBytes = 20;
+    internals.enforceBudget();
+    expect([...h.images().keys()]).toEqual([3]);
+  });
+});
+
+describe('overlay repaint when the tab is shown again', () => {
+  test('a tab coming back to the foreground repaints the overlay', () => {
+    const h = harness();
+    h.clearDirty();
+    visibility = 'hidden';
+    listeners.get('visibilitychange')?.();
+    expect(h.dirty()).toBe(false);
+    visibility = 'visible';
+    listeners.get('visibilitychange')?.();
+    expect(h.dirty()).toBe(true);
+  });
+
+  test('invalidate() forces a repaint even when nothing about the geometry changed', () => {
+    const h = harness();
+    (h.g as unknown as { lastSignature: string }).lastSignature = 'same';
+    h.clearDirty();
+    h.g.invalidate();
+    expect(h.dirty()).toBe(true);
+    expect((h.g as unknown as { lastSignature: string }).lastSignature).toBe('');
+  });
+});
+
+describe('a header that only looks like a PNG', () => {
+  test.each([
+    ['signature', (b: Uint8Array) => (b[0] = 0x00)],
+    ['IHDR length', (b: Uint8Array) => (b[11] = 12)],
+    ['IHDR type', (b: Uint8Array) => (b[15] = 0x58)],
+  ])('with a bad %s is refused before the cursor moves', (_name, corrupt) => {
+    const h = harness();
+    const bad = pngHeader(20, 40);
+    corrupt(bad);
+    h.g.feed(apc('a=T,f=100,i=1', b64(bad)));
+    expect(h.sent).toEqual([`${ESC}_Gi=1;EINVAL:not a PNG${ESC}\\`]);
+    expect(h.written).toEqual([]);
+    expect(h.placements().size).toBe(0);
+    expect(h.images().size).toBe(0);
+  });
 });

@@ -81,13 +81,30 @@ is kept:
 | Limit | Value | Checked |
 |-------|-------|---------|
 | Encoded bytes in one transmission (all `m=1` chunks together) | 64 MiB | as chunks arrive; the rest of the chunks are swallowed |
-| Bytes in one APC sequence | 64 MiB | while splitting |
+| Bytes in one APC sequence | 64 MiB | while splitting. Only its start is kept, so the command can still be answered with `EINVAL`, and none of the payload reaches the terminal as text. Like any control string it ends at ST, or at CAN / SUB, which is the way out of one that is never terminated |
 | Pixels in one image | 32M (128 MiB as RGBA) | from `s` x `v` / the PNG header before decoding, and from the header of what a compressed PNG inflates to |
 | Inflated size | exactly `s x v x bytes-per-pixel` for raw pixels, 64 MiB for a PNG | while inflating, which stops early |
-| Decoded bytes across all images | 512 MiB | after each decode; oldest images are dropped first, never the newest |
+| Decoded bytes across all images, including decodes still running | 512 MiB | a transmission reserves its encoded payload plus its RGBA output (the worst case for a compressed PNG, whose size is unknown) before decoding starts. Stored images are dropped, oldest first, to make room; if it still does not fit the transmission is refused with `EINVAL`. After a decode, oldest images are dropped first and the newest transmission is kept |
 | Images kept | 256 | on transmit; oldest dropped first |
 
-Raw images need positive integer `s` and `v`.
+Raw images need positive integer `s` and `v`. An uncompressed PNG's header is
+checked in full (signature, a 13-byte IHDR as the first chunk, dimensions of 1
+to 2^31 - 1) before its size is used to move the cursor.
+
+## Replies to transmissions
+
+Every transmission that carries an image id gets a reply, once its decode has
+finished, unless `q` suppresses it: `OK` on success, an error on failure. That
+includes one that was superseded by a newer transmission of the same id (`OK`:
+it was valid) and one whose image was evicted or deleted before it finished
+(`EINVAL`). The exception is a decode that was running when the stream was
+reset: nobody is waiting for it any more.
+
+A newer transmission of an id replaces the image. While it decodes, an older
+one that finishes first is shown, so a stream of frames is not blank whenever
+decoding lags behind; a bitmap never replaces one from a newer transmission.
+Placements are sized from the latest transmission, never from a bitmap held
+over from the previous one.
 
 ## Reconnect
 
@@ -109,6 +126,16 @@ src/client/
 ```
 
 ## Known limitations
+
+- **Placements stop following the text once the scrollback is full.** A placement
+  is anchored to the number of scrollback lines plus its row when it was made.
+  That number stops growing when the scrollback reaches its limit (3277 lines
+  with the default `scrollback`), while output keeps pushing rows off the top,
+  so from then on a main-screen placement stays at its screen row instead of
+  scrolling away with its text. The emulator exposes no count of rows it has
+  evicted, so the client cannot correct for it. The alternate screen has no
+  scrollback and is not affected. Native support in the emulator (which tracks
+  positions itself) is the real fix.
 
 - The emulator does not know images exist: text written over an image does not
   erase it. Cleared by `CSI 2 J` / `CSI 3 J`, alt-screen switch, and `ESC c`.

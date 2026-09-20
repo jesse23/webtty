@@ -15,7 +15,8 @@ import {
   sizeReply,
 } from './kitty';
 
-const apc = (body: string): string => `\x1b_${body}\x1b\\`;
+const ESC = '\x1b';
+const apc = (body: string): string => `${ESC}_${body}${ESC}\\`;
 
 describe('ApcSplitter', () => {
   test('plain text passes through untouched', () => {
@@ -379,4 +380,132 @@ describe('cellSpan at fractional display scales', () => {
       }
     },
   );
+});
+
+describe('ApcSplitter size limit', () => {
+  const big = (n: number) => 'A'.repeat(n);
+
+  test('an oversized sequence is reported with its start, so it can still be answered', () => {
+    const out = new ApcSplitter(20).feed(`before${apc(`Ga=t,i=1;${big(50)}`)}after`);
+    expect(out).toHaveLength(3);
+    expect(out[0]).toEqual({ type: 'text', text: 'before' });
+    expect(out[1]).toMatchObject({ type: 'apc', overflow: true });
+    expect((out[1] as { body: string }).body.startsWith('Ga=t,i=1;')).toBe(true);
+    expect(out[2]).toEqual({ type: 'text', text: 'after' });
+  });
+
+  test('none of the payload reaches the text', () => {
+    const out = new ApcSplitter(20).feed(apc(`Ga=t,i=1;${big(500)}`));
+    expect(out.filter((s) => s.type === 'text')).toEqual([]);
+  });
+
+  test('only the start is kept, however large the sequence', () => {
+    const out = new ApcSplitter(20).feed(apc(`Ga=t,i=1;${big(20000)}`));
+    expect((out[0] as { body: string }).body.length).toBe(4096);
+  });
+
+  test('a sequence that is too big is still recognised across chunks', () => {
+    const s = new ApcSplitter(20);
+    expect(s.feed(`${ESC}_Ga=t,i=1;${big(30)}`)).toEqual([]);
+    expect(s.feed(big(30))).toEqual([]);
+    const out = s.feed(`${big(5)}${ESC}\\ok`);
+    expect(out[0]).toMatchObject({ type: 'apc', overflow: true });
+    expect(out[1]).toEqual({ type: 'text', text: 'ok' });
+  });
+
+  test('a sequence at the limit is delivered whole', () => {
+    const body = `Ga=t;${big(15)}`;
+    expect(new ApcSplitter(body.length).feed(apc(body))).toEqual([{ type: 'apc', body }]);
+  });
+
+  test.each([
+    ['CAN', '\x18'],
+    ['SUB', '\x1a'],
+  ])('%s cancels a sequence that was never terminated, so text resumes', (_name, stop) => {
+    const s = new ApcSplitter(20);
+    expect(s.feed(`${ESC}_Ga=t;${big(100)}`)).toEqual([]);
+    expect(s.feed(`still payload${stop}text again`)).toEqual([
+      { type: 'text', text: 'text again' },
+    ]);
+  });
+
+  test('CAN cancels an ordinary sequence too, delivering nothing', () => {
+    const s = new ApcSplitter();
+    expect(s.feed(`${ESC}_Ga=q;AA\x18after`)).toEqual([{ type: 'text', text: 'after' }]);
+  });
+
+  test('CAN in plain text is just text', () => {
+    expect(new ApcSplitter().feed('a\x18b')).toEqual([{ type: 'text', text: 'a\x18b' }]);
+  });
+});
+
+describe('ChunkAssembler.reject', () => {
+  test('a rejected single command is reported as too big, with its keys', () => {
+    expect(new ChunkAssembler().reject({ keys: { i: '3' }, payload: '' })).toEqual({
+      keys: { i: '3' },
+      data: '',
+      tooBig: true,
+    });
+  });
+
+  test('a rejected first chunk swallows the chunks after it and reports once at the end', () => {
+    const a = new ChunkAssembler();
+    expect(a.reject({ keys: { i: '3', m: '1' }, payload: '' })).toBeNull();
+    expect(a.push({ keys: { m: '1' }, payload: 'AA' })).toBeNull();
+    expect(a.push({ keys: { m: '0' }, payload: 'AA' })).toEqual({
+      keys: { i: '3', m: '1' },
+      data: '',
+      tooBig: true,
+    });
+  });
+
+  test('a rejected later chunk drops what was pending and answers for the first chunk', () => {
+    const a = new ChunkAssembler();
+    a.push({ keys: { i: '3', m: '1' }, payload: 'AAAA' });
+    expect(a.reject({ keys: { m: '0' }, payload: '' })).toEqual({
+      keys: { i: '3', m: '1' },
+      data: '',
+      tooBig: true,
+    });
+    // and the next transmission starts clean
+    expect(a.push({ keys: { i: '4' }, payload: 'Z' })).toEqual({ keys: { i: '4' }, data: 'Z' });
+  });
+});
+
+describe('pngSizeFromBytes validation', () => {
+  const valid = () =>
+    new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0,
+      0x01, 0x2c, 0, 0, 0, 0xc8,
+    ]);
+
+  test('a valid header is read', () => {
+    expect(pngSizeFromBytes(valid())).toEqual({ width: 300, height: 200 });
+  });
+
+  test.each([
+    ['first byte of the signature', (b: Uint8Array) => (b[0] = 0x00)],
+    ['line-ending bytes of the signature', (b: Uint8Array) => (b[5] = 0x00)],
+    ['IHDR length', (b: Uint8Array) => (b[11] = 12)],
+    ['IHDR type', (b: Uint8Array) => (b[15] = 0x58)],
+    ['zero width', (b: Uint8Array) => b.fill(0, 16, 20)],
+    ['zero height', (b: Uint8Array) => b.fill(0, 20, 24)],
+    ['width over 2^31 - 1', (b: Uint8Array) => b.fill(0xff, 16, 20)],
+  ])('a wrong %s is refused', (_name, corrupt) => {
+    const b = valid();
+    corrupt(b);
+    expect(pngSizeFromBytes(b)).toBeNull();
+  });
+
+  test('bytes that only spell PNG at offsets 1 to 3 are not a PNG', () => {
+    const b = new Uint8Array(24);
+    b.set([0x00, 0x50, 0x4e, 0x47], 0);
+    expect(pngSizeFromBytes(b)).toBeNull();
+  });
+
+  test('the base64 form is validated the same way', () => {
+    const b = valid();
+    b[0] = 0x00;
+    expect(pngSize(btoa(String.fromCharCode(...b)))).toBeNull();
+  });
 });

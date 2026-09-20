@@ -7,9 +7,22 @@ const ESC = '\x1b';
 
 // A single APC is one chunk of at most 4096 base64 bytes per the spec, but
 // nothing stops a client sending one huge sequence. Bound what we buffer.
-const MAX_APC_BYTES = 64 * 1024 * 1024;
+export const MAX_APC_BYTES = 64 * 1024 * 1024;
 
-export type Segment = { type: 'text'; text: string } | { type: 'apc'; body: string };
+// How much of the start of an APC is kept when it is too big to keep whole:
+// enough for the control keys, so the command can still be answered.
+const HEAD_BYTES = 4096;
+
+// What ends an APC: ST (`ESC \`), or CAN / SUB, which cancel a control string.
+const CAN = '\x18';
+const SUB = '\x1a';
+const APC_STOP = new RegExp(`[${ESC}${CAN}${SUB}]`, 'g');
+
+export type Segment =
+  | { type: 'text'; text: string }
+  // `overflow`: the sequence was over the size limit, so `body` is only its
+  // start (the control keys), enough to answer with an error.
+  | { type: 'apc'; body: string; overflow?: boolean };
 
 /**
  * Splits a PTY stream into plain text and APC sequences (`ESC _ ... ESC \`).
@@ -18,12 +31,20 @@ export type Segment = { type: 'text'; text: string } | { type: 'apc'; body: stri
  * including between the `ESC` and `_` that open an APC, or between the `ESC`
  * and `\` that close it. A lone trailing `ESC` is therefore held back until
  * the next chunk says what it starts.
+ *
+ * A sequence over `maxBytes` is not buffered whole: its start is kept and the
+ * rest is swallowed up to its terminator, so none of the payload reaches the
+ * terminal as text. Like any control string it ends at ST, or at CAN / SUB,
+ * which is the way out of one that is never terminated.
  */
 export class ApcSplitter {
   private state: 'text' | 'esc' | 'apc' | 'apc-esc' = 'text';
   private parts: string[] = [];
+  private head = '';
   private size = 0;
   private overflow = false;
+
+  constructor(private maxBytes = MAX_APC_BYTES) {}
 
   feed(data: string): Segment[] {
     const out: Segment[] = [];
@@ -51,17 +72,23 @@ export class ApcSplitter {
           this.state = 'text';
         }
       } else if (this.state === 'apc') {
-        const esc = data.indexOf(ESC, i);
-        const end = esc < 0 ? data.length : esc;
+        APC_STOP.lastIndex = i;
+        const stop = APC_STOP.exec(data);
+        const end = stop ? stop.index : data.length;
         this.append(data.slice(i, end));
         i = end;
-        if (esc >= 0) {
-          this.state = 'apc-esc';
+        if (stop) {
           i++;
+          if (stop[0] === ESC) this.state = 'apc-esc';
+          else this.reset(); // CAN / SUB: cancelled, nothing to deliver
         }
       } else if (data[i] === '\\') {
         // apc-esc: ESC \ closes the sequence.
-        if (!this.overflow) out.push({ type: 'apc', body: this.parts.join('') });
+        out.push(
+          this.overflow
+            ? { type: 'apc', body: this.head, overflow: true }
+            : { type: 'apc', body: this.parts.join('') },
+        );
         this.reset();
         i++;
       } else {
@@ -76,16 +103,16 @@ export class ApcSplitter {
   }
 
   private begin(): void {
+    this.reset();
     this.state = 'apc';
-    this.parts = [];
-    this.size = 0;
-    this.overflow = false;
   }
 
   private append(s: string): void {
-    if (this.overflow || !s) return;
+    if (!s) return;
+    if (this.head.length < HEAD_BYTES) this.head += s.slice(0, HEAD_BYTES - this.head.length);
+    if (this.overflow) return;
     this.size += s.length;
-    if (this.size > MAX_APC_BYTES) {
+    if (this.size > this.maxBytes) {
       this.overflow = true;
       this.parts = [];
       return;
@@ -96,6 +123,7 @@ export class ApcSplitter {
   private reset(): void {
     this.state = 'text';
     this.parts = [];
+    this.head = '';
     this.size = 0;
     this.overflow = false;
   }
@@ -150,6 +178,22 @@ export class ChunkAssembler {
   private discarding: KittyKeys | null = null;
 
   constructor(private maxBytes = MAX_TRANSMISSION_BYTES) {}
+
+  /**
+   * A chunk that could not be delivered whole (the splitter's size limit). Its
+   * control keys are all that is known; treat it as the end of an oversized
+   * transmission, or as one more chunk of one if it says more follows.
+   */
+  reject(cmd: KittyCommand): Transmission | null {
+    const keys = this.pending?.keys ?? this.discarding ?? cmd.keys;
+    this.pending = null;
+    if (cmd.keys.m === '1') {
+      this.discarding = keys;
+      return null;
+    }
+    this.discarding = null;
+    return { keys, data: '', tooBig: true };
+  }
 
   push(cmd: KittyCommand): Transmission | null {
     const more = cmd.keys.m === '1';
@@ -209,13 +253,26 @@ export function kittyReply(
   return `${ESC}_G${ids.join(',')};${status}${ESC}\\`;
 }
 
-/** Width and height from a PNG's IHDR, given the first 24 bytes of the file or more. */
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+/**
+ * Width and height from a PNG's IHDR, given the first 24 bytes of the file or
+ * more. The header is checked in full (signature, that the first chunk is a
+ * 13-byte IHDR, and that the dimensions are valid) because the result is used
+ * to move the cursor before the decoder has looked at the data.
+ */
 export function pngSizeFromBytes(bytes: Uint8Array): { width: number; height: number } | null {
   if (bytes.length < 24) return null;
-  if (bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) return null;
+  for (let i = 0; i < PNG_SIGNATURE.length; i++) if (bytes[i] !== PNG_SIGNATURE[i]) return null;
   const u32 = (o: number): number =>
     ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
-  return { width: u32(16), height: u32(20) };
+  if (u32(8) !== 13) return null;
+  if (u32(12) !== 0x49484452) return null; // "IHDR"
+  const width = u32(16);
+  const height = u32(20);
+  // PNG dimensions are 1 to 2^31 - 1
+  if (width === 0 || height === 0 || width > 0x7fffffff || height > 0x7fffffff) return null;
+  return { width, height };
 }
 
 /**
