@@ -1,0 +1,255 @@
+import { describe, expect, test } from 'bun:test';
+import {
+  ApcSplitter,
+  axisScale,
+  ChunkAssembler,
+  cellSpan,
+  clearsPlacements,
+  deviceCellSize,
+  kittyReply,
+  parseKittyApc,
+  pngSize,
+  sizeQueries,
+  sizeReply,
+} from './kitty';
+
+const apc = (body: string): string => `\x1b_${body}\x1b\\`;
+
+describe('ApcSplitter', () => {
+  test('plain text passes through untouched', () => {
+    expect(new ApcSplitter().feed('hello \x1b[31mred\x1b[0m')).toEqual([
+      { type: 'text', text: 'hello \x1b[31mred\x1b[0m' },
+    ]);
+  });
+
+  test('splits text, APC, text in order', () => {
+    const out = new ApcSplitter().feed(`before${apc('Ga=q;AAAA')}after`);
+    expect(out).toEqual([
+      { type: 'text', text: 'before' },
+      { type: 'apc', body: 'Ga=q;AAAA' },
+      { type: 'text', text: 'after' },
+    ]);
+  });
+
+  test('multiple APCs in one chunk', () => {
+    const out = new ApcSplitter().feed(`${apc('Ga=d')}x${apc('Ga=d,d=A')}`);
+    expect(out.map((s) => s.type)).toEqual(['apc', 'text', 'apc']);
+  });
+
+  test('APC split across chunks at every byte boundary', () => {
+    const full = `pre${apc('Gi=1,a=T;QUJD')}post`;
+    for (let cut = 1; cut < full.length; cut++) {
+      const s = new ApcSplitter();
+      const segs = [...s.feed(full.slice(0, cut)), ...s.feed(full.slice(cut))];
+      const text = segs
+        .filter((x) => x.type === 'text')
+        .map((x) => (x as { text: string }).text)
+        .join('');
+      const apcs = segs.filter((x) => x.type === 'apc');
+      expect(text).toBe('prepost');
+      expect(apcs).toEqual([{ type: 'apc', body: 'Gi=1,a=T;QUJD' }]);
+    }
+  });
+
+  test('a trailing lone ESC is held until the next chunk decides what it is', () => {
+    const s = new ApcSplitter();
+    expect(s.feed('abc\x1b')).toEqual([{ type: 'text', text: 'abc' }]);
+    expect(s.feed('[31m')).toEqual([{ type: 'text', text: '\x1b[31m' }]);
+  });
+
+  test('ESC not followed by _ is returned to the text stream', () => {
+    expect(new ApcSplitter().feed('a\x1b[Hb\x1bcc')).toEqual([
+      { type: 'text', text: 'a\x1b[Hb\x1bcc' },
+    ]);
+  });
+
+  test('malformed APC (ESC not followed by backslash) is dropped and the ESC restarts a sequence', () => {
+    const out = new ApcSplitter().feed('\x1b_Gjunk\x1b[31mred');
+    expect(out).toEqual([{ type: 'text', text: '\x1b[31mred' }]);
+  });
+
+  test('non-graphics APC is still swallowed', () => {
+    const out = new ApcSplitter().feed(`a${apc('Xsomething')}b`);
+    expect(out[1]).toEqual({ type: 'apc', body: 'Xsomething' });
+  });
+
+  test('splitter is reusable after an APC completes', () => {
+    const s = new ApcSplitter();
+    s.feed(apc('Ga=d'));
+    expect(s.feed('plain')).toEqual([{ type: 'text', text: 'plain' }]);
+  });
+});
+
+describe('parseKittyApc', () => {
+  test('parses keys and payload', () => {
+    expect(parseKittyApc('Ga=T,f=32,s=2,v=1,i=7;AAAA')).toEqual({
+      keys: { a: 'T', f: '32', s: '2', v: '1', i: '7' },
+      payload: 'AAAA',
+    });
+  });
+
+  test('no payload', () => {
+    expect(parseKittyApc('Ga=d,d=A')).toEqual({ keys: { a: 'd', d: 'A' }, payload: '' });
+  });
+
+  test('payload may itself contain no semicolons beyond the first', () => {
+    expect(parseKittyApc('Gi=1;a;b')?.payload).toBe('a;b');
+  });
+
+  test('non-graphics APC returns null', () => {
+    expect(parseKittyApc('Xhello')).toBeNull();
+  });
+});
+
+describe('ChunkAssembler', () => {
+  test('single chunk returns immediately', () => {
+    const a = new ChunkAssembler();
+    expect(a.push({ keys: { a: 'T' }, payload: 'AAAA' })).toEqual({
+      keys: { a: 'T' },
+      data: 'AAAA',
+    });
+  });
+
+  test('m=1 chunks are joined; first chunk keys win', () => {
+    const a = new ChunkAssembler();
+    expect(a.push({ keys: { a: 'T', i: '3', m: '1' }, payload: 'AAAA' })).toBeNull();
+    expect(a.push({ keys: { m: '1' }, payload: 'BBBB' })).toBeNull();
+    expect(a.push({ keys: { m: '0' }, payload: 'CCCC' })).toEqual({
+      keys: { a: 'T', i: '3', m: '1' },
+      data: 'AAAABBBBCCCC',
+    });
+  });
+
+  test('assembler resets after a transmission completes', () => {
+    const a = new ChunkAssembler();
+    a.push({ keys: { m: '1' }, payload: 'A' });
+    a.push({ keys: {}, payload: 'B' });
+    expect(a.push({ keys: { i: '9' }, payload: 'Z' })).toEqual({ keys: { i: '9' }, data: 'Z' });
+  });
+});
+
+describe('kittyReply', () => {
+  test('OK reply carries the id', () => {
+    expect(kittyReply({ i: '31' }, 31)).toBe('\x1b_Gi=31;OK\x1b\\');
+  });
+
+  test('includes placement id and image number when present', () => {
+    expect(kittyReply({ i: '5', p: '2' }, 5)).toBe('\x1b_Gi=5,p=2;OK\x1b\\');
+    expect(kittyReply({ I: '9' }, 1000009)).toBe('\x1b_Gi=1000009,I=9;OK\x1b\\');
+  });
+
+  test('no id → no reply', () => {
+    expect(kittyReply({ a: 'T' }, 0)).toBeNull();
+  });
+
+  test('q=1 suppresses OK but not errors', () => {
+    expect(kittyReply({ i: '1', q: '1' }, 1)).toBeNull();
+    expect(kittyReply({ i: '1', q: '1' }, 1, { code: 'EINVAL', message: 'x' })).toBe(
+      '\x1b_Gi=1;EINVAL:x\x1b\\',
+    );
+  });
+
+  test('q=2 suppresses everything', () => {
+    expect(kittyReply({ i: '1', q: '2' }, 1)).toBeNull();
+    expect(kittyReply({ i: '1', q: '2' }, 1, { code: 'EINVAL', message: 'x' })).toBeNull();
+  });
+});
+
+describe('pngSize', () => {
+  test('reads width and height from the IHDR', () => {
+    // 8-byte signature, 4-byte length, "IHDR", width=300, height=200
+    const bytes = new Uint8Array([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0,
+      0x01, 0x2c, 0, 0, 0, 0xc8,
+    ]);
+    expect(pngSize(btoa(String.fromCharCode(...bytes)))).toEqual({ width: 300, height: 200 });
+  });
+
+  test('not a PNG → null', () => {
+    expect(pngSize(btoa('x'.repeat(24)))).toBeNull();
+    expect(pngSize('AAAA')).toBeNull();
+  });
+});
+
+describe('placement clearing', () => {
+  test.each(['\x1b[2J', '\x1b[3J', '\x1b[?1049h', '\x1b[?1049l', '\x1b[?47h', '\x1bc'])(
+    '%j clears',
+    (seq) => {
+      expect(clearsPlacements(`text${seq}more`)).toBe(true);
+    },
+  );
+
+  test.each(['\x1b[J', '\x1b[1J', '\x1b[?25h', '\x1b[2K', 'plain'])('%j does not', (seq) => {
+    expect(clearsPlacements(seq)).toBe(false);
+  });
+});
+
+describe('size queries', () => {
+  test('finds queries in order', () => {
+    expect(sizeQueries('\x1b[14tabc\x1b[16t\x1b[18t\x1b[15t')).toEqual([14, 16, 18]);
+  });
+
+  test('replies', () => {
+    const size = { cols: 100, rows: 30, cellWidth: 8, cellHeight: 16 };
+    expect(sizeReply(14, size)).toBe('\x1b[4;480;800t');
+    expect(sizeReply(16, size)).toBe('\x1b[6;16;8t');
+    expect(sizeReply(18, size)).toBe('\x1b[8;30;100t');
+  });
+});
+
+describe('cellSpan', () => {
+  const img = { width: 100, height: 50 };
+
+  test('natural size rounds up to whole cells', () => {
+    expect(cellSpan({}, img, 8, 16)).toEqual({ cols: 13, rows: 4 });
+  });
+
+  test('c and r win', () => {
+    expect(cellSpan({ c: '10', r: '5' }, img, 8, 16)).toEqual({ cols: 10, rows: 5 });
+  });
+
+  test('c alone keeps the aspect ratio', () => {
+    // 20 cols * 8px = 160px wide → scale 1.6 → 80px tall → 5 rows of 16px
+    expect(cellSpan({ c: '20' }, img, 8, 16)).toEqual({ cols: 20, rows: 5 });
+  });
+
+  test('r alone keeps the aspect ratio', () => {
+    // 4 rows * 16px = 64px tall → scale 1.28 → 128px wide → 16 cols of 8px
+    expect(cellSpan({ r: '4' }, img, 8, 16)).toEqual({ cols: 16, rows: 4 });
+  });
+
+  test('source rect w/h sizes the natural span', () => {
+    expect(cellSpan({ w: '16', h: '32' }, img, 8, 16)).toEqual({ cols: 2, rows: 2 });
+  });
+});
+
+describe('device pixel scale', () => {
+  test('cell size is a whole number of device pixels', () => {
+    expect(deviceCellSize(9.6, 2)).toBe(19);
+    expect(deviceCellSize(9.6, 1.25)).toBe(12);
+    expect(deviceCellSize(9.6, 1.5)).toBe(14);
+    expect(deviceCellSize(0.2, 1)).toBe(1);
+  });
+
+  test.each([1, 1.25, 1.5, 1.75, 2, 3])(
+    'a frame of cols cells fills cols CSS cells exactly at dpr %p',
+    (dpr) => {
+      const cols = 200;
+      const cssCell = 9.6;
+      const frameWidth = cols * deviceCellSize(cssCell, dpr);
+      expect(frameWidth / axisScale(cssCell, dpr)).toBeCloseTo(cols * cssCell, 6);
+    },
+  );
+
+  test('raw devicePixelRatio would drift off the grid at fractional scales', () => {
+    const cols = 200;
+    const cssCell = 9.6;
+    const drawn = (cols * deviceCellSize(cssCell, 1.75)) / 1.75;
+    expect(Math.abs(drawn - cols * cssCell)).toBeGreaterThan(5);
+  });
+
+  test('scale follows the snapped cell, close to devicePixelRatio', () => {
+    expect(axisScale(9.6, 2)).toBeCloseTo(19 / 9.6, 10);
+    expect(axisScale(0, 2)).toBe(2);
+  });
+});

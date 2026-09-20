@@ -166,3 +166,4 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.key-bindings.config-support.md) | ✅ |
 | Canvas gap fill | After each fit, distribute the gap between the container and canvas as symmetric padding so the canvas is centred at the new size | [ADR 022](../adrs/022.client.canvas-fill.md) | ✅ |
 | Font-size zoom | `Ctrl/Cmd` + `=`/`-`/`0` adjust terminal font size in-session; not configurable; same shortcuts as VS Code | [ADR 023](../adrs/023.client.font-size-zoom.md) | ✅ |
+| Kitty graphics | Client intercepts kitty graphics APC sequences and draws images on an overlay canvas; enables terminal-browser and `icat`-style tools | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |

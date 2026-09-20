@@ -1,5 +1,6 @@
 import { FitAddon, init, Terminal } from 'ghostty-web';
 import { applyDecscusr } from './cursor';
+import { KittyGraphics } from './graphics';
 import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
 
 interface KeyboardBinding {
@@ -150,6 +151,12 @@ new MutationObserver((mutations) => {
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 let ws: WebSocket;
 
+// Kitty graphics: ghostty-web's WASM discards the protocol's APC sequences, so
+// PTY output goes through this instead of term.write(). See ADR 032.
+const graphics = new KittyGraphics(term, container, (data: string) => {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+});
+
 function connect(): void {
   const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}/pty?cols=${term.cols}&rows=${term.rows}`;
   ws = new WebSocket(wsUrl);
@@ -162,12 +169,13 @@ function connect(): void {
   const msg = (text: string): string => `\r\n${tag} ${DIM}${ITALIC}${text}${RESET}\r\n`;
 
   ws.onopen = () => {
+    graphics.reset();
     ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
   };
 
   ws.onmessage = (event: MessageEvent<string>) => {
     applyDecscusr(term, event.data);
-    term.write(event.data);
+    graphics.feed(event.data);
   };
 
   ws.onclose = (event: CloseEvent) => {

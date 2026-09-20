@@ -13,6 +13,10 @@ body,
   background: #000;
 }
 
+#terminal {
+  position: relative;
+}
+
 #terminal canvas {
   display: block;
 }
