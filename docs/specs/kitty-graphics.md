@@ -42,13 +42,14 @@ command is handled is exact.
 
 | Feature | POC |
 |---------|-----|
-| `a=T` transmit + display, `a=t` transmit, `a=p` place | ✅ |
-| `a=d` delete: `a`/`A` (all), `i`/`I` (by id, optional `p`) | ✅ |
+| `a=T` transmit + display, `a=t` transmit, `a=p` place (replies `OK` when an id was given; may follow `a=t` immediately, the placement waits for the decode) | ✅ |
+| `a=d` delete: `a`/`A` (all), `i`/`I` (by id, optional `p`); no reply on success, as the protocol defines none | ✅ |
 | `a=q` query | ✅ |
 | `t=d` direct transmission, chunked with `m=` | ✅ |
 | `t=f` / `t=t` / `t=s` (file, temp file, shared memory) | ❌ answered with error so clients fall back to `t=d` |
 | `f=24` RGB, `f=32` RGBA, `f=100` PNG | ✅ |
 | `o=z` zlib compression | ✅ |
+| `f=100` + `o=z` with `a=T` / `a=p` | ⚠️ needs `C=1`: the size is unknown until the decode, and the cursor must move at this point in the stream. Rejected with `EINVAL` otherwise; `a=t` alone and `a=p` after the decode finished are fine |
 | `i` / `p` replace semantics (re-sending an image id replaces it) | ✅ |
 | `C=1` cursor stays; `C=0` cursor moves past image | ✅ |
 | `c`/`r` cell sizing, `x`/`y`/`w`/`h` source rect, `X`/`Y` offset | ✅ |
@@ -71,6 +72,31 @@ Written back to the PTY over the WebSocket:
 
 Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
 
+## Limits
+
+A PTY program controls what the client allocates, so each of these is checked
+before the work is done, and a violation is answered with `EINVAL` and nothing
+is kept:
+
+| Limit | Value | Checked |
+|-------|-------|---------|
+| Encoded bytes in one transmission (all `m=1` chunks together) | 64 MiB | as chunks arrive; the rest of the chunks are swallowed |
+| Bytes in one APC sequence | 64 MiB | while splitting |
+| Pixels in one image | 32M (128 MiB as RGBA) | from `s` x `v` / the PNG header before decoding, and from the header of what a compressed PNG inflates to |
+| Inflated size | exactly `s x v x bytes-per-pixel` for raw pixels, 64 MiB for a PNG | while inflating, which stops early |
+| Decoded bytes across all images | 512 MiB | after each decode; oldest images are dropped first, never the newest |
+| Images kept | 256 | on transmit; oldest dropped first |
+
+Raw images need positive integer `s` and `v`.
+
+## Reconnect
+
+`KittyGraphics.reset()` runs when the WebSocket opens. It discards the parser
+state (a connection can drop mid-APC), drops all images and placements, and
+invalidates decodes still running: a decode that finishes afterwards neither
+installs its bitmap nor replies into the new stream, even if the new stream
+reuses the same image id.
+
 ## Source layout
 
 ```
@@ -78,6 +104,7 @@ src/client/
   kitty.ts        ← pure: APC splitter, key=value parser, reply builders (unit tested)
   kitty.test.ts
   graphics.ts     ← browser: decode, placement table, overlay canvas, scroll tracking
+  graphics.test.ts ← state handling against a stubbed DOM and image decoder
   index.ts        ← wires ws.onmessage through KittyGraphics
 ```
 

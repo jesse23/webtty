@@ -3,15 +3,16 @@ import {
   ApcSplitter,
   axisScale,
   ChunkAssembler,
+  ControlScanner,
   cellSpan,
-  clearsPlacements,
   deviceCellSize,
   type KittyKeys,
   kittyReply,
+  MAX_TRANSMISSION_BYTES,
   num,
   parseKittyApc,
   pngSize,
-  sizeQueries,
+  pngSizeFromBytes,
   sizeReply,
   type Transmission,
 } from './kitty';
@@ -27,7 +28,28 @@ interface Scale {
   y: number;
 }
 
-const MAX_IMAGES = 256;
+// Bounds on what a PTY program can make the tab hold. Raw dimensions drive the
+// RGBA allocation and a small zlib payload can expand enormously, so limits are
+// checked before anything is allocated or decoded, and again on what a decode
+// produces. A 32M-pixel image is 128 MiB as RGBA; full-window frames on large
+// HiDPI displays are around 15M pixels.
+export interface Limits {
+  /** Images kept, whatever their size. */
+  maxImages: number;
+  /** Pixels in one image. */
+  maxImagePixels: number;
+  /** Decoded bytes across all images kept. */
+  maxTotalBytes: number;
+  /** Encoded bytes in one transmission, however many chunks it is sent in. */
+  maxTransmissionBytes: number;
+}
+
+const DEFAULT_LIMITS: Limits = {
+  maxImages: 256,
+  maxImagePixels: 32 * 1024 * 1024,
+  maxTotalBytes: 512 * 1024 * 1024,
+  maxTransmissionBytes: MAX_TRANSMISSION_BYTES,
+};
 
 // Kitty image numbers (`I=`) are per-client handles the terminal maps to ids.
 // Give them ids far above anything a client picks itself.
@@ -35,6 +57,13 @@ const IMAGE_NUMBER_BASE = 0x40000000;
 
 interface StoredImage {
   bitmap?: ImageBitmap;
+  // Pixel size known when the transmission arrived (raw `s`/`v`, or an
+  // uncompressed PNG header), 0 when only the decode will tell. Lets a
+  // placement be recorded, and the cursor moved, before decoding finishes.
+  width: number;
+  height: number;
+  // Decoded size in bytes, counted against `maxTotalBytes`.
+  bytes: number;
   // Decodes can finish out of order when frames arrive faster than they
   // decode; only the newest transmission may replace the bitmap.
   latest: number;
@@ -75,27 +104,54 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
-async function inflate(bytes: Uint8Array): Promise<Uint8Array> {
-  // The protocol's `o=z` is zlib-wrapped deflate, which the web API calls 'deflate'.
-  const stream = new Blob([bytes as BlobPart])
+// The protocol's `o=z` is zlib-wrapped deflate, which the web API calls
+// 'deflate'. Reads incrementally so a small payload that expands past `limit`
+// is cut off instead of allocated.
+async function inflate(bytes: Uint8Array, limit: number): Promise<Uint8Array> {
+  const reader = new Blob([bytes as BlobPart])
     .stream()
-    .pipeThrough(new DecompressionStream('deflate'));
-  return new Uint8Array(await new Response(stream).arrayBuffer());
+    .pipeThrough(new DecompressionStream('deflate'))
+    .getReader();
+  const parts: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.length;
+    if (size > limit) {
+      await reader.cancel();
+      throw new KittyError('EINVAL', 'decompressed data too large');
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const part of parts) {
+    out.set(part, at);
+    at += part.length;
+  }
+  return out;
 }
 
-async function decode(keys: KittyKeys, data: string): Promise<ImageBitmap> {
-  let bytes = base64ToBytes(data);
-  if (keys.o === 'z') bytes = await inflate(bytes);
+async function decode(keys: KittyKeys, data: string, maxPixels: number): Promise<ImageBitmap> {
   const format = num(keys, 'f', 32);
-  if (format === 100) {
-    return createImageBitmap(new Blob([bytes as BlobPart], { type: 'image/png' }));
-  }
   const width = num(keys, 's');
   const height = num(keys, 'v');
-  if (!width || !height) throw new KittyError('EINVAL', 'raw image needs s and v');
-  if (format !== 24 && format !== 32)
-    throw new KittyError('EINVAL', `unsupported format f=${format}`);
   const bpp = format === 24 ? 3 : 4;
+  let bytes = base64ToBytes(data);
+  if (keys.o === 'z') {
+    // Raw pixels have an exact expected size; a PNG file is bounded by the
+    // image-size limit's worst case.
+    bytes = await inflate(bytes, format === 100 ? MAX_TRANSMISSION_BYTES : width * height * bpp);
+  }
+  if (format === 100) {
+    const size = pngSizeFromBytes(bytes);
+    if (!size) throw new KittyError('EINVAL', 'not a PNG');
+    if (size.width * size.height > maxPixels) {
+      throw new KittyError('EINVAL', 'image too large');
+    }
+    return createImageBitmap(new Blob([bytes as BlobPart], { type: 'image/png' }));
+  }
   if (bytes.length < width * height * bpp) throw new KittyError('ENODATA', 'not enough pixel data');
   const rgba = new Uint8ClampedArray(width * height * 4);
   if (format === 32) {
@@ -119,10 +175,16 @@ async function decode(keys: KittyKeys, data: string): Promise<ImageBitmap> {
  */
 export class KittyGraphics {
   private splitter = new ApcSplitter();
-  private assembler = new ChunkAssembler();
+  private assembler: ChunkAssembler;
+  private scanner = new ControlScanner();
   private images = new Map<number, StoredImage>();
+  private totalBytes = 0;
   private placements = new Map<string, Placement>();
   private anonymousId = 0;
+  // Bumped by reset(). Decodes that started under an older value are stale:
+  // their result belongs to a PTY stream that is gone.
+  private generation = 0;
+  private limits: Limits;
   private overlay: HTMLCanvasElement;
   private dirty = false;
   private lastSignature = '';
@@ -132,7 +194,10 @@ export class KittyGraphics {
     private container: HTMLElement,
     /** Sends bytes to the PTY as if typed: replies to queries go here. */
     private send: (data: string) => void,
+    limits: Partial<Limits> = {},
   ) {
+    this.limits = { ...DEFAULT_LIMITS, ...limits };
+    this.assembler = new ChunkAssembler(this.limits.maxTransmissionBytes);
     this.overlay = document.createElement('canvas');
     this.overlay.dataset.kitty = '';
     this.overlay.style.cssText = 'position:absolute;pointer-events:none;';
@@ -141,13 +206,18 @@ export class KittyGraphics {
   }
 
   /**
-   * Forget in-flight parse state and placements. Call when the PTY stream
-   * restarts (WebSocket reconnect): a connection can drop mid-APC, and the
-   * scrollback replay that follows would otherwise be swallowed as payload.
+   * Forget everything from the previous PTY stream. Call when it restarts
+   * (WebSocket reconnect): a connection can drop mid-APC, and the scrollback
+   * replay that follows would otherwise be swallowed as payload; images and
+   * in-flight decodes belong to the old stream and would answer, or draw,
+   * into the new one.
    */
   reset(): void {
+    this.generation++;
     this.splitter = new ApcSplitter();
-    this.assembler = new ChunkAssembler();
+    this.assembler = new ChunkAssembler(this.limits.maxTransmissionBytes);
+    this.scanner = new ControlScanner();
+    this.dropImages();
     this.clear();
   }
 
@@ -161,8 +231,9 @@ export class KittyGraphics {
 
   private writeText(text: string): void {
     this.term.write(text);
-    if (clearsPlacements(text)) this.clear();
-    for (const q of sizeQueries(text)) this.send(sizeReply(q, this.terminalSize()));
+    const { clears, queries } = this.scanner.scan(text);
+    if (clears) this.clear();
+    for (const q of queries) this.send(sizeReply(q, this.terminalSize()));
   }
 
   private handleApc(body: string): void {
@@ -172,10 +243,14 @@ export class KittyGraphics {
     if (!tx) return;
     const action = tx.keys.a ?? 't';
     try {
+      if (tx.tooBig) throw new KittyError('EINVAL', 'transmission too large');
       if (action === 'q') this.query(tx);
       else if (action === 't' || action === 'T') this.transmit(tx, action === 'T');
-      else if (action === 'p') this.place(tx.keys, this.requireImageId(tx.keys));
-      else if (action === 'd') this.delete(tx.keys);
+      else if (action === 'p') {
+        const id = this.requireImage(tx.keys);
+        this.place(tx.keys, id);
+        this.reply(tx.keys, id);
+      } else if (action === 'd') this.delete(tx.keys);
     } catch (e) {
       this.replyError(tx.keys, e);
     }
@@ -187,9 +262,12 @@ export class KittyGraphics {
     return 0;
   }
 
-  private requireImageId(keys: KittyKeys): number {
+  // A transmitted image counts as existing while its decode is still running:
+  // programs send `a=t` and `a=p` back to back, and the placement simply waits
+  // for the bitmap.
+  private requireImage(keys: KittyKeys): number {
     const id = this.imageIdOf(keys);
-    if (!this.images.get(id)?.bitmap) throw new KittyError('ENOENT', 'no such image');
+    if (!this.images.has(id)) throw new KittyError('ENOENT', 'no such image');
     return id;
   }
 
@@ -208,37 +286,71 @@ export class KittyGraphics {
     this.reply(tx.keys, this.imageIdOf(tx.keys));
   }
 
+  /** Rejects what would be too big to hold, before any allocation. */
+  private assertWithinLimits(keys: KittyKeys, size: { width: number; height: number }): void {
+    if (num(keys, 'f', 32) !== 100) {
+      const { width, height } = size;
+      if (!Number.isInteger(width) || !Number.isInteger(height) || width <= 0 || height <= 0) {
+        throw new KittyError('EINVAL', 'raw image needs positive integer s and v');
+      }
+    }
+    if (size.width * size.height > this.limits.maxImagePixels) {
+      throw new KittyError('EINVAL', 'image too large');
+    }
+  }
+
   private transmit(tx: Transmission, display: boolean): void {
     this.assertSupported(tx.keys);
+    const size = this.dimensions(tx);
+    this.assertWithinLimits(tx.keys, size);
+    // Only a decode can tell a compressed PNG's size, and the cursor has to
+    // move at this exact point in the stream, so it cannot be moved for one.
+    if (display) this.assertCursorMovable(tx.keys, size);
+
     const explicit = this.imageIdOf(tx.keys);
     const id = explicit || --this.anonymousId;
+    const gen = this.generation;
 
     // Re-sending an id replaces the image and drops its old placements.
-    for (const [key, p] of this.placements) if (p.imageId === id) this.placements.delete(key);
-    const slot = this.images.get(id) ?? { latest: 0, applied: 0 };
+    this.removePlacements((p) => p.imageId === id);
+    const slot = this.images.get(id) ?? { width: 0, height: 0, bytes: 0, latest: 0, applied: 0 };
     this.images.delete(id); // re-insert so the Map stays ordered by recency
     this.images.set(id, slot);
+    slot.width = size.width;
+    slot.height = size.height;
     this.evict();
     const seq = ++slot.latest;
 
-    // Placement is recorded now, before the decode finishes: the cursor must
-    // move at this exact point in the stream, and the draw simply waits for
-    // the bitmap.
-    if (display) this.place(tx.keys, id, this.dimensions(tx));
+    // Placement is recorded now, before the decode finishes; the draw simply
+    // waits for the bitmap.
+    if (display) this.place(tx.keys, id);
 
-    decode(tx.keys, tx.data).then(
+    decode(tx.keys, tx.data, this.limits.maxImagePixels).then(
       (bitmap) => {
-        if (seq <= slot.applied || this.images.get(id) !== slot) {
+        if (gen !== this.generation || seq <= slot.applied || this.images.get(id) !== slot) {
           bitmap.close();
           return;
         }
         slot.bitmap?.close();
         slot.bitmap = bitmap;
         slot.applied = seq;
+        const bytes = bitmap.width * bitmap.height * 4;
+        this.totalBytes += bytes - slot.bytes;
+        slot.bytes = bytes;
+        this.enforceBudget(id);
         this.dirty = true;
         this.reply(tx.keys, explicit ? id : 0);
       },
-      (e) => this.replyError(tx.keys, e),
+      (e) => {
+        if (gen !== this.generation) return;
+        // The newest transmission failed: nothing it placed can be drawn, and
+        // an image that never decoded is not worth keeping.
+        if (this.images.get(id) === slot && seq === slot.latest) {
+          this.removePlacements((p) => p.imageId === id);
+          if (!slot.bitmap) this.dropImage(id);
+        }
+        this.replyError(tx.keys, e);
+      },
     );
   }
 
@@ -249,8 +361,15 @@ export class KittyGraphics {
     return (tx.keys.o !== 'z' && pngSize(tx.data)) || { width: 0, height: 0 };
   }
 
-  private place(keys: KittyKeys, imageId: number, known?: { width: number; height: number }): void {
-    const image = known ?? this.images.get(imageId)?.bitmap ?? { width: 0, height: 0 };
+  private assertCursorMovable(keys: KittyKeys, size: { width: number; height: number }): void {
+    if (num(keys, 'C') === 1 || (size.width && size.height)) return;
+    throw new KittyError('EINVAL', 'size of a compressed PNG is unknown until decoded: use C=1');
+  }
+
+  private place(keys: KittyKeys, imageId: number): void {
+    const slot = this.images.get(imageId);
+    const image = slot?.bitmap ?? slot ?? { width: 0, height: 0 };
+    this.assertCursorMovable(keys, image);
     const buf = this.term.buffer.active;
     const cell = this.cell();
     const scale = this.scale();
@@ -274,37 +393,51 @@ export class KittyGraphics {
 
     // Default C=0: the cursor ends past the image (last row, right of the
     // last column). The WASM cannot know an image took space, so move it.
-    if (num(keys, 'C') === 1 || !image.width || !image.height) return;
-    const span = cellSpan(
-      keys,
-      { width: image.width / scale.x, height: image.height / scale.y },
-      cell.width,
-      cell.height,
-    );
+    if (num(keys, 'C') === 1) return;
+    // The shown region is the source rectangle when given; `w` / `h` are
+    // device pixels like the image, so they convert with the same scale.
+    const region = {
+      width: (p.srcW || Math.max(1, image.width - p.srcX)) / scale.x,
+      height: (p.srcH || Math.max(1, image.height - p.srcY)) / scale.y,
+    };
+    const span = cellSpan(keys, region, cell.width, cell.height);
     this.term.write(`${'\n'.repeat(span.rows - 1)}\x1b[${p.col + span.cols + 1}G`);
   }
 
+  // The protocol defines no success reply for a delete, so none is sent.
   private delete(keys: KittyKeys): void {
     const target = keys.d ?? 'a';
     if (target === 'a' || target === 'A') {
-      this.placements.clear();
+      this.removePlacements(() => true);
       if (target === 'A') this.dropImages();
     } else if (target === 'i' || target === 'I') {
       const id = this.imageIdOf(keys);
       const pid = keys.p !== undefined ? num(keys, 'p') : undefined;
-      for (const [key, p] of this.placements) {
-        if (p.imageId === id && (pid === undefined || p.placementId === pid)) {
-          this.placements.delete(key);
-        }
-      }
+      this.removePlacements(
+        (p) => p.imageId === id && (pid === undefined || p.placementId === pid),
+      );
       if (target === 'I') this.dropImage(id);
     }
-    this.dirty = true;
+  }
+
+  // Every path that removes a placement goes through here so the overlay is
+  // repainted: a placement gone from the map but still painted would stay on
+  // screen until something unrelated redraws.
+  private removePlacements(match: (p: Placement) => boolean): void {
+    for (const [key, p] of this.placements) {
+      if (!match(p)) continue;
+      this.placements.delete(key);
+      this.dirty = true;
+    }
   }
 
   private dropImage(id: number): void {
-    this.images.get(id)?.bitmap?.close();
+    const slot = this.images.get(id);
+    if (!slot) return;
+    slot.bitmap?.close();
+    this.totalBytes -= slot.bytes;
     this.images.delete(id);
+    this.removePlacements((p) => p.imageId === id);
   }
 
   private dropImages(): void {
@@ -313,16 +446,23 @@ export class KittyGraphics {
 
   /** Placements no longer match what is on screen. Image data is kept: clients may re-place it. */
   private clear(): void {
-    if (this.placements.size === 0) return;
     this.placements.clear();
+    // Even when the map is already empty the overlay may still hold pixels
+    // from placements removed without a repaint.
     this.dirty = true;
   }
 
   private evict(): void {
-    while (this.images.size > MAX_IMAGES) {
-      const oldest = this.images.keys().next().value as number;
-      for (const [key, p] of this.placements) if (p.imageId === oldest) this.placements.delete(key);
-      this.dropImage(oldest);
+    while (this.images.size > this.limits.maxImages) {
+      this.dropImage(this.images.keys().next().value as number);
+    }
+  }
+
+  /** Drops the oldest images, never `keep`, until the decoded total fits. */
+  private enforceBudget(keep: number): void {
+    for (const id of [...this.images.keys()]) {
+      if (this.totalBytes <= this.limits.maxTotalBytes) return;
+      if (id !== keep) this.dropImage(id);
     }
   }
 

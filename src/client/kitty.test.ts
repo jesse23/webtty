@@ -3,12 +3,14 @@ import {
   ApcSplitter,
   axisScale,
   ChunkAssembler,
+  ControlScanner,
   cellSpan,
   clearsPlacements,
   deviceCellSize,
   kittyReply,
   parseKittyApc,
   pngSize,
+  pngSizeFromBytes,
   sizeQueries,
   sizeReply,
 } from './kitty';
@@ -218,8 +220,13 @@ describe('cellSpan', () => {
     expect(cellSpan({ r: '4' }, img, 8, 16)).toEqual({ cols: 16, rows: 4 });
   });
 
-  test('source rect w/h sizes the natural span', () => {
-    expect(cellSpan({ w: '16', h: '32' }, img, 8, 16)).toEqual({ cols: 2, rows: 2 });
+  test('the span follows the region passed in, not the whole image', () => {
+    // A 16x32 source rectangle at 2x is 8x16 CSS px: one cell, not the two the
+    // device-pixel numbers would suggest.
+    expect(cellSpan({ w: '16', h: '32' }, { width: 16 / 2, height: 32 / 2 }, 8, 16)).toEqual({
+      cols: 1,
+      rows: 1,
+    });
   });
 });
 
@@ -251,5 +258,107 @@ describe('device pixel scale', () => {
   test('scale follows the snapped cell, close to devicePixelRatio', () => {
     expect(axisScale(9.6, 2)).toBeCloseTo(19 / 9.6, 10);
     expect(axisScale(0, 2)).toBe(2);
+  });
+});
+
+describe('ChunkAssembler size cap', () => {
+  test('chunks that add up past the cap are dropped and reported once, at the end', () => {
+    const a = new ChunkAssembler(10);
+    expect(a.push({ keys: { i: '4', m: '1' }, payload: 'AAAAAA' })).toBeNull();
+    // 6 + 6 > 10: dropped here, the rest of the chunks are swallowed
+    expect(a.push({ keys: { m: '1' }, payload: 'BBBBBB' })).toBeNull();
+    expect(a.push({ keys: { m: '1' }, payload: 'C' })).toBeNull();
+    expect(a.push({ keys: { m: '0' }, payload: 'D' })).toEqual({
+      keys: { i: '4', m: '1' },
+      data: '',
+      tooBig: true,
+    });
+  });
+
+  test('the cap applies when the overflow is on the final chunk', () => {
+    const a = new ChunkAssembler(10);
+    a.push({ keys: { i: '4', m: '1' }, payload: 'AAAAAA' });
+    expect(a.push({ keys: { m: '0' }, payload: 'BBBBBB' })).toMatchObject({ tooBig: true });
+  });
+
+  test('a single oversized chunk is reported straight away', () => {
+    const a = new ChunkAssembler(4);
+    expect(a.push({ keys: { i: '2' }, payload: 'AAAAAAAA' })).toMatchObject({
+      keys: { i: '2' },
+      tooBig: true,
+    });
+  });
+
+  test('a first chunk that is too big swallows the chunks that follow it', () => {
+    const a = new ChunkAssembler(4);
+    expect(a.push({ keys: { i: '2', m: '1' }, payload: 'AAAAAAAA' })).toBeNull();
+    expect(a.push({ keys: { m: '1' }, payload: 'B' })).toBeNull();
+    expect(a.push({ keys: { m: '0' }, payload: 'C' })).toMatchObject({ tooBig: true });
+  });
+
+  test('normal transmissions still work after an oversized one', () => {
+    const a = new ChunkAssembler(4);
+    a.push({ keys: { m: '0' }, payload: 'AAAAAAAA' });
+    expect(a.push({ keys: { i: '9' }, payload: 'Z' })).toEqual({ keys: { i: '9' }, data: 'Z' });
+  });
+});
+
+describe('ControlScanner', () => {
+  test('a clear split across chunks is seen once it completes', () => {
+    const s = new ControlScanner();
+    expect(s.scan('text\x1b[')).toEqual({ clears: false, queries: [] });
+    expect(s.scan('2Jmore')).toEqual({ clears: true, queries: [] });
+  });
+
+  test('a size query split across chunks gets its reply', () => {
+    const s = new ControlScanner();
+    expect(s.scan('\x1b[1').queries).toEqual([]);
+    expect(s.scan('4t').queries).toEqual([14]);
+  });
+
+  test('split at every position', () => {
+    const full = 'a\x1b[?1049hb\x1b[16tc';
+    for (let cut = 1; cut < full.length; cut++) {
+      const s = new ControlScanner();
+      const a = s.scan(full.slice(0, cut));
+      const b = s.scan(full.slice(cut));
+      expect(a.clears || b.clears).toBe(true);
+      expect([...a.queries, ...b.queries]).toEqual([16]);
+    }
+  });
+
+  test('a lone trailing ESC is carried, so ESC c split in two is a reset', () => {
+    const s = new ControlScanner();
+    expect(s.scan('x\x1b').clears).toBe(false);
+    expect(s.scan('cy').clears).toBe(true);
+  });
+
+  test('a completed sequence is not counted again with the next chunk', () => {
+    const s = new ControlScanner();
+    expect(s.scan('\x1b[2J\x1b[14t').queries).toEqual([14]);
+    expect(s.scan('plain')).toEqual({ clears: false, queries: [] });
+  });
+
+  test('an unrelated unfinished sequence is dropped once it turns into something else', () => {
+    const s = new ControlScanner();
+    s.scan('\x1b[3');
+    expect(s.scan('1m text').clears).toBe(false);
+    expect(s.scan('plain').queries).toEqual([]);
+  });
+});
+
+describe('pngSizeFromBytes', () => {
+  const header = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0x01,
+    0x2c, 0, 0, 0, 0xc8,
+  ]);
+
+  test('reads the IHDR of a decoded file', () => {
+    expect(pngSizeFromBytes(header)).toEqual({ width: 300, height: 200 });
+  });
+
+  test('rejects short or non-PNG data', () => {
+    expect(pngSizeFromBytes(header.subarray(0, 10))).toBeNull();
+    expect(pngSizeFromBytes(new Uint8Array(30))).toBeNull();
   });
 });

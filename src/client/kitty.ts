@@ -125,24 +125,57 @@ export function parseKittyApc(body: string): KittyCommand | null {
 export interface Transmission {
   keys: KittyKeys;
   data: string;
+  /** The chunks added up to more than the size cap and were dropped; `data` is empty. */
+  tooBig?: boolean;
 }
+
+/**
+ * Cap on one chunked transmission's total encoded size. `MAX_APC_BYTES` bounds a
+ * single sequence, but a client can send any number of `m=1` chunks that are
+ * each valid, and every payload is held until the final one arrives.
+ */
+export const MAX_TRANSMISSION_BYTES = 64 * 1024 * 1024;
 
 /**
  * Reassembles chunked transmissions. The first chunk carries every key; the
  * following ones carry only `m` (and optionally `q`). `m=1` means more
  * follows, `m=0` or absent ends it.
+ *
+ * A transmission that grows past `maxBytes` is dropped and the rest of its
+ * chunks are swallowed, so they are not mistaken for new transmissions. The
+ * caller gets a `tooBig` result once the final chunk arrives, to reply to.
  */
 export class ChunkAssembler {
-  private pending: { keys: KittyKeys; parts: string[] } | null = null;
+  private pending: { keys: KittyKeys; parts: string[]; size: number } | null = null;
+  private discarding: KittyKeys | null = null;
+
+  constructor(private maxBytes = MAX_TRANSMISSION_BYTES) {}
 
   push(cmd: KittyCommand): Transmission | null {
     const more = cmd.keys.m === '1';
+    if (this.discarding) {
+      if (more) return null;
+      const keys = this.discarding;
+      this.discarding = null;
+      return { keys, data: '', tooBig: true };
+    }
+    const size = (this.pending?.size ?? 0) + cmd.payload.length;
+    if (size > this.maxBytes) {
+      const keys = this.pending?.keys ?? cmd.keys;
+      this.pending = null;
+      if (more) {
+        this.discarding = keys;
+        return null;
+      }
+      return { keys, data: '', tooBig: true };
+    }
     if (!this.pending) {
       if (!more) return { keys: cmd.keys, data: cmd.payload };
-      this.pending = { keys: cmd.keys, parts: [cmd.payload] };
+      this.pending = { keys: cmd.keys, parts: [cmd.payload], size };
       return null;
     }
     this.pending.parts.push(cmd.payload);
+    this.pending.size = size;
     if (more) return null;
     const done = { keys: this.pending.keys, data: this.pending.parts.join('') };
     this.pending = null;
@@ -176,6 +209,15 @@ export function kittyReply(
   return `${ESC}_G${ids.join(',')};${status}${ESC}\\`;
 }
 
+/** Width and height from a PNG's IHDR, given the first 24 bytes of the file or more. */
+export function pngSizeFromBytes(bytes: Uint8Array): { width: number; height: number } | null {
+  if (bytes.length < 24) return null;
+  if (bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) return null;
+  const u32 = (o: number): number =>
+    ((bytes[o] << 24) | (bytes[o + 1] << 16) | (bytes[o + 2] << 8) | bytes[o + 3]) >>> 0;
+  return { width: u32(16), height: u32(20) };
+}
+
 /**
  * Width and height from a PNG's IHDR, read from the first 24 bytes of the
  * base64 payload. Lets cursor movement be computed before the (async) decode.
@@ -189,14 +231,7 @@ export function pngSize(base64: string): { width: number; height: number } | nul
   } catch {
     return null;
   }
-  if (bin.slice(1, 4) !== 'PNG') return null;
-  const u32 = (o: number): number =>
-    ((bin.charCodeAt(o) << 24) |
-      (bin.charCodeAt(o + 1) << 16) |
-      (bin.charCodeAt(o + 2) << 8) |
-      bin.charCodeAt(o + 3)) >>>
-    0;
-  return { width: u32(16), height: u32(20) };
+  return pngSizeFromBytes(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
 }
 
 // Sequences after which any placed image no longer corresponds to what is on
@@ -242,6 +277,38 @@ export function axisScale(cssCell: number, dpr: number): number {
   return cssCell > 0 ? deviceCellSize(cssCell, dpr) / cssCell : dpr;
 }
 
+/** What a stretch of terminal text asks of the client. */
+export interface ControlScan {
+  /** A sequence that invalidates placed images was completed. */
+  clears: boolean;
+  /** Window-op size queries completed, in order. */
+  queries: number[];
+}
+
+// A sequence cut off at the end of a chunk: ESC, or ESC [ followed by parameter
+// bytes but no final byte yet.
+const INCOMPLETE = new RegExp(`${ESC}(?:\\[[0-9;?]{0,16})?$`);
+
+/**
+ * Finds clear sequences and size queries in text that arrives in arbitrary
+ * pieces. PTY output and WebSocket frames can end anywhere, so `ESC [` in one
+ * piece and `2 J` in the next are one sequence; the terminal reassembles them
+ * in its own parser, and this keeps the unfinished tail between calls so the
+ * client sees them too.
+ */
+export class ControlScanner {
+  private carry = '';
+
+  scan(text: string): ControlScan {
+    const s = this.carry + text;
+    const tail = INCOMPLETE.exec(s);
+    // Anything before the tail is complete, so it is scanned now; the tail
+    // itself cannot match yet and is scanned again once it is finished.
+    this.carry = tail ? tail[0] : '';
+    return { clears: clearsPlacements(s), queries: sizeQueries(s) };
+  }
+}
+
 export interface TerminalSize {
   cols: number;
   rows: number;
@@ -266,19 +333,21 @@ export interface CellSpan {
 
 /**
  * How many cells an image covers. `c` / `r` win when given; when only one is
- * given the other follows from the image's aspect ratio; with neither, the
- * image is shown at natural size.
+ * given the other follows from the aspect ratio; with neither, the image is
+ * shown at natural size. `region` is the size in CSS pixels of the part of the
+ * image being shown (the whole image, or the `w` x `h` source rectangle already
+ * converted from device pixels by the caller).
  */
 export function cellSpan(
   keys: KittyKeys,
-  image: { width: number; height: number },
+  region: { width: number; height: number },
   cellWidth: number,
   cellHeight: number,
 ): CellSpan {
   const c = num(keys, 'c');
   const r = num(keys, 'r');
-  const sw = num(keys, 'w') || image.width;
-  const sh = num(keys, 'h') || image.height;
+  const sw = region.width;
+  const sh = region.height;
   if (c && r) return { cols: c, rows: r };
   if (c)
     return { cols: c, rows: Math.max(1, Math.ceil(((c * cellWidth) / sw) * (sh / cellHeight))) };
