@@ -4,6 +4,7 @@ import { EdgeExtender } from './edge';
 import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
+import { toTerminalTheme } from './theme';
 
 interface KeyboardBinding {
   key: string;
@@ -16,6 +17,7 @@ interface Theme {
   foreground?: string;
   cursor?: string;
   selection?: string;
+  selectionForeground?: string;
   padding?: string;
   black?: string;
   red?: string;
@@ -59,9 +61,9 @@ document.title = `${sessionId} | webtty`;
 
 await init();
 
-// `padding` is a webtty setting, not a terminal colour: keep it out of the theme
-// handed to ghostty-web.
-const { padding: _padding, ...terminalTheme } = config.theme ?? {};
+// Translate webtty's theme keys to ghostty-web's names and keep `padding`, a webtty
+// setting and not a terminal colour, out of the theme it receives (ADR 036).
+const terminalTheme = toTerminalTheme(config.theme ?? {});
 
 const term = new Terminal({
   cols: config.cols,

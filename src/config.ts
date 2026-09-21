@@ -20,8 +20,10 @@ export interface Theme {
   foreground?: string;
   /** Cursor color. */
   cursor?: string;
-  /** Selection highlight. */
+  /** Selection highlight (background). */
   selection?: string;
+  /** Text colour inside the selection. Defaults to `background`. */
+  selectionForeground?: string;
   /** Colour of the padding set by the `padding` setting. Defaults to `background`. The sub-cell leftover from fitting is not coloured by this: the client extends the edge cells' own background into it. */
   padding?: string;
   /** ANSI 0. */
