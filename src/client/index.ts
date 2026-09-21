@@ -147,7 +147,12 @@ window.addEventListener('resize', scheduleFit);
 // doesn't hit this race. Remeasure once the real font is confirmed ready;
 // ghostty-web's render loop then notices the canvas-vs-metrics mismatch on
 // its next frame and self-corrects with a forced full repaint. See ADR 031.
-document.fonts.ready.then(() => term.renderer?.remeasureFont());
+// The new cell size also changes how many cols and rows fit and where the padding
+// and edge strips go, so run the fit again once the metrics have changed.
+document.fonts.ready.then(() => {
+  term.renderer?.remeasureFont();
+  scheduleFit();
+});
 
 // Chromium can evict a hidden tab's canvas backing store to reclaim GPU
 // memory; Firefox does not. ghostty-web's render loop only repaints
