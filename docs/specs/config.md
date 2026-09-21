@@ -131,7 +131,8 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | `background` | `#000000` | Terminal background |
 | `foreground` | `#CCCCCC` | Default text color |
 | `cursor` | `#FFFFFF` | Cursor color |
-| `selection` | `#FFFFFF` | Selection highlight |
+| `selection` | `#FFFFFF` | Selection highlight (background) |
+| `selectionForeground` | *(same as `background` when `selection` is set)* | Text colour inside the selection |
 | `padding` | *(same as `background`)* | Colour of the padding set by the top-level `padding` setting. A colour only. The few pixels left when the canvas is fitted to whole cells are not coloured by this: the client always extends the edge cells' own background into them (like Ghostty's `window-padding-color = extend`). Set it to a full-screen app's edge colour (for example a sidebar) to hide the strip. A webtty setting, not a terminal colour, so it is not sent to the terminal. |
 | `black` | `#0C0C0C` | ANSI 0 |
 | `red` | `#C50F1F` | ANSI 1 |
