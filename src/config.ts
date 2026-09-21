@@ -22,6 +22,8 @@ export interface Theme {
   cursor?: string;
   /** Selection highlight. */
   selection?: string;
+  /** Colour of the padding set by the `padding` setting. Defaults to `background`. The sub-cell leftover from fitting is not coloured by this: the client extends the edge cells' own background into it. */
+  padding?: string;
   /** ANSI 0. */
   black?: string;
   /** ANSI 1. */
@@ -91,6 +93,8 @@ export interface Config {
   rightClickBehavior: RightClickBehavior;
   /** Mouse wheel scroll speed multiplier for apps with mouse tracking. `1` = one SGR per tick. Values `< 1` reduce rate; values `> 1` send multiple SGRs per tick. Must be `> 0`. */
   mouseScrollSpeed: number;
+  /** Padding in px around the terminal canvas, on all four sides. `0` = none. Coloured by `theme.padding`, or `theme.background` if that is unset. */
+  padding: number;
   /** Write server stdout/stderr to `~/.config/webtty/server.log`. Appends on each start. */
   logs: boolean;
   /** Terminal color palette. */
@@ -163,6 +167,7 @@ export const DEFAULT_CONFIG: Config = {
   copyOnSelect: true,
   rightClickBehavior: 'default' as RightClickBehavior,
   mouseScrollSpeed: 1,
+  padding: 0,
   logs: false,
   theme: DEFAULT_THEME,
   keyboardBindings: DEFAULT_KEYBOARD_BINDINGS,
@@ -278,6 +283,9 @@ export function loadConfig(): Config {
     }),
     ...(typeof p.mouseScrollSpeed === 'number' &&
       p.mouseScrollSpeed > 0 && { mouseScrollSpeed: p.mouseScrollSpeed }),
+    ...(typeof p.padding === 'number' &&
+      Number.isFinite(p.padding) &&
+      p.padding >= 0 && { padding: Math.floor(p.padding) }),
     ...(typeof p.logs === 'boolean' && { logs: p.logs }),
     ...(p.theme && typeof p.theme === 'object' && { theme: { ...DEFAULT_THEME, ...p.theme } }),
     ...(Array.isArray(p.keyboardBindings) && {

@@ -89,6 +89,7 @@ describe('server — routes', () => {
     expect(typeof body.copyOnSelect).toBe('boolean');
     expect(typeof body.rightClickBehavior).toBe('string');
     expect(typeof body.mouseScrollSpeed).toBe('number');
+    expect(typeof body.padding).toBe('number');
     expect(body.port).toBeUndefined();
     expect(body.host).toBeUndefined();
     expect(body.shell).toBeUndefined();

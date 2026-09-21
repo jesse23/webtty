@@ -1,5 +1,7 @@
-import { FitAddon, init, Terminal } from 'ghostty-web';
+import { init, Terminal } from 'ghostty-web';
 import { applyDecscusr } from './cursor';
+import { EdgeExtender } from './edge';
+import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
 
@@ -14,6 +16,7 @@ interface Theme {
   foreground?: string;
   cursor?: string;
   selection?: string;
+  padding?: string;
   black?: string;
   red?: string;
   green?: string;
@@ -44,6 +47,7 @@ interface ClientConfig {
   copyOnSelect: boolean;
   rightClickBehavior: 'default' | 'copyPaste';
   mouseScrollSpeed: number;
+  padding: number;
   keyboardBindings: KeyboardBinding[];
 }
 
@@ -55,6 +59,10 @@ document.title = `${sessionId} | webtty`;
 
 await init();
 
+// `padding` is a webtty setting, not a terminal colour: keep it out of the theme
+// handed to ghostty-web.
+const { padding: _padding, ...terminalTheme } = config.theme ?? {};
+
 const term = new Terminal({
   cols: config.cols,
   rows: config.rows,
@@ -63,34 +71,54 @@ const term = new Terminal({
   fontSize: config.fontSize,
   fontFamily: config.fontFamily,
   scrollback: Math.ceil(config.scrollback / 80),
-  theme: config.theme,
+  theme: terminalTheme,
 });
 
-const fitAddon = new FitAddon();
-term.loadAddon(fitAddon);
-
 const container = document.getElementById('terminal') as HTMLElement;
-if (config.theme?.background) {
-  container.style.background = config.theme.background;
+// The canvas paints theme.background; the container shows only in the padding around
+// it, so theme.padding (default: background) colours the space set by config.padding.
+// The sub-cell leftover at the right and bottom is not coloured: EdgeExtender stretches
+// the edge cells' own background into it (see edge.ts).
+const paddingColor = config.theme?.padding ?? config.theme?.background;
+if (paddingColor) {
+  container.style.background = paddingColor;
 }
 await term.open(container);
+const edges = new EdgeExtender(container, config.padding);
 
-// FitAddon computes cols = floor((containerWidth - scrollbarReserve) / charWidth),
-// leaving a gap larger than one sub-cell. Measure the actual canvas dimensions
-// after fitting and distribute the gap as padding so the canvas fills exactly.
-// Padding must be cleared first: FitAddon reads it from computed style and
-// subtracts it before computing cols, so stale padding would shrink the result.
+// ghostty-web's FitAddon subtracts a fixed 15px scrollbar reserve, which leaves a
+// strip at the edges even though the scrollbar is an overlay drawn inside the canvas.
+// Size the grid from the full container instead (computeGrid), then distribute what is
+// left, plus config.padding on each side, as padding: top and left are exactly
+// config.padding, and the leftover goes to the right and bottom. Padding is cleared
+// first so clientWidth/Height measure the whole container. See ADR 033.
 function fit(): void {
   container.style.padding = '0';
-  fitAddon.fit();
+  const metrics = term.renderer?.getMetrics();
+  if (!metrics) return;
+  const grid = computeGrid(
+    container.clientWidth,
+    container.clientHeight,
+    metrics.width,
+    metrics.height,
+    config.padding,
+  );
+  if (!grid) return;
+  if (grid.cols !== term.cols || grid.rows !== term.rows) {
+    term.resize(grid.cols, grid.rows);
+  }
   const canvas = container.querySelector('canvas') as HTMLElement | null;
   if (!canvas) return;
-  const hGap = Math.max(0, container.clientWidth - canvas.offsetWidth);
-  const vGap = Math.max(0, container.clientHeight - canvas.offsetHeight);
-  container.style.paddingLeft = `${Math.floor(hGap / 2)}px`;
-  container.style.paddingRight = `${Math.ceil(hGap / 2)}px`;
-  container.style.paddingTop = `${Math.floor(vGap / 2)}px`;
-  container.style.paddingBottom = `${Math.ceil(vGap / 2)}px`;
+  const insets = computeInsets(
+    Math.max(0, container.clientWidth - canvas.offsetWidth),
+    Math.max(0, container.clientHeight - canvas.offsetHeight),
+    config.padding,
+  );
+  container.style.paddingLeft = `${insets.left}px`;
+  container.style.paddingRight = `${insets.right}px`;
+  container.style.paddingTop = `${insets.top}px`;
+  container.style.paddingBottom = `${insets.bottom}px`;
+  edges.update();
 }
 
 // Both ResizeObserver and window 'resize' can fire for the same physical event.

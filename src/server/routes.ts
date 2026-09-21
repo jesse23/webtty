@@ -124,6 +124,7 @@ export async function handleRequest(
       copyOnSelect: config.copyOnSelect,
       rightClickBehavior: config.rightClickBehavior,
       mouseScrollSpeed: config.mouseScrollSpeed,
+      padding: config.padding,
       keyboardBindings: config.keyboardBindings,
     };
     res.writeHead(200, { 'Content-Type': 'application/json' });
