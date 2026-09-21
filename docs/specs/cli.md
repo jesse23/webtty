@@ -1,6 +1,6 @@
 # SPEC: CLI
 
-**Last Updated:** 2026-03-24 (amended: help formatting, ls filter, restart removed, at/mv commands, isServerRunning validation, stop-on-last-rm)
+**Last Updated:** 2026-09-20 (amended: --version flag, help formatting, ls filter, restart removed, at/mv commands, isServerRunning validation, stop-on-last-rm)
 
 ---
 
@@ -23,6 +23,7 @@ The CLI communicates with the server exclusively over HTTP — no Unix sockets, 
 | `webtty` | No-arg entry point — start server if not running, then delegate to `webtty go main` |
 | `webtty config` | Open `~/.config/webtty/config.json` in `$VISUAL` (falls back to `$EDITOR`, then `vi` on Unix / `notepad` on Windows) |
 | `webtty help` | Show help — all commands |
+| `webtty --version` | Print the version from `package.json` and exit. Alias: `-v` |
 
 ## No-arg entry point
 
@@ -38,6 +39,10 @@ This is the canonical quickstart: `npx webtty` or `bunx webtty` goes from zero t
 `webtty help` prints all commands. The `-h` / `--help` flag is not advertised but still works if users reach for it.
 
 This makes the welcome banner's call-to-action (`Run \`bunx webtty help\` for more information.`) functional.
+
+## Version flag
+
+`webtty --version` (or `-v`) prints the version and exits; it is listed in `webtty help`. The version is read from the nearest `package.json` named `webtty` at runtime — not inlined at build time, because the release workflow builds before semantic-release bumps `package.json`. Dev checkouts report `0.0.0-development`. The same value is served by `GET /api/server/status` (see [webtty spec](webtty.md)).
 
 ## Config command
 
@@ -60,3 +65,4 @@ The command exits when the editor exits.
 | Help formatting | Description first, all-caps headings, aligned params, frequency-ordered commands, annotated usage lines | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Stop on last rm | `webtty rm` auto-stops the server when the last session is removed | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Run | `webtty run <id>` — start PTY without browser (auto-starts server + session); `webtty run <id> <cmd> [args...]` — run command headlessly, stream stdout/stderr, forward exit code | [ADR 029](../adrs/029.cli.exec.md) | ✅ |
+| Version flag | `webtty --version` / `-v` — print the package version | — | ✅ |
