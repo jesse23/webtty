@@ -91,7 +91,7 @@ spawn PTY with fresh: shell, term, colorTerm, scrollback
 - **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
 - **Hot config reload**:
   - `port` / `host` — locked at startup (server socket already bound; restart required).
-  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed`, `keyboardBindings` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
+  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed`, `padding`, `keyboardBindings` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
   - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
   - An already-running session is never affected mid-flight.
   - Historical note: ADR 008/009/012 describe an earlier config flow that used a `cursorBlink` key and different HTML injection mechanics. Those ADRs are considered historical; this spec's `cursorStyle` / `cursorStyleBlink` behavior is authoritative.
@@ -115,6 +115,7 @@ All keys are optional — omit any key to use the default value.
 | `copyOnSelect` | boolean | `true` | Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style) |
 | `rightClickBehavior` | string | `"default"` | Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. Invalid values fall back to `"default"` |
 | `mouseScrollSpeed` | number | `1` | Mouse wheel scroll speed multiplier for apps with mouse tracking (e.g. vim `set mouse=a`). `1` = one SGR event per wheel tick (default). Values `< 1` reduce rate (e.g. `0.5` fires every other tick); values `> 1` send multiple SGRs per tick. Must be `> 0`. |
+| `padding` | number | `0` | Padding in px around the terminal canvas, on all four sides. The canvas is fitted to whole cells, so a few extra pixels can remain on top of this: on the right and at the bottom. The top and left gap is exactly `padding`. The padding is coloured by `theme.padding`, or `theme.background` if that is unset. |
 | `logs` | boolean | `false` | Write server stdout/stderr to `~/.config/webtty/server.log`. Appends on each start. Default `false` — server runs silently. |
 | `fontSize` | number | `13` | Font size in px |
 | `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace"` | CSS font-family stack |
@@ -131,6 +132,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | `foreground` | `#CCCCCC` | Default text color |
 | `cursor` | `#FFFFFF` | Cursor color |
 | `selection` | `#FFFFFF` | Selection highlight |
+| `padding` | *(same as `background`)* | Colour of the padding set by the top-level `padding` setting. A colour only. The few pixels left when the canvas is fitted to whole cells are not coloured by this: the client always extends the edge cells' own background into them (like Ghostty's `window-padding-color = extend`). Set it to a full-screen app's edge colour (for example a sidebar) to hide the strip. A webtty setting, not a terminal colour, so it is not sent to the terminal. |
 | `black` | `#0C0C0C` | ANSI 0 |
 | `red` | `#C50F1F` | ANSI 1 |
 | `green` | `#13A10E` | ANSI 2 |
@@ -208,6 +210,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — configurable clipboard copy matching VS Code / kitty conventions | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
+| Padding | `padding` (px, default `0`) around the terminal canvas, coloured by `theme.padding` or `theme.background` | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |
 | Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
 | Keyboard bindings | `keyboardBindings` — configurable key-to-sequence mappings sent to PTY; defaults to `[]` | [ADR 018](../adrs/018.key-bindings.config-support.md), [key-bindings spec](key-bindings.md) | ✅ |
 | Env injection | `env` — flat `Record<string,string>` merged over `process.env` and injected into PTY shells and execute commands; same contract as `~/.claude/settings.json` | [ADR 030](../adrs/030.config.env-inject.md) | ✅ |

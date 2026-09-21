@@ -167,6 +167,29 @@ describe('loadConfig — reads and merges', () => {
     expect(config.theme.red).toBe(DEFAULT_THEME.red);
   });
 
+  test('defaults padding to 0 and accepts a non-negative number', () => {
+    writeConfig(JSON.stringify({}));
+    expect(loadConfig().padding).toBe(0);
+    writeConfig(JSON.stringify({ padding: 8 }));
+    expect(loadConfig().padding).toBe(8);
+    writeConfig(JSON.stringify({ padding: 6.9 }));
+    expect(loadConfig().padding).toBe(6);
+  });
+
+  test('ignores a negative or non-numeric padding', () => {
+    writeConfig(JSON.stringify({ padding: -4 }));
+    expect(loadConfig().padding).toBe(0);
+    writeConfig(JSON.stringify({ padding: '8' }));
+    expect(loadConfig().padding).toBe(0);
+  });
+
+  test('passes theme.padding through and leaves it unset by default', () => {
+    writeConfig(JSON.stringify({ theme: { padding: '#0D0D0D' } }));
+    expect(loadConfig().theme.padding).toBe('#0D0D0D');
+    writeConfig(JSON.stringify({ theme: { background: '#101010' } }));
+    expect(loadConfig().theme.padding).toBeUndefined();
+  });
+
   test('ignores unknown keys', () => {
     writeConfig(JSON.stringify({ unknownKey: 'value', port: 1234 }));
     const config = loadConfig();

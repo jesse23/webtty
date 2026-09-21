@@ -1,6 +1,6 @@
 # SPEC: Client
 
-**Last Updated:** 2026-03-31
+**Last Updated:** 2026-09-21
 
 ---
 
@@ -43,7 +43,7 @@ src/client/
 3. Sets `document.title = sessionId + ' | webtty'`
 4. Initialises a `ghostty-web` `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, theme, copyOnSelect, rightClickBehavior)
 5. Connects to `ws://<host>/ws/:id?cols=<cols>&rows=<rows>` over WebSocket
-6. Fits the terminal to the viewport and observes resize events via `FitAddon`
+6. Fits the terminal to the viewport from the full container size (no scrollbar reserve, see ADR 033) and observes resize events
 7. Sends a `{ type: 'resize', cols, rows }` JSON message on open and on every terminal resize
 8. Forwards all keystrokes to the PTY via `term.onData`
 
@@ -56,6 +56,7 @@ src/client/
   cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback,
   theme, copyOnSelect, rightClickBehavior,
   mouseScrollSpeed,       // used by the custom wheel handler, not passed to Terminal constructor
+  padding,                // px around the canvas, used by fit(); coloured by theme.padding or theme.background
   keyboardBindings        // used by the keydown capture handler, not passed to Terminal constructor
 }
 ```
@@ -167,3 +168,6 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Canvas gap fill | After each fit, distribute the gap between the container and canvas as symmetric padding so the canvas is centred at the new size | [ADR 022](../adrs/022.client.canvas-fill.md) | ✅ |
 | Font-size zoom | `Ctrl/Cmd` + `=`/`-`/`0` adjust terminal font size in-session; not configurable; same shortcuts as VS Code | [ADR 023](../adrs/023.client.font-size-zoom.md) | ✅ |
 | Kitty graphics | Client intercepts kitty graphics APC sequences and draws images on an overlay canvas; enables terminal-browser and `icat`-style tools | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
+| Tighter fit | Grid sized from the full container without `FitAddon`'s 15px scrollbar reserve, shrinking the strip at the edges to under one cell; what is left over is handled by the padding and edge-extension rows below | [ADR 033](../adrs/033.client.padding-fit.md) | ✅ |
+| Configurable padding | Top-level `padding` (px, default `0`) reserves space around the canvas on all sides; the grid is fitted to what remains; the top and left gap is exactly `padding` and the leftover goes to the right and bottom; optional `theme.padding` colours the space `padding` adds (default: `theme.background`) but not the leftover | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |
+| Edge extension | The leftover strip at the right and bottom takes the edge cells' own background, by repainting the canvas' last pixel row and column across it; always on, no setting | [ADR 035](../adrs/035.client.edge-extend.md) | ✅ |
