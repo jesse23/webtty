@@ -4,6 +4,7 @@ import { EdgeExtender } from './edge';
 import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
+import { encodePaste } from './paste';
 import { toTerminalTheme } from './theme';
 
 interface KeyboardBinding {
@@ -401,33 +402,12 @@ function sendCtrlV(): void {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send('\x16');
 }
 
-// A pasted newline is the only thing that can be misread as literal Enter
-// by the receiving program, so a single-line paste is always safe to send
-// as-is - e.g. a password into a sudo/ssh/mysql prompt, none of which
-// request bracketed paste for themselves. Only a multi-line paste needs
-// bracketed-paste mode (2004) to land as literal text: Vim keeps that mode
-// on while editing normally (confirmed: plain-buffer paste works), but
-// doesn't propagate it out while focus is in a nested :terminal job - e.g.
-// an fzf popup running under `<leader>ff`. When it's off, don't guess by
-// sending raw multi-line text: an embedded newline would be read as literal
-// Enter (fzf reads that as "accept," closing the popup instead of receiving
-// the paste). Fall back to \x16 instead and let the app fetch the clipboard
-// itself - e.g. Vim's `tnoremap <C-v> <C-w>"+` terminal-mode mapping.
+// Bracket multiline text only when the terminal reports mode 2004. Otherwise
+// send it raw: newlines may act as Enter, but Ctrl+V is not a text fallback
+// (remote TUIs can interpret it as an image-paste shortcut). See ADR 037.
 function sendPaste(text: string): void {
-  if (!text) {
-    sendCtrlV();
-    return;
-  }
-  if (!text.includes('\n')) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(text);
-    return;
-  }
-  if (!term.getMode(2004)) {
-    sendCtrlV();
-    return;
-  }
   if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(`\x1b[200~${text}\x1b[201~`);
+    ws.send(encodePaste(text, term.getMode(2004)));
   }
 }
 
