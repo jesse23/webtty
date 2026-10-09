@@ -1,6 +1,6 @@
 # SPEC: Client
 
-**Last Updated:** 2026-09-21
+**Last Updated:** 2026-10-09
 
 ---
 
@@ -164,6 +164,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Cursor style | `cursorStyle` / `cursorStyleBlink` defaults; DECSCUSR from PTY overrides at runtime via client-side intercept | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
 | Multiline text paste | Bracket text only when mode 2004 is enabled; otherwise send raw text (newlines may act as Enter in apps without bracketed paste), never Ctrl+V | [ADR 037](../adrs/037.client.multiline-text-paste.md) | ✅ |
+| IME / dictation at cursor | Focus stays on the input textarea, which follows the cursor cell; the composition shows at the cursor in the theme's font and colours instead of as a stray line under the canvas | [ADR 038](../adrs/038.client.ime-composition-at-cursor.md) | ✅ |
 | Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), wheel events are forwarded as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
 | Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.key-bindings.config-support.md) | ✅ |
 | Canvas gap fill | After each fit, distribute the gap between the container and canvas as symmetric padding so the canvas is centred at the new size | [ADR 022](../adrs/022.client.canvas-fill.md) | ✅ |

@@ -1,4 +1,5 @@
 import { init, Terminal } from 'ghostty-web';
+import { Composer } from './compose';
 import { applyDecscusr } from './cursor';
 import { EdgeExtender } from './edge';
 import { computeGrid, computeInsets } from './fit';
@@ -88,6 +89,9 @@ if (paddingColor) {
 }
 await term.open(container);
 const edges = new EdgeExtender(container, config.padding);
+// IME / dictation composition shows at the cursor in the theme's colours, not as a
+// stray line under the canvas. See ADR 038.
+new Composer(term, container, terminalTheme);
 
 // ghostty-web's FitAddon subtracts a fixed 15px scrollbar reserve, which leaves a
 // strip at the edges even though the scrollbar is an overlay drawn inside the canvas.
