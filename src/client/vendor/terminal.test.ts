@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  cursorCellOffset,
   decscusrShape,
   mouseCursorFor,
   scanDecscusr,
@@ -156,5 +157,37 @@ describe('wheelSgr', () => {
 
   test('scroll down is button 65, one report per tick', () => {
     expect(wheelSgr(2, 1, 1)).toBe('\x1b[<65;1;1M\x1b[<65;1;1M');
+  });
+});
+
+describe('cursorCellOffset', () => {
+  const grid = { cols: 80, rows: 24 };
+  const cell = { width: 9, height: 18 };
+  const canvas = { left: 0, top: 0 };
+
+  test('puts the spot at the cursor cell', () => {
+    expect(cursorCellOffset({ x: 10, y: 5 }, 0, grid, cell, canvas)).toEqual({
+      left: 90,
+      top: 90,
+    });
+  });
+
+  test('offsets by the canvas position inside the padding', () => {
+    expect(cursorCellOffset({ x: 0, y: 0 }, 0, grid, cell, { left: 12, top: 8 })).toEqual({
+      left: 12,
+      top: 8,
+    });
+  });
+
+  test('moves down with the scrollback offset', () => {
+    expect(cursorCellOffset({ x: 0, y: 5 }, 3, grid, cell, canvas).top).toBe(8 * 18);
+  });
+
+  test('stays on the last row once the cursor scrolls out of view', () => {
+    expect(cursorCellOffset({ x: 0, y: 20 }, 100, grid, cell, canvas).top).toBe(23 * 18);
+  });
+
+  test('clamps a pending-wrap cursor to the last column', () => {
+    expect(cursorCellOffset({ x: 80, y: 0 }, 0, grid, cell, canvas).left).toBe(79 * 9);
   });
 });

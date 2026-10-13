@@ -133,6 +133,39 @@ export function wheelSgr(ticks: number, col: number, row: number): string {
   return `\x1b[<${btn};${col};${row}M`.repeat(Math.abs(ticks));
 }
 
+/**
+ * The cursor cell's top-left corner, in CSS pixels relative to the container's
+ * padding box. `cursor.y` is relative to the bottom screen; when scrolled back by
+ * `viewportY` lines the cursor moves down by that many rows, and it is kept on the
+ * last visible row once it scrolls out of view. A pending-wrap cursor is kept on
+ * the last column. (webtty: the input textarea is anchored here so the OS places
+ * IME and dictation panels at the cursor.)
+ */
+export function cursorCellOffset(
+  cursor: { x: number; y: number },
+  viewportY: number,
+  grid: { cols: number; rows: number },
+  cell: { width: number; height: number },
+  canvas: { left: number; top: number }
+): { left: number; top: number } {
+  const col = Math.min(Math.max(0, cursor.x), Math.max(0, grid.cols - 1));
+  const row = Math.min(Math.max(0, cursor.y + Math.floor(viewportY)), Math.max(0, grid.rows - 1));
+  return {
+    left: canvas.left + col * cell.width,
+    top: canvas.top + row * cell.height,
+  };
+}
+
+/** Sets a pixel style only when it changed, so a per-frame update writes nothing. */
+function setStylePx(
+  el: HTMLElement,
+  prop: 'left' | 'top' | 'width' | 'height',
+  value: number
+): void {
+  const px = `${value}px`;
+  if (el.style[prop] !== px) el.style[prop] = px;
+}
+
 export class Terminal implements ITerminalCore {
   // Public properties (xterm.js compatibility)
   public cols: number;
@@ -459,6 +492,13 @@ export class Terminal implements ITerminalCore {
           e.preventDefault();
         }
       });
+      // Never let the container hold focus, or the browser writes IME composition
+      // text into it; input goes to the textarea. This covers clicks in the padding,
+      // tab focus and focus(). (webtty)
+      parent.addEventListener('focusin', this.handleFocusIn);
+      // focus() on a background window moves activeElement without a focusin; catch
+      // the container still holding focus when the window comes back. (webtty)
+      window.addEventListener('focus', this.handleWindowFocus);
 
       // Add accessibility attributes for screen readers and extensions
       parent.setAttribute('role', 'textbox');
@@ -1264,6 +1304,52 @@ export class Terminal implements ITerminalCore {
   // ==========================================================================
 
   /**
+   * Sends focus that lands on the container itself to the textarea. (webtty)
+   */
+  private handleFocusIn = (e: FocusEvent): void => {
+    if (e.target === this.element) this.textarea?.focus();
+  };
+
+  private handleWindowFocus = (): void => {
+    if (this.element && document.activeElement === this.element) this.textarea?.focus();
+  };
+
+  /**
+   * The cursor cell's top-left corner in CSS pixels relative to the container's
+   * padding box, or undefined before open(). (webtty)
+   */
+  getCursorCellOffset(): { left: number; top: number } | undefined {
+    if (!this.canvas || !this.renderer || !this.wasmTerm) return undefined;
+    const metrics = this.renderer.getMetrics();
+    return cursorCellOffset(
+      this.wasmTerm.getCursor(),
+      this.viewportY,
+      { cols: this.cols, rows: this.rows },
+      metrics,
+      { left: this.canvas.offsetLeft, top: this.canvas.offsetTop }
+    );
+  }
+
+  /**
+   * Moves the textarea onto the cursor cell, one cell high, writing only styles
+   * that changed. macOS places the dictation microphone and IME candidate window
+   * by its caret, so it stays anchored before a composition starts too. (webtty)
+   */
+  private anchorTextarea(): void {
+    const textarea = this.textarea;
+    const spot = this.getCursorCellOffset();
+    if (!textarea || !spot) return;
+    // The right-click copy flow repositions the textarea while it holds the
+    // selection; leave it alone until that flow restores it.
+    if (textarea.style.position === 'fixed' && textarea.style.pointerEvents === 'auto') return;
+    if (textarea.style.position !== 'absolute') textarea.style.position = 'absolute';
+    setStylePx(textarea, 'left', spot.left);
+    setStylePx(textarea, 'top', spot.top);
+    setStylePx(textarea, 'width', 1);
+    setStylePx(textarea, 'height', this.renderer!.getMetrics().height);
+  }
+
+  /**
    * Cancel the render loop
    */
   private cancelRenderLoop(): void {
@@ -1304,6 +1390,9 @@ export class Terminal implements ITerminalCore {
           this.lastCursorY = cursor.y;
           this.cursorMoveEmitter.fire();
         }
+
+        // Keep the input textarea on the cursor cell (webtty)
+        this.anchorTextarea();
 
         // Note: onRender event is intentionally not fired in the render loop
         // to avoid performance issues. For now, consumers can use requestAnimationFrame
@@ -1374,6 +1463,7 @@ export class Terminal implements ITerminalCore {
       this.element.removeEventListener('mousemove', this.handleMouseMove);
       this.element.removeEventListener('mouseleave', this.handleMouseLeave);
       this.element.removeEventListener('click', this.handleClick);
+      this.element.removeEventListener('focusin', this.handleFocusIn);
 
       // Remove contenteditable and accessibility attributes added in open()
       this.element.removeAttribute('contenteditable');
@@ -1385,6 +1475,7 @@ export class Terminal implements ITerminalCore {
     // Remove document-level listeners (only if opened)
     if (this.isOpen && typeof document !== 'undefined') {
       document.removeEventListener('mouseup', this.handleMouseUp);
+      window.removeEventListener('focus', this.handleWindowFocus);
     }
 
     // Clean up scrollbar timers
