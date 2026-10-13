@@ -27,7 +27,7 @@ dist/
 
 `client.html` loads only `client-browser.js`. The npm `ghostty-web.js` build inlined the wasm as a base64 `data:` URL, so the browser never fetched `/ghostty-vt.wasm`. The vendored TS is bundled without inlining, so the client now fetches it on every page load through an explicit `Ghostty.load('/ghostty-vt.wasm')`, and the page depends on the server serving that route as `application/wasm`. The server resolves the wasm from `dist/` (npm install) or the vendored path (local dev); nothing comes from `node_modules` ([ADR 041](../adrs/041.client.libghostty-vt.md)).
 
-Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)): the wasm stays the Coder-patched build until the official libghostty-vt wasm, committed under `src/client/vendor/ghostty-vt/`, becomes the default and the Coder engine is removed.
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md)): `dist/ghostty-vt-small.wasm`, the official libghostty-vt wasm (ReleaseSmall) copied from `src/client/vendor/ghostty-vt/`, is served at `GET /ghostty-vt-small.wasm`. The client fetches only the selected engine's wasm: the build-time default (`coder` until the acceptance matrix is recorded) or `?engine=coder|official` in the page URL. The Coder wasm goes away when the Coder engine is removed.
 
 ## Source layout
 
@@ -44,12 +44,17 @@ src/client/
 
 The vendored TS is excluded from Biome so it stays byte-identical to upstream until webtty edits it, and is type-checked with the rest of `src/`. webtty's edits to it are tracked in git from the commit that added it.
 
-Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)):
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md)):
 
 ```
-src/client/vendor/
-  ghostty-web/         ← all wasm calls in ghostty.ts; Coder wasm + sidecar until the Coder engine is removed
-  ghostty-vt/          ← official ghostty-vt-small.wasm + .minisig + provenance sidecar (commit, URL, sha256)
+src/client/
+  engine.ts            ← DEFAULT_ENGINE and the ?engine=coder|official override
+  vendor/
+    ghostty-web/       ← all wasm calls for both engines in ghostty.ts; fn-table.ts (borrowed trampoline);
+                          Coder wasm + sidecar until the Coder engine is removed
+    ghostty-vt/        ← official ghostty-vt-small.wasm + .minisig + sidecar (commit, URL, size, sha256, key),
+                          Ghostty LICENSE, PROVENANCE.md; checked offline by vendor/ghostty-vt.test.ts
+scripts/update-ghostty-vt.ts ← fetches and verifies a new pin (the only networked step)
 ```
 
 ## Page
@@ -187,7 +192,8 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Pixel-smooth scrollback | Trackpad scrolling through scrollback moves by pixels (canvas offset plus a one-row strip for the incoming line); in mouse-tracking apps, pixel deltas send one scroll tick per cell height of travel | [ADR 040](../adrs/040.client.pixel-smooth-scroll.md) | ✅ |
 | Vendored terminal layer | The terminal (renderer, input, selection) is webtty's own vendored code with no npm `ghostty-web` dependency; terminal behaviour is unchanged | [ADR 041](../adrs/041.client.libghostty-vt.md) | ✅ |
 | ghostty-web bugs fixed at source | ghostty-web bugs are fixed in the vendored code instead of patched from outside, each fix deleting its webtty workaround (hover motion, cursor interceptor, fit reserve, private `devicePixelRatio` set, and the rest of ADR 041 step 2) | [ADR 041](../adrs/041.client.libghostty-vt.md) | ✅ |
-| Official libghostty-vt wasm | The terminal runs on Ghostty's official, unpatched libghostty-vt wasm (pinned, sha256- and signature-checked) with current Ghostty parsing and query replies; `?engine=coder` falls back to the old engine until it is removed | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
+| Official libghostty-vt engine, opt-in | `?engine=official` runs the terminal on Ghostty's official, unpatched libghostty-vt wasm (pinned, sha256- and signature-checked offline), with current Ghostty parsing and query replies; the Coder engine stays the default | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md) | ⬜ |
+| Official engine by default | The default flips to `official` once ADR 042's acceptance matrix (Chrome, Firefox, Safari; resize/reflow; query round trips; #180; parity) is recorded; `?engine=coder` falls back to the old engine until it is removed | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md) | ⬜ |
 | Scrollback in lines | Terminal history keeps the configured number of lines (`scrollbackLines`, default 10,000) up to a 32 MiB ceiling, instead of a few hundred rows | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Smooth scroll via `OVERSCAN` | Pixel-smooth scrollback draws the rows Ghostty's render state provides above and below the viewport, replacing ADR 040's strip canvas | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), the terminal forwards wheel events as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md), [ADR 041](../adrs/041.client.libghostty-vt.md) | ✅ |
