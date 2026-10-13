@@ -224,7 +224,9 @@ export class TickPacer {
   private readonly step = (now: number): void => {
     this.frame = 0;
     const t = Math.min(1, Math.max(0, (now - this.start) / this.duration));
-    const due = Math.round(this.total * t) - this.sent;
+    // Rounded up, so the first tick goes out on the first frame: a 1-tick notch
+    // is not held back for half the duration.
+    const due = Math.ceil(this.total * t) - this.sent;
     if (due > 0) {
       this.send(this.seq.repeat(due));
       this.sent += due;

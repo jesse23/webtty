@@ -118,7 +118,7 @@ function easeOutCubic(t: number): number {
 
 /** The OS asks for less motion: wheel and sparse deltas then scroll at once. */
 function reducedMotion(): boolean {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+  return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
 }
 
 function linear(t: number): number {
@@ -184,13 +184,16 @@ export class SmoothScroll {
 
   /**
    * How long to spread the scroll ticks a wheel event sends to an app over, for
-   * events this does not scroll itself. A sparse delta's ticks spread over its gap
-   * plus a frame, so a TrackPoint scrolls an app a line at a time instead of in
-   * bursts; a wheel notch's or trackpad delta's go at once (0). See ADR 045.
+   * events this does not scroll itself, as the scrollback glides: a wheel notch's
+   * over the wheel glide time, a sparse delta's over its gap plus a frame, so a
+   * mouse wheel or TrackPoint scrolls an app a line at a time instead of in bursts.
+   * Trackpad deltas, and everything with reduced motion, go at once (0). See ADR 045.
    */
   tickSpread(e: WheelEvent): number {
     const { wheel, gap } = this.classify(e);
-    return !wheel && gap >= SPARSE_GAP_MS ? Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS) : 0;
+    if (reducedMotion()) return 0;
+    if (wheel) return WHEEL_GLIDE_MS;
+    return gap >= SPARSE_GAP_MS ? Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS) : 0;
   }
 
   /** Classifies a wheel event, once per event: a wheel notch or not, and the time since the previous one. */

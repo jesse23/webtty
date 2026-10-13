@@ -219,6 +219,14 @@ describe('TickPacer', () => {
     }
   }
 
+  test('the first tick goes out on the first frame', () => {
+    frames((pacer, sent, tick) => {
+      pacer.push('A', -1, 1, 125);
+      tick(1000 / 60);
+      expect(sent).toEqual(['A']);
+    });
+  });
+
   test('a zero duration sends the ticks at once', () => {
     frames((pacer, sent) => {
       pacer.push('A', -1, 3, 0);

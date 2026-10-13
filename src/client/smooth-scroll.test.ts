@@ -168,13 +168,17 @@ describe('SmoothScroll', () => {
 
     test('with reduced motion a notch scrolls at once', () => {
       withFrames(() => {
-        const g = globalThis as { window: { matchMedia?: unknown } };
-        g.window.matchMedia = (q: string) => ({
-          matches: q === '(prefers-reduced-motion: reduce)',
-        });
-        const { term, scroll } = fake(10);
-        scroll.handleWheel(notch(-40));
-        expect(term.viewportY).toBe(4);
+        const g = globalThis as { matchMedia?: unknown };
+        const saved = g.matchMedia;
+        g.matchMedia = (q: string) => ({ matches: q === '(prefers-reduced-motion: reduce)' });
+        try {
+          const { term, scroll } = fake(10);
+          scroll.handleWheel(notch(-40));
+          expect(term.viewportY).toBe(4);
+          expect(scroll.tickSpread(notch(-40))).toBe(0);
+        } finally {
+          g.matchMedia = saved;
+        }
       });
     });
 
@@ -273,10 +277,13 @@ describe('SmoothScroll.tickSpread', () => {
     expect(s.tickSpread(at(-30.25, 1200))).toBe(WHEEL_GLIDE_MS);
   });
 
-  test('sends wheel notches and trackpad deltas at once', () => {
+  test('spreads a wheel notch over the wheel glide time', () => {
+    expect(scroll().tickSpread(at(-3, 1000, 1))).toBe(WHEEL_GLIDE_MS);
+  });
+
+  test('sends trackpad deltas at once', () => {
     const s = scroll();
-    expect(s.tickSpread(at(-3, 1000, 1))).toBe(0);
-    expect(s.tickSpread(at(-20.5, 1200))).toBe(WHEEL_GLIDE_MS);
+    s.tickSpread(at(-20.5, 1200));
     expect(s.tickSpread(at(-21.25, 1208))).toBe(0);
   });
 });
