@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -42,8 +43,26 @@ fs.copyFileSync(
   path.resolve('./dist/ghostty-vt.wasm'),
 );
 
+// The official libghostty-vt wasm (ADR 042) ships the same way. Nothing is fetched: the
+// committed wasm is copied only if it matches its sidecar's size and sha256.
+const officialDir = './src/client/vendor/ghostty-vt';
+const officialSidecar = JSON.parse(
+  fs.readFileSync(path.resolve(officialDir, 'ghostty-vt-small.wasm.json'), 'utf8'),
+) as { file: string; size: number; sha256: string };
+const officialWasm = fs.readFileSync(path.resolve(officialDir, officialSidecar.file));
+const officialSha256 = createHash('sha256').update(officialWasm).digest('hex');
+if (officialWasm.byteLength !== officialSidecar.size || officialSha256 !== officialSidecar.sha256) {
+  console.error(
+    `${officialDir}/${officialSidecar.file} does not match its sidecar: ` +
+      `${officialWasm.byteLength} bytes, sha256 ${officialSha256}; ` +
+      `expected ${officialSidecar.size} bytes, sha256 ${officialSidecar.sha256}`,
+  );
+  process.exit(1);
+}
+fs.writeFileSync(path.resolve('./dist', officialSidecar.file), officialWasm);
+
 // The vendored TS has no licence headers, so nothing survives minification; the
-// MIT notices for the code in client-browser.js and ghostty-vt.wasm ship here instead.
+// MIT notices for the code in client-browser.js and both wasm files ship here instead.
 const vendorDir = './src/client/vendor/ghostty-web';
 fs.writeFileSync(
   path.resolve('./dist/THIRD_PARTY_LICENSES'),
@@ -60,8 +79,15 @@ fs.writeFileSync(
     '',
     fs.readFileSync(path.resolve(vendorDir, 'LICENSE.ghostty'), 'utf8').trim(),
     '',
+    '---',
+    '',
+    `Ghostty libghostty-vt (${officialSidecar.file}, unmodified official build)`,
+    'https://github.com/ghostty-org/ghostty',
+    '',
+    fs.readFileSync(path.resolve(officialDir, 'LICENSE'), 'utf8').trim(),
+    '',
   ].join('\n'),
 );
 
-const totalFiles = serverResult.outputs.length + clientResult.outputs.length + 4;
+const totalFiles = serverResult.outputs.length + clientResult.outputs.length + 5;
 console.log(`✓ Build complete (${totalFiles} files)`);

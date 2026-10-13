@@ -1,7 +1,7 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { findGhosttyWasm, mimeType, serveFile } from './static';
+import { findGhosttyWasm, findGhosttyWasms, mimeType, serveFile } from './static';
 
 describe('mimeType', () => {
   test('returns correct type for known extensions', () => {
@@ -60,6 +60,53 @@ describe('findGhosttyWasm', () => {
     existsSpy.mockRestore();
     exitSpy.mockRestore();
     errorSpy.mockRestore();
+  });
+});
+
+describe('findGhosttyWasm — official ghostty-vt-small.wasm', () => {
+  const VENDORED = path.join('src', 'client', 'vendor', 'ghostty-vt', 'ghostty-vt-small.wasm');
+  const BUILT = path.join('dist', 'ghostty-vt-small.wasm');
+
+  test('prefers the wasm copied into dist/ by the build', () => {
+    const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) => String(p).endsWith(BUILT));
+    expect(findGhosttyWasm('ghostty-vt-small.wasm').endsWith(BUILT)).toBe(true);
+    existsSpy.mockRestore();
+  });
+
+  test('falls back to the vendored wasm when dist/ has none', () => {
+    const realExistsSync = fs.existsSync.bind(fs);
+    const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) => {
+      const s = String(p);
+      return s.endsWith(BUILT) ? false : realExistsSync(s);
+    });
+    const wasmPath = findGhosttyWasm('ghostty-vt-small.wasm');
+    expect(wasmPath.endsWith(VENDORED)).toBe(true);
+    expect(realExistsSync(wasmPath)).toBe(true);
+    existsSpy.mockRestore();
+  });
+
+  test('exits naming the missing file', () => {
+    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(false);
+    const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
+    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
+
+    findGhosttyWasm('ghostty-vt-small.wasm');
+
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    expect(errorSpy).toHaveBeenCalledWith('Error: Could not find ghostty-vt-small.wasm.');
+    existsSpy.mockRestore();
+    exitSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
+});
+
+describe('findGhosttyWasms', () => {
+  test('maps both served wasm URLs to their files', () => {
+    const paths = findGhosttyWasms();
+    expect(Object.keys(paths).sort()).toEqual(['/ghostty-vt-small.wasm', '/ghostty-vt.wasm']);
+    expect(path.basename(paths['/ghostty-vt.wasm'] as string)).toBe('ghostty-vt.wasm');
+    expect(path.basename(paths['/ghostty-vt-small.wasm'] as string)).toBe('ghostty-vt-small.wasm');
+    for (const p of Object.values(paths)) expect(fs.existsSync(p)).toBe(true);
   });
 });
 

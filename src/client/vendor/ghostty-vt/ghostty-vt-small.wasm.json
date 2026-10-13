@@ -1,0 +1,39 @@
+{
+  "repo": "https://github.com/ghostty-org/ghostty",
+  "commit": "05dcf887ef51ea27821f20979493306ec3a19149",
+  "commitDate": "2026-10-13T00:35:35Z",
+  "url": "https://tip.files.ghostty.org/05dcf887ef51ea27821f20979493306ec3a19149/ghostty-vt-small.wasm",
+  "file": "ghostty-vt-small.wasm",
+  "variant": "ReleaseSmall",
+  "size": 780049,
+  "sha256": "c8a8a0cdd3eeb17951b0c23277d99e1b88016e2afe48f932b37992dfb88607ee",
+  "minisig": "ghostty-vt-small.wasm.minisig",
+  "minisigSource": "https://github.com/ghostty-org/ghostty/releases/download/tip/ghostty-vt-small.wasm.minisig (tip == 05dcf887ef51ea27821f20979493306ec3a19149)",
+  "publicKey": "RWQlAjJC23149WL2sEpT/l0QKy7hMIFhYdQOFy0Z7z7PbneUgvlsnYcV",
+  "signature": {
+    "keyId": "F5787DDB42320225",
+    "algorithm": "ED",
+    "trustedComment": "timestamp:1791854124\tfile:ghostty-vt-small.wasm\thashed",
+    "signedAt": "2026-10-13T01:15:24.000Z"
+  },
+  "verifiedAt": "2026-10-13T01:41:11.529Z",
+  "license": "MIT (Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors; LICENSE)",
+  "wasm": {
+    "imports": [],
+    "exportCount": 190,
+    "functionExports": 188,
+    "nonFunctionExports": [
+      "memory:memory",
+      "__indirect_function_table:table"
+    ],
+    "initialMemoryBytes": 524288,
+    "buildInfo": {
+      "version": "0.1.0-dev",
+      "versionBuild": "",
+      "optimize": "ReleaseSmall",
+      "simd": false,
+      "kittyGraphics": false,
+      "tmuxControlMode": false
+    }
+  }
+}

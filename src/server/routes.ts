@@ -72,14 +72,14 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
  *
  * @param req - The incoming HTTP request.
  * @param res - The HTTP response object.
- * @param wasmPath - Path to the ghostty-vt.wasm file.
+ * @param wasmPaths - Served wasm files: URL path (`/ghostty-vt.wasm`) → file path.
  * @param clientDistPath - Path to the client dist directory.
  * @param onStop - Callback invoked when `POST /api/server/stop` is received.
  */
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  wasmPath: string,
+  wasmPaths: Readonly<Record<string, string>>,
   clientDistPath: string,
   onStop: () => void,
 ): Promise<void> {
@@ -471,7 +471,8 @@ export async function handleRequest(
     return;
   }
 
-  if (pathname === '/ghostty-vt.wasm') {
+  const wasmPath = Object.hasOwn(wasmPaths, pathname) ? wasmPaths[pathname] : undefined;
+  if (wasmPath) {
     serveFile(wasmPath, res);
     return;
   }

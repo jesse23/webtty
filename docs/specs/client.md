@@ -1,6 +1,6 @@
 # SPEC: Client
 
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-13
 
 ---
 
@@ -22,12 +22,17 @@ dist/
   client-browser.js    ← compiled from src/client/index.ts, with the vendored ghostty-web TS bundled in
   client.css           ← copied from src/client/index.css
   ghostty-vt.wasm      ← copied from src/client/vendor/ghostty-web/; served at GET /ghostty-vt.wasm
+  ghostty-vt-small.wasm ← official libghostty-vt (ReleaseSmall), copied from src/client/vendor/ghostty-vt/
+                          only if it matches its sidecar's size and sha256; served at GET /ghostty-vt-small.wasm
   THIRD_PARTY_LICENSES ← Coder's ghostty-web and Ghostty's MIT notices, from src/client/vendor/ghostty-web/
+                          and src/client/vendor/ghostty-vt/
 ```
 
 `client.html` loads only `client-browser.js`. The npm `ghostty-web.js` build inlined the wasm as a base64 `data:` URL, so the browser never fetched `/ghostty-vt.wasm`. The vendored TS is bundled without inlining, so the client now fetches it on every page load through an explicit `Ghostty.load('/ghostty-vt.wasm')`, and the page depends on the server serving that route as `application/wasm`. The server resolves the wasm from `dist/` (npm install) or the vendored path (local dev); nothing comes from `node_modules` ([ADR 041](../adrs/041.client.libghostty-vt.md)).
 
-Planned ([ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md)): `dist/ghostty-vt-small.wasm`, the official libghostty-vt wasm (ReleaseSmall) copied from `src/client/vendor/ghostty-vt/`, is served at `GET /ghostty-vt-small.wasm`. The client fetches only the selected engine's wasm: the build-time default (`coder` until the acceptance matrix is recorded) or `?engine=coder|official` in the page URL. The Coder wasm goes away when the Coder engine is removed.
+The server resolves `ghostty-vt-small.wasm`, the official libghostty-vt wasm ([ADR 042](../adrs/042.client.official-vt-engine.md)), the same way and serves it at `GET /ghostty-vt-small.wasm` as `application/wasm`. Nothing loads it yet.
+
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md)): the client fetches only the selected engine's wasm: the build-time default (`coder` until the acceptance matrix is recorded) or `?engine=coder|official` in the page URL. The Coder wasm goes away when the Coder engine is removed.
 
 ## Source layout
 
@@ -40,9 +45,13 @@ src/client/
     ghostty-web/       ← coder/ghostty-web lib/ at 1858a59 (non-test TS, unchanged), MIT LICENSE, PROVENANCE.md;
                           Ghostty's LICENSE.ghostty; Coder ghostty-vt.wasm + ghostty-vt.wasm.json sidecar (npm version, Ghostty commit + patch,
                           licence, size, sha256), checked by vendor/ghostty-web.test.ts
+    ghostty-vt/        ← official ghostty-vt-small.wasm (Ghostty 05dcf887, ReleaseSmall) + .minisig + sidecar
+                          (commit, URL, size, sha256, signature, key, licence), Ghostty LICENSE, PROVENANCE.md;
+                          checked offline by vendor/ghostty-vt.test.ts (size, sha256, minisign signature)
+scripts/update-ghostty-vt.ts ← fetches and verifies a new pin (the only networked step); --verify re-checks offline
 ```
 
-The vendored TS is excluded from Biome so it stays byte-identical to upstream until webtty edits it, and is type-checked with the rest of `src/`. webtty's edits to it are tracked in git from the commit that added it.
+The vendored TS is excluded from Biome so it stays byte-identical to upstream until webtty edits it, and is type-checked with the rest of `src/`. webtty's edits to it are tracked in git from the commit that added it. `vendor/ghostty-vt/` is excluded from Biome too, since the update script writes its sidecar; nothing in it is edited.
 
 Planned ([ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md)):
 
@@ -52,9 +61,6 @@ src/client/
   vendor/
     ghostty-web/       ← all wasm calls for both engines in ghostty.ts; fn-table.ts (borrowed trampoline);
                           Coder wasm + sidecar until the Coder engine is removed
-    ghostty-vt/        ← official ghostty-vt-small.wasm + .minisig + sidecar (commit, URL, size, sha256, key),
-                          Ghostty LICENSE, PROVENANCE.md; checked offline by vendor/ghostty-vt.test.ts
-scripts/update-ghostty-vt.ts ← fetches and verifies a new pin (the only networked step)
 ```
 
 ## Page

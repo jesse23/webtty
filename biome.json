@@ -7,7 +7,13 @@
   },
   "files": {
     "ignoreUnknown": false,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!src/client/vendor/ghostty-web"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!src/client/vendor/ghostty-web",
+      "!src/client/vendor/ghostty-vt"
+    ]
   },
   "formatter": {
     "enabled": true,
