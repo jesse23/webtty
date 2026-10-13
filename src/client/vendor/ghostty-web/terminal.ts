@@ -255,6 +255,7 @@ export class Terminal implements ITerminalCore {
       cursorStyle: options.cursorStyle ?? 'block',
       theme: options.theme ?? {},
       scrollback: options.scrollback ?? 10000,
+      scrollbackLines: options.scrollbackLines,
       fontSize: options.fontSize ?? 15,
       fontFamily: options.fontFamily ?? 'monospace',
       allowTransparency: options.allowTransparency ?? false,

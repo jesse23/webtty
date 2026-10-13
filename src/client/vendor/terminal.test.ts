@@ -5,6 +5,7 @@ import {
   deviceCellPixels,
   mouseCursorFor,
   scanDecscusr,
+  Terminal,
 } from './ghostty-web/terminal';
 import type { ILink } from './ghostty-web/types';
 
@@ -147,5 +148,24 @@ describe('deviceCellPixels', () => {
   test('never reports less than one pixel', () => {
     expect(deviceCellPixels(0, 2)).toBe(1);
     expect(deviceCellPixels(0.2, 1)).toBe(1);
+  });
+});
+
+describe('Terminal scrollback options', () => {
+  // The engine config the terminal builds from its options (ADR 046).
+  const wasmConfig = (options: object) =>
+    (
+      new Terminal({ ghostty: {} as never, ...options }) as unknown as {
+        buildWasmConfig(): { scrollbackLimit?: number; scrollbackLines?: number } | undefined;
+      }
+    ).buildWasmConfig();
+
+  test('passes scrollbackLines through to the engine', () => {
+    expect(wasmConfig({ scrollbackLines: 10000 })?.scrollbackLines).toBe(10000);
+    expect(wasmConfig({ scrollbackLines: 0 })?.scrollbackLines).toBe(0);
+  });
+
+  test('leaves it unset when not given', () => {
+    expect(wasmConfig({ scrollback: 3277 })?.scrollbackLines).toBeUndefined();
   });
 });
