@@ -62,7 +62,7 @@ loadConfig() — re-read file from disk
    │
    ▼
 render HTML with fresh appearance settings injected:
-cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, theme
+cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, scrollbackLines, theme
 ```
 
 ### New PTY spawn  (first WebSocket connection to a session)
@@ -91,7 +91,7 @@ spawn PTY with fresh: shell, term, colorTerm, scrollback
 - **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
 - **Hot config reload**:
   - `port` / `host` — locked at startup (server socket already bound; restart required).
-  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed`, `padding`, `keyboardBindings` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
+  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `scrollbackLines`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed`, `padding`, `keyboardBindings` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
   - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
   - An already-running session is never affected mid-flight.
   - Historical note: ADR 008/009/012 describe an earlier config flow that used a `cursorBlink` key and different HTML injection mechanics. Those ADRs are considered historical; this spec's `cursorStyle` / `cursorStyleBlink` behavior is authoritative.
@@ -108,6 +108,7 @@ All keys are optional — omit any key to use the default value.
 | `term` | string | `"xterm-256color"` | `$TERM` env var passed to the shell. Fixed to `xterm-256color` — the PTY child talks to webtty, not to the parent terminal. See [ADR 016](../adrs/016.config.term-default.md). |
 | `colorTerm` | string | `"truecolor"` | `$COLORTERM` env var passed to the shell |
 | `scrollback` | number | `262144` | PTY history buffer in bytes; used for server-side replay on reload/reconnect |
+| `scrollbackLines` | number | `10000` | Terminal history in lines on the official engine (`?engine=official`); `0` = no line limit. History is also capped at 32 MiB, so wide terminals with many styles can keep fewer lines, and Ghostty prunes whole pages, so it keeps a little under the limit (about 9,700 of 10,000). Fractions are floored; negative values are ignored. The Coder engine ignores it and keeps a few hundred rows derived from `scrollback`. See [ADR 046](../adrs/046.client.scrollback-lines.md). |
 | `cols` | number | `80` | Initial terminal width in columns |
 | `rows` | number | `24` | Initial terminal height in rows |
 | `cursorStyle` | string | `"bar"` | Default cursor shape: `"bar"` (vertical line), `"block"`, or `"underline"`. Apps override at runtime via DECSCUSR — this is the startup default only. |
@@ -122,7 +123,6 @@ All keys are optional — omit any key to use the default value.
 | `theme` | object | Campbell | Terminal color palette — see theme keys below |
 | `keyboardBindings` | array | `[]` | Custom key-to-sequence bindings sent to the PTY. See [key-bindings spec](key-bindings.md) for schema and examples. |
 
-Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)): a client key `scrollbackLines` (number, default `10000`; `0` = unlimited lines) sets the terminal's history in lines, under a 32 MiB byte ceiling. `scrollback` keeps its meaning as the server's replay buffer, and the client stops deriving its history limit from it (today it passes `Math.ceil(scrollback / 80)`, which the terminal reads as bytes).
 
 ### Theme keys
 
@@ -164,6 +164,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
   "term": "xterm-256color",
 
   "scrollback": 262144,
+  "scrollbackLines": 10000,
   "cols": 80,
   "rows": 24,
   "cursorStyle": "bar",
@@ -215,6 +216,6 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Padding | `padding` (px, default `0`) around the terminal canvas, coloured by `theme.padding` or `theme.background` | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |
 | Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
-| Scrollback in lines | `scrollbackLines` (default `10000`, `0` = unlimited) sets terminal history in lines under a 32 MiB ceiling; `scrollback` stays the server replay buffer, so existing configs keep their meaning | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
+| Scrollback in lines | `scrollbackLines` (default `10000`, `0` = no line limit) sets terminal history in lines under a 32 MiB ceiling on the official engine; `scrollback` stays the server replay buffer, so existing configs keep their meaning | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 046](../adrs/046.client.scrollback-lines.md) | ✅ |
 | Keyboard bindings | `keyboardBindings` — configurable key-to-sequence mappings sent to PTY; defaults to `[]` | [ADR 018](../adrs/018.key-bindings.config-support.md), [key-bindings spec](key-bindings.md) | ✅ |
 | Env injection | `env` — flat `Record<string,string>` merged over `process.env` and injected into PTY shells and execute commands; same contract as `~/.claude/settings.json` | [ADR 030](../adrs/030.config.env-inject.md) | ✅ |

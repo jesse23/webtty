@@ -128,6 +128,7 @@ describe('server — routes', () => {
     expect(typeof body.copyOnSelect).toBe('boolean');
     expect(typeof body.rightClickBehavior).toBe('string');
     expect(typeof body.mouseScrollSpeed).toBe('number');
+    expect(body.scrollbackLines).toBe(10000);
     expect(typeof body.padding).toBe('number');
     expect(body.port).toBeUndefined();
     expect(body.host).toBeUndefined();

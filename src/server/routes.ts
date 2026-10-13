@@ -118,6 +118,7 @@ export async function handleRequest(
       cursorStyle: config.cursorStyle,
       cursorStyleBlink: config.cursorStyleBlink,
       scrollback: config.scrollback,
+      scrollbackLines: config.scrollbackLines,
       theme: config.theme,
       copyOnSelect: config.copyOnSelect,
       rightClickBehavior: config.rightClickBehavior,

@@ -533,6 +533,11 @@ export const COLORS_STRUCT_SIZE = 12;
  */
 export interface GhosttyTerminalConfig {
   scrollbackLimit?: number;
+  /**
+   * History in lines, with a 32 MiB ceiling; 0 = no line limit. Official engine
+   * only; when set it replaces `scrollbackLimit` there. (webtty, ADR 046)
+   */
+  scrollbackLines?: number;
   fgColor?: number;
   bgColor?: number;
   cursorColor?: number;

@@ -183,6 +183,24 @@ describe('loadConfig — reads and merges', () => {
     expect(loadConfig().padding).toBe(0);
   });
 
+  test('defaults scrollbackLines to 10000 and accepts 0 or a whole number of lines', () => {
+    writeConfig(JSON.stringify({}));
+    expect(loadConfig().scrollbackLines).toBe(10000);
+    writeConfig(JSON.stringify({ scrollbackLines: 0 }));
+    expect(loadConfig().scrollbackLines).toBe(0);
+    writeConfig(JSON.stringify({ scrollbackLines: 2500.7 }));
+    expect(loadConfig().scrollbackLines).toBe(2500);
+  });
+
+  test('ignores a negative, infinite or non-numeric scrollbackLines', () => {
+    for (const scrollbackLines of [-1, '5000', null]) {
+      writeConfig(JSON.stringify({ scrollbackLines }));
+      expect(loadConfig().scrollbackLines).toBe(10000);
+    }
+    writeConfig('{"scrollbackLines": 1e999}');
+    expect(loadConfig().scrollbackLines).toBe(10000);
+  });
+
   test('passes theme.padding through and leaves it unset by default', () => {
     writeConfig(JSON.stringify({ theme: { padding: '#0D0D0D' } }));
     expect(loadConfig().theme.padding).toBe('#0D0D0D');

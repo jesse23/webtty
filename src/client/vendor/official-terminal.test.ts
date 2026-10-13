@@ -531,6 +531,40 @@ describe('official engine: scrollback, resize and the viewport', () => {
   });
 });
 
+describe('official engine: scrollback in lines (ADR 046)', () => {
+  /** Writes `n` numbered lines and returns how many scrollback rows the terminal kept. */
+  function keep(config: object, n: number, cols = 80): number {
+    const t = vt.createTerminal(cols, 24, config) as OfficialTerminal;
+    let chunk = '';
+    for (let i = 0; i < n; i++) {
+      chunk += `line ${i}\r\n`;
+      if (chunk.length > 1 << 20) {
+        t.write(chunk);
+        chunk = '';
+      }
+    }
+    t.write(chunk);
+    t.update();
+    const kept = t.getScrollbackLength();
+    t.free();
+    return kept;
+  }
+
+  test('keeps about scrollbackLines lines, a page at most under', () => {
+    const kept = keep({ scrollbackLines: 10000 }, 15000);
+    expect(kept).toBeGreaterThan(9000);
+    expect(kept).toBeLessThanOrEqual(10000 + 200);
+  });
+
+  test('scrollbackLines 0 removes the line limit', () => {
+    expect(keep({ scrollbackLines: 0 }, 20000)).toBe(20000 - 24 + 1);
+  });
+
+  test('without scrollbackLines the byte limit applies, as before', () => {
+    expect(keep({ scrollbackLimit: 3277 }, 15000)).toBeLessThan(2000);
+  });
+});
+
 describe('official engine: effects and replies', () => {
   test('reports the title and the bell once', () => {
     const t = term();

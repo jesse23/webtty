@@ -397,9 +397,10 @@ export class Terminal implements ITerminalCore {
   private buildWasmConfig(): GhosttyTerminalConfig | undefined {
     const theme = this.options.theme;
     const scrollback = this.options.scrollback;
+    const scrollbackLines = this.options.scrollbackLines;
 
     // If no theme and default scrollback, use defaults
-    if (!theme && scrollback === 10000) {
+    if (!theme && scrollback === 10000 && scrollbackLines === undefined) {
       return undefined;
     }
 
@@ -430,6 +431,7 @@ export class Terminal implements ITerminalCore {
 
     return {
       scrollbackLimit: scrollback,
+      scrollbackLines,
       fgColor: fg ?? 0,
       bgColor: bg ?? 0,
       cursorColor: cursor ?? 0,

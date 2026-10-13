@@ -77,6 +77,8 @@ export interface Config {
   colorTerm: string;
   /** PTY history buffer in bytes; used for server-side replay on reload/reconnect. */
   scrollback: number;
+  /** Terminal history in lines on the official engine; `0` = no line limit. History is also capped at 32 MiB. See ADR 046. */
+  scrollbackLines: number;
   /** Initial terminal width in columns. */
   cols: number;
   /** Initial terminal height in rows. */
@@ -160,6 +162,7 @@ export const DEFAULT_CONFIG: Config = {
   term: 'xterm-256color',
   colorTerm: 'truecolor',
   scrollback: 256 * 1024,
+  scrollbackLines: 10000,
   cols: 80,
   rows: 24,
   fontSize: 13,
@@ -268,6 +271,9 @@ export function loadConfig(): Config {
     ...(typeof p.term === 'string' && { term: p.term }),
     ...(typeof p.colorTerm === 'string' && { colorTerm: p.colorTerm }),
     ...(typeof p.scrollback === 'number' && { scrollback: p.scrollback }),
+    ...(typeof p.scrollbackLines === 'number' &&
+      Number.isFinite(p.scrollbackLines) &&
+      p.scrollbackLines >= 0 && { scrollbackLines: Math.floor(p.scrollbackLines) }),
     ...(typeof p.cols === 'number' && { cols: p.cols }),
     ...(typeof p.rows === 'number' && { rows: p.rows }),
     ...(typeof p.fontSize === 'number' && { fontSize: p.fontSize }),

@@ -1275,6 +1275,7 @@ function resolveOfficialLayout(layout: VtLayout) {
       COLOR_CURSOR: opt('COLOR_CURSOR'),
       COLOR_PALETTE: opt('COLOR_PALETTE'),
       SCROLLBACK_MAX_BYTES: opt('SCROLLBACK_MAX_BYTES'),
+      SCROLLBACK_MAX_LINES: opt('SCROLLBACK_MAX_LINES'),
       MODE_DEFAULT: opt('MODE_DEFAULT'),
     },
     tdata: {
@@ -1575,8 +1576,11 @@ interface DecodedStyle {
 const I32 = WasmValType.I32;
 /** At most this many pages of scrollback rows stay cached per generation. */
 const PAGE_CACHE_SIZE = 16;
-/** `scrollback: 0` (unlimited on the Coder wasm) becomes this byte ceiling. */
-const UNLIMITED_SCROLLBACK_BYTES = 32 * 1024 * 1024;
+/**
+ * The scrollback byte ceiling: with `scrollbackLines` always (ADR 046), and for
+ * `scrollback: 0`, which is unlimited on the Coder wasm.
+ */
+const SCROLLBACK_CEILING_BYTES = 32 * 1024 * 1024;
 /** The Coder engine's default scrollback limit when no config is given. */
 const DEFAULT_SCROLLBACK_BYTES = 10000;
 /** The Coder engine's default colours, used when the theme leaves one unset. */
@@ -2255,11 +2259,21 @@ export class OfficialTerminal implements GhosttyTerminal {
     const L = this.L;
     const at = this.at;
 
-    // Scrollback keeps today's derived byte budget (ADR 042). 0 bytes would disable
-    // scrollback and NULL would remove the limit, so neither is ever passed.
-    const limit = config?.scrollbackLimit ?? DEFAULT_SCROLLBACK_BYTES;
-    this.dv().setUint32(at.u32, limit > 0 ? limit : UNLIMITED_SCROLLBACK_BYTES, true);
-    this.setOption(L.opt.SCROLLBACK_MAX_BYTES, at.u32, 'SCROLLBACK_MAX_BYTES');
+    // Scrollback in lines under a 32 MiB ceiling (ADR 046); without scrollbackLines,
+    // the derived byte budget (ADR 042). Whichever limit is reached first applies. 0
+    // bytes would disable scrollback and a NULL byte limit would remove the ceiling,
+    // so neither is ever passed; NULL lines removes the line limit.
+    const lines = config?.scrollbackLines;
+    if (lines !== undefined) {
+      this.dv().setUint32(at.u32, SCROLLBACK_CEILING_BYTES, true);
+      this.setOption(L.opt.SCROLLBACK_MAX_BYTES, at.u32, 'SCROLLBACK_MAX_BYTES');
+      if (lines > 0) this.dv().setUint32(at.u32, lines, true);
+      this.setOption(L.opt.SCROLLBACK_MAX_LINES, lines > 0 ? at.u32 : 0, 'SCROLLBACK_MAX_LINES');
+    } else {
+      const limit = config?.scrollbackLimit ?? DEFAULT_SCROLLBACK_BYTES;
+      this.dv().setUint32(at.u32, limit > 0 ? limit : SCROLLBACK_CEILING_BYTES, true);
+      this.setOption(L.opt.SCROLLBACK_MAX_BYTES, at.u32, 'SCROLLBACK_MAX_BYTES');
+    }
 
     // Grapheme clustering (mode 2027) on by default, so RIS keeps it.
     const dv = this.dv();
