@@ -174,6 +174,32 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ghostty-web's CanvasRenderer reads window.devicePixelRatio once, in its constructor,
+// and sizes the canvas backing store from that value forever after. Moving the window
+// to a monitor with a different scale (Retina <-> external) or changing browser zoom
+// leaves the canvas at the old ratio: blurry or mis-scaled until reload. The CSS size
+// does not change, so neither ResizeObserver nor fit() notices. Watch the resolution
+// media query instead and push the new ratio into the renderer; its render loop then
+// sees the backing-store mismatch and resizes and repaints itself. See ADR 039.
+function watchDevicePixelRatio(): void {
+  const dpr = window.devicePixelRatio || 1;
+  window.matchMedia(`(resolution: ${dpr}dppx)`).addEventListener(
+    'change',
+    () => {
+      const renderer = term.renderer as unknown as { devicePixelRatio: number } | undefined;
+      if (renderer) renderer.devicePixelRatio = window.devicePixelRatio || 1;
+      term.renderer?.remeasureFont();
+      if (term.renderer && term.wasmTerm) {
+        term.renderer.render(term.wasmTerm, true, term.viewportY);
+      }
+      scheduleFit();
+      watchDevicePixelRatio();
+    },
+    { once: true },
+  );
+}
+watchDevicePixelRatio();
+
 // ghostty-web sets the mouse cursor to 'text' (I-beam) whenever the pointer
 // isn't over a detected hyperlink — it only ever writes 'text' or 'pointer'
 // (see the hover-link logic in ghostty-web's dist bundle). The I-beam reads
