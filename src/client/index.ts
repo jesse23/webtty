@@ -1,4 +1,3 @@
-import { init, Terminal } from 'ghostty-web';
 import { Composer } from './compose';
 import { applyDecscusr } from './cursor';
 import { EdgeExtender } from './edge';
@@ -8,6 +7,7 @@ import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
 import { encodePaste } from './paste';
 import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
+import { Ghostty, Terminal } from './vendor/ghostty-web';
 
 interface KeyboardBinding {
   key: string;
@@ -62,13 +62,17 @@ const config: ClientConfig = await fetch('/api/config').then((r) => r.json());
 
 document.title = `${sessionId} | webtty`;
 
-await init();
+// The vendored ghostty-web is bundled into /dist/client-browser.js, so its default
+// wasm lookup (relative to its own module URL) would depend on where the bundle sits.
+// Load the wasm from the path the server serves it at instead (ADR 041).
+const ghostty = await Ghostty.load('/ghostty-vt.wasm');
 
 // Translate webtty's theme keys to ghostty-web's names and keep `padding`, a webtty
 // setting and not a terminal colour, out of the theme it receives (ADR 036).
 const terminalTheme = toTerminalTheme(config.theme ?? {});
 
 const term = new Terminal({
+  ghostty,
   cols: config.cols,
   rows: config.rows,
   cursorStyle: config.cursorStyle,

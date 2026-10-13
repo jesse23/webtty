@@ -1,13 +1,10 @@
 import fs from 'node:fs';
 import type http from 'node:http';
-import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-const require = createRequire(import.meta.url);
 
 /** File extension → MIME type map used by {@link serveFile}. */
 export const MIME_TYPES: Record<string, string> = {
@@ -34,43 +31,22 @@ export function mimeType(filePath: string): string {
 }
 
 /**
- * Strips the `dist/…` suffix from a ghostty-web main entry path to get the package root.
+ * Locates `ghostty-vt.wasm`, preferring the copy the build puts in `dist/` (npm install)
+ * over the vendored source copy (local dev). Exits the process if neither exists.
  *
- * @param mainPath - The main entry path from ghostty-web package.
- * @returns The package root directory path.
+ * @returns The absolute path to `ghostty-vt.wasm`.
+ * @throws Exits the process with code 1 if the wasm cannot be found.
  */
-export function ghosttyWebRootFromMain(mainPath: string): string {
-  return mainPath.replace(/[/\\]dist[/\\].*$/, '');
-}
-
-/**
- * Locates the ghostty-web package, preferring assets bundled in `dist/` (npm install)
- * over `node_modules/` (local dev). Exits the process if the package cannot be found.
- *
- * @returns An object with `distPath` (ghostty-web dist directory) and `wasmPath` (ghostty-vt.wasm file).
- * @throws Exits the process with code 1 if ghostty-web cannot be found.
- */
-export function findGhosttyWeb(): { distPath: string; wasmPath: string } {
-  // Prefer assets bundled into dist/ — present when installed via npx/npm.
-  const bundledDist = path.join(__dirname, '..', '..', 'dist');
-  const bundledWasm = path.join(bundledDist, 'ghostty-vt.wasm');
-  if (fs.existsSync(path.join(bundledDist, 'ghostty-web.js')) && fs.existsSync(bundledWasm)) {
-    return { distPath: bundledDist, wasmPath: bundledWasm };
+export function findGhosttyWasm(): string {
+  const projectRoot = path.join(__dirname, '..', '..');
+  const candidates = [
+    path.join(projectRoot, 'dist', 'ghostty-vt.wasm'),
+    path.join(projectRoot, 'src', 'client', 'vendor', 'ghostty-web', 'ghostty-vt.wasm'),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
   }
-
-  // Fall back to node_modules — present during local development.
-  try {
-    const ghosttyWebMain = require.resolve('ghostty-web') as string;
-    const ghosttyWebRoot = ghosttyWebRootFromMain(ghosttyWebMain);
-    const distPath = path.join(ghosttyWebRoot, 'dist');
-    const wasmPath = path.join(ghosttyWebRoot, 'ghostty-vt.wasm');
-    if (fs.existsSync(path.join(distPath, 'ghostty-web.js')) && fs.existsSync(wasmPath)) {
-      return { distPath, wasmPath };
-    }
-  } catch {
-    // fall through
-  }
-  console.error('Error: Could not find ghostty-web package.');
+  console.error('Error: Could not find ghostty-vt.wasm.');
   process.exit(1);
 }
 

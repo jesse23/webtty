@@ -19,13 +19,15 @@ The client has one surface: a full-viewport terminal view, one session per tab.
 ```
 dist/
   client.html          ← static HTML shell; served at GET /s/:id
-  client-browser.js    ← compiled from src/client/index.ts
+  client-browser.js    ← compiled from src/client/index.ts, with the vendored ghostty-web TS bundled in
   client.css           ← copied from src/client/index.css
-  ghostty-web.js       ← ghostty-web package
-  ghostty-vt.wasm      ← ghostty-web package
+  ghostty-vt.wasm      ← copied from src/client/vendor/ghostty-web/; served at GET /ghostty-vt.wasm
+  THIRD_PARTY_LICENSES ← Coder's ghostty-web and Ghostty's MIT notices, from src/client/vendor/ghostty-web/
 ```
 
-Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)): once ghostty-web is vendored and bundled into `client-browser.js`, `ghostty-web.js` goes away and `client.html` loads only `client-browser.js`. `ghostty-vt.wasm` is then copied by `scripts/build.ts` from the vendored path instead of the npm package, and the server resolves it from `dist/` or the vendored path instead of `node_modules`. It stays the Coder-patched build (vendored with its provenance) until the official libghostty-vt wasm, committed under `src/client/vendor/ghostty-vt/`, becomes the default and the Coder engine is removed.
+`client.html` loads only `client-browser.js`. The npm `ghostty-web.js` build inlined the wasm as a base64 `data:` URL, so the browser never fetched `/ghostty-vt.wasm`. The vendored TS is bundled without inlining, so the client now fetches it on every page load through an explicit `Ghostty.load('/ghostty-vt.wasm')`, and the page depends on the server serving that route as `application/wasm`. The server resolves the wasm from `dist/` (npm install) or the vendored path (local dev); nothing comes from `node_modules` ([ADR 041](../adrs/041.client.libghostty-vt.md)).
+
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)): the wasm stays the Coder-patched build until the official libghostty-vt wasm, committed under `src/client/vendor/ghostty-vt/`, becomes the default and the Coder engine is removed.
 
 ## Source layout
 
@@ -34,14 +36,19 @@ src/client/
   index.ts             ← browser TypeScript entry point
   index.html           ← HTML shell (no inline script)
   index.css            ← terminal styles
+  vendor/
+    ghostty-web/       ← coder/ghostty-web lib/ at 1858a59 (non-test TS, unchanged), MIT LICENSE, PROVENANCE.md;
+                          Ghostty's LICENSE.ghostty; Coder ghostty-vt.wasm + ghostty-vt.wasm.json sidecar (npm version, Ghostty commit + patch,
+                          licence, size, sha256), checked by vendor/ghostty-web.test.ts
 ```
+
+The vendored TS is excluded from Biome so it stays byte-identical to upstream until webtty edits it, and is type-checked with the rest of `src/`. webtty's edits to it are tracked in git from the commit that added it.
 
 Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)):
 
 ```
 src/client/vendor/
-  ghostty-web/         ← ghostty-web TS (MIT LICENSE + upstream commit note); all wasm calls in ghostty.ts;
-                          Coder ghostty-vt.wasm + sidecar (npm version, Ghostty commit + patch, sha256) until the Coder engine is removed
+  ghostty-web/         ← all wasm calls in ghostty.ts; Coder wasm + sidecar until the Coder engine is removed
   ghostty-vt/          ← official ghostty-vt-small.wasm + .minisig + provenance sidecar (commit, URL, sha256)
 ```
 
@@ -52,7 +59,7 @@ src/client/vendor/
 1. Reads `sessionId` from `window.location.pathname` (`/s/main` → `main`)
 2. Fetches `GET /api/config` to get terminal config
 3. Sets `document.title = sessionId + ' | webtty'`
-4. Initialises a `ghostty-web` `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, theme, copyOnSelect, rightClickBehavior)
+4. Loads `/ghostty-vt.wasm` and initialises the vendored ghostty-web `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, theme, copyOnSelect, rightClickBehavior)
 5. Connects to `ws://<host>/ws/:id?cols=<cols>&rows=<rows>` over WebSocket
 6. Fits the terminal to the viewport from the full container size (no scrollbar reserve, see ADR 033) and observes resize events
 7. Sends a `{ type: 'resize', cols, rows }` JSON message on open and on every terminal resize
@@ -178,7 +185,8 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | IME / dictation at cursor | Focus stays on the input textarea, which follows the cursor cell; the composition shows at the cursor in the theme's font and colours instead of as a stray line under the canvas | [ADR 038](../adrs/038.client.ime-composition-at-cursor.md) | ✅ |
 | Device pixel ratio changes | Moving to a monitor with a different scale, or changing zoom, updates the renderer's pixel ratio and repaints instead of staying blurry until reload; fractional ratios render at the next whole ratio so the canvas doesn't resize every frame | [ADR 039](../adrs/039.client.device-pixel-ratio-change.md) | ✅ |
 | Pixel-smooth scrollback | Trackpad scrolling through scrollback moves by pixels (canvas offset plus a one-row strip for the incoming line); in mouse-tracking apps, pixel deltas send one scroll tick per cell height of travel | [ADR 040](../adrs/040.client.pixel-smooth-scroll.md) | ✅ |
-| Vendored terminal layer | The terminal (renderer, input, selection) is webtty's own code with no npm `ghostty-web` dependency; ghostty-web bugs are fixed at source instead of patched from outside, and terminal behaviour is otherwise unchanged | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
+| Vendored terminal layer | The terminal (renderer, input, selection) is webtty's own vendored code with no npm `ghostty-web` dependency; terminal behaviour is unchanged | [ADR 041](../adrs/041.client.libghostty-vt.md) | ✅ |
+| ghostty-web bugs fixed at source | ghostty-web bugs are fixed in the vendored code instead of patched from outside, each fix deleting its webtty workaround (hover motion, cursor interceptor, fit reserve, private `devicePixelRatio` set, and the rest of ADR 041 step 2) | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Official libghostty-vt wasm | The terminal runs on Ghostty's official, unpatched libghostty-vt wasm (pinned, sha256- and signature-checked) with current Ghostty parsing and query replies; `?engine=coder` falls back to the old engine until it is removed | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Scrollback in lines | Terminal history keeps the configured number of lines (`scrollbackLines`, default 10,000) up to a 32 MiB ceiling, instead of a few hundred rows | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Smooth scroll via `OVERSCAN` | Pixel-smooth scrollback draws the rows Ghostty's render state provides above and below the viewport, replacing ADR 040's strip canvas | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |

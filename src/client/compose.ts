@@ -14,7 +14,7 @@
  * through ghostty-web's own compositionend handling.
  */
 
-import type { Terminal } from 'ghostty-web';
+import type { Terminal } from './vendor/ghostty-web';
 
 // ghostty-web's defaults for a theme without foreground/background.
 const DEFAULT_FOREGROUND = '#d4d4d4';

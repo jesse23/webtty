@@ -30,7 +30,6 @@
   },
   "dependencies": {
     "@lydell/node-pty": "1.2.0-beta.15",
-    "ghostty-web": "0.4.0-next.20.g1858a59",
     "ws": "8.21.3"
   },
   "devDependencies": {

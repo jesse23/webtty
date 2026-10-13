@@ -72,7 +72,6 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
  *
  * @param req - The incoming HTTP request.
  * @param res - The HTTP response object.
- * @param distPath - Path to the server-side dist directory.
  * @param wasmPath - Path to the ghostty-vt.wasm file.
  * @param clientDistPath - Path to the client dist directory.
  * @param onStop - Callback invoked when `POST /api/server/stop` is received.
@@ -80,7 +79,6 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  distPath: string,
   wasmPath: string,
   clientDistPath: string,
   onStop: () => void,
@@ -463,25 +461,13 @@ export async function handleRequest(
   }
 
   if (pathname.startsWith('/dist/')) {
-    const relativePath = pathname.slice(6);
-    const ownFile = path.resolve(clientDistPath, relativePath);
+    const ownFile = path.resolve(clientDistPath, pathname.slice(6));
     if (ownFile.startsWith(clientDistPath + path.sep)) {
-      const fs = await import('node:fs');
-      if (fs.existsSync(ownFile)) {
-        serveFile(ownFile, res);
-        return;
-      }
-    }
-    const filePath = path.resolve(distPath, relativePath);
-    if (
-      !filePath.startsWith(path.resolve(distPath) + path.sep) &&
-      filePath !== path.resolve(distPath)
-    ) {
-      res.writeHead(404);
-      res.end('Not Found');
+      serveFile(ownFile, res);
       return;
     }
-    serveFile(filePath, res);
+    res.writeHead(404);
+    res.end('Not Found');
     return;
   }
 

@@ -1,0 +1,21 @@
+{
+  "file": "ghostty-vt.wasm",
+  "source": {
+    "npm": "ghostty-web@0.4.0-next.20.g1858a59",
+    "path": "ghostty-vt.wasm",
+    "repo": "https://github.com/coder/ghostty-web",
+    "commit": "1858a5947767a3e1c9e98dbf53b2ff87fedb2aab"
+  },
+  "ghostty": {
+    "repo": "https://github.com/ghostty-org/ghostty",
+    "commit": "5714ed07a1012573261b7b7e3ed2add9c1504496",
+    "patch": "patches/ghostty-wasm-api.patch",
+    "patchSha256": "a579f64a371d64d8f139bc76fb76bff77549d406236ca1153a32b3ff0eb87b90"
+  },
+  "license": {
+    "ghostty": "MIT (Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors; LICENSE.ghostty)",
+    "patch": "MIT (Copyright (c) 2025 Coder; LICENSE)"
+  },
+  "size": 423939,
+  "sha256": "794191ccd9f469ed0d49ebcb3e6b326d64279b91752b71ad80a3d89ff1f26416"
+}

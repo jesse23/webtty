@@ -15,7 +15,7 @@
  * Only the normal screen's scrollback scrolls this way. On the alternate screen, or
  * when the app tracks the mouse, the app moves its own view in whole lines.
  */
-import type { Terminal } from 'ghostty-web';
+import type { Terminal } from './vendor/ghostty-web';
 
 export interface ScrollSplit {
   /** Whole lines scrolled up from the bottom: ghostty-web's viewportY. */

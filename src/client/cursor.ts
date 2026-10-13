@@ -1,4 +1,4 @@
-import type { Terminal } from 'ghostty-web';
+import type { Terminal } from './vendor/ghostty-web';
 
 // ghostty-web does not yet read cursor style from the WASM render state after
 // write() — getCursor() hardcodes style: 'block' (see TODO in ghostty-web source).

@@ -1,8 +1,5 @@
 import fs from 'node:fs';
-import { createRequire } from 'node:module';
 import path from 'node:path';
-
-const require = createRequire(import.meta.url);
 
 const serverResult = await Bun.build({
   entrypoints: ['./src/server/index.ts', './src/cli/index.ts'],
@@ -10,7 +7,7 @@ const serverResult = await Bun.build({
   target: 'node',
   format: 'esm',
   sourcemap: 'external',
-  external: ['@lydell/node-pty', 'ws', 'ghostty-web'],
+  external: ['@lydell/node-pty', 'ws'],
   banner: '#!/usr/bin/env node\n',
 });
 
@@ -26,7 +23,6 @@ const clientResult = await Bun.build({
   target: 'browser',
   format: 'esm',
   minify: true,
-  external: ['ghostty-web'],
   naming: 'client-browser.js',
 });
 
@@ -36,25 +32,35 @@ if (!clientResult.success) {
   process.exit(1);
 }
 
-const clientOut = path.resolve('./dist/client-browser.js');
-const clientJs = fs.readFileSync(clientOut, 'utf8');
-fs.writeFileSync(clientOut, clientJs.replace(/"ghostty-web"/g, '"/dist/ghostty-web.js"'));
-
 fs.copyFileSync(path.resolve('./src/client/client.html'), path.resolve('./dist/client.html'));
 fs.copyFileSync(path.resolve('./src/client/index.css'), path.resolve('./dist/client.css'));
 
-// Copy ghostty-web assets into dist/ so they ship with the package.
-// Without this, `npx webtty` fails — the package is extracted to a temp
-// directory with no node_modules, so require.resolve('ghostty-web') throws.
-const ghosttyWebMain = require.resolve('ghostty-web') as string;
-const ghosttyWebRoot = ghosttyWebMain.replace(/[/\\]dist[/\\].*$/, '');
+// The vendored ghostty-web TypeScript is bundled into client-browser.js; its wasm
+// ships next to it in dist/ so the published package needs nothing outside dist/.
 fs.copyFileSync(
-  path.join(ghosttyWebRoot, 'dist', 'ghostty-web.js'),
-  path.resolve('./dist/ghostty-web.js'),
-);
-fs.copyFileSync(
-  path.join(ghosttyWebRoot, 'ghostty-vt.wasm'),
+  path.resolve('./src/client/vendor/ghostty-web/ghostty-vt.wasm'),
   path.resolve('./dist/ghostty-vt.wasm'),
+);
+
+// The vendored TS has no licence headers, so nothing survives minification; the
+// MIT notices for the code in client-browser.js and ghostty-vt.wasm ship here instead.
+const vendorDir = './src/client/vendor/ghostty-web';
+fs.writeFileSync(
+  path.resolve('./dist/THIRD_PARTY_LICENSES'),
+  [
+    'ghostty-web (bundled in client-browser.js; ghostty-vt.wasm build and patch)',
+    'https://github.com/coder/ghostty-web',
+    '',
+    fs.readFileSync(path.resolve(vendorDir, 'LICENSE'), 'utf8').trim(),
+    '',
+    '---',
+    '',
+    'Ghostty (compiled into ghostty-vt.wasm)',
+    'https://github.com/ghostty-org/ghostty',
+    '',
+    fs.readFileSync(path.resolve(vendorDir, 'LICENSE.ghostty'), 'utf8').trim(),
+    '',
+  ].join('\n'),
 );
 
 const totalFiles = serverResult.outputs.length + clientResult.outputs.length + 4;

@@ -1,5 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -43,6 +45,21 @@ describe('server — routes', () => {
   test('GET /unknown returns 404', async () => {
     const res = await fetch(`${baseUrl}/unknown`);
     expect(res.status).toBe(404);
+  });
+
+  test('GET /ghostty-vt.wasm serves the vendored wasm byte for byte', async () => {
+    const sidecar = JSON.parse(
+      fs.readFileSync(
+        path.resolve(__dirname, '../client/vendor/ghostty-web/ghostty-vt.wasm.json'),
+        'utf8',
+      ),
+    ) as { size: number; sha256: string };
+    const res = await fetch(`${baseUrl}/ghostty-vt.wasm`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/wasm');
+    const body = new Uint8Array(await res.arrayBuffer());
+    expect(body.byteLength).toBe(sidecar.size);
+    expect(createHash('sha256').update(body).digest('hex')).toBe(sidecar.sha256);
   });
 
   test('GET / redirects to /s/main when no sessions exist', async () => {

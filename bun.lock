@@ -6,7 +6,6 @@
       "name": "webtty",
       "dependencies": {
         "@lydell/node-pty": "1.2.0-beta.15",
-        "ghostty-web": "0.4.0-next.20.g1858a59",
         "ws": "8.21.3",
       },
       "devDependencies": {
@@ -300,8 +299,6 @@
     "get-east-asian-width": ["get-east-asian-width@1.6.0", "", {}, "sha512-QRbvDIbx6YklUe6RxeTeleMR0yv3cYH6PsPZHcnVn7xv7zO1BHN8r0XETu8n6Ye3Q+ahtSarc3WgtNWmehIBfA=="],
 
     "get-stream": ["get-stream@6.0.1", "", {}, "sha512-ts6Wi+2j3jQjqi70w5AlN8DFnkSwC+MqmxEzdEALB2qXZYV3X/b1CTfgPLGJNMeAWxdPfU8FO1ms3NUfaHCPYg=="],
-
-    "ghostty-web": ["ghostty-web@0.4.0-next.20.g1858a59", "", {}, "sha512-NXA9H3IJlx+DGJukXbOPQWFkigYdAatTqkoIvM8tvhfbaYoDf3gGKxXLLyXtLYOBt5qzGdEZa294TU36gULjVg=="],
 
     "git-log-parser": ["git-log-parser@1.2.1", "", { "dependencies": { "argv-formatter": "~1.0.0", "spawn-error-forwarder": "~1.0.0", "split2": "~1.0.0", "stream-combiner2": "~1.1.1", "through2": "~2.0.0", "traverse": "0.6.8" } }, "sha512-PI+sPDvHXNPl5WNOErAK05s3j0lgwUzMN6o8cyQrDaKfT3qd7TmNJKeXX+SknI5I0QhG5fVPAEwSY4tRGDtYoQ=="],
 
