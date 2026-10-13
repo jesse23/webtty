@@ -243,6 +243,32 @@ describe('SmoothScroll', () => {
   });
 });
 
+describe('SmoothScroll.tickSpread', () => {
+  const scroll = () =>
+    new SmoothScroll({ onScroll: () => {}, onResize: () => {} } as unknown as Terminal);
+  const at = (deltaY: number, timeStamp: number, deltaMode = 0) =>
+    ({ deltaX: 0, deltaY, deltaMode, timeStamp }) as WheelEvent;
+
+  test('spreads a sparse delta over its gap plus a frame', () => {
+    const s = scroll();
+    s.tickSpread(at(-4.000244140625, 1000));
+    expect(s.tickSpread(at(-95.0897216796875, 1040))).toBeCloseTo(40 + 1000 / 60);
+  });
+
+  test('caps the spread at the wheel glide time', () => {
+    const s = scroll();
+    s.tickSpread(at(-4.000244140625, 1000));
+    expect(s.tickSpread(at(-30.25, 1200))).toBe(WHEEL_GLIDE_MS);
+  });
+
+  test('sends wheel notches and trackpad deltas at once', () => {
+    const s = scroll();
+    expect(s.tickSpread(at(-3, 1000, 1))).toBe(0);
+    expect(s.tickSpread(at(-20.5, 1200))).toBe(WHEEL_GLIDE_MS);
+    expect(s.tickSpread(at(-21.25, 1208))).toBe(0);
+  });
+});
+
 describe('WheelClassifier', () => {
   const feed = (deltas: [number, number][]) => {
     const c = new WheelClassifier();

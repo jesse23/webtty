@@ -155,12 +155,10 @@ export class SmoothScroll {
     const metrics = this.term.renderer?.getMetrics();
     if (!metrics) return false;
     const lines = wheelLines(e, metrics.height, this.term.rows);
-    const gap = this.lastWheel === null ? 0 : e.timeStamp - this.lastWheel;
-    this.lastWheel = e.timeStamp;
-    if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
+    const { wheel, gap } = this.classify(e);
     // A delta during a glide adds to where the glide is heading.
     const to = this.clamp((this.glide?.to ?? this.position) - lines);
-    if (e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel()) {
+    if (wheel) {
       this.glideTo(to, WHEEL_GLIDE_MS, easeOutCubic);
     } else if (gap >= SPARSE_GAP_MS) {
       // Spread the delta over the time it took to arrive, so a steady stream scrolls
@@ -173,6 +171,25 @@ export class SmoothScroll {
       this.apply();
     }
     return true;
+  }
+
+  /**
+   * How long to spread the scroll ticks a wheel event sends to an app over, for
+   * events this does not scroll itself. A sparse delta's ticks spread over its gap
+   * plus a frame, so a TrackPoint scrolls an app a line at a time instead of in
+   * bursts; a wheel notch's or trackpad delta's go at once (0). See ADR 045.
+   */
+  tickSpread(e: WheelEvent): number {
+    const { wheel, gap } = this.classify(e);
+    return !wheel && gap >= SPARSE_GAP_MS ? Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS) : 0;
+  }
+
+  /** Classifies a wheel event, once per event: a wheel notch or not, and the time since the previous one. */
+  private classify(e: WheelEvent): { wheel: boolean; gap: number } {
+    const gap = this.lastWheel === null ? 0 : e.timeStamp - this.lastWheel;
+    this.lastWheel = e.timeStamp;
+    if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
+    return { wheel: e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel(), gap };
   }
 
   /** New output arrived. ghostty-web only snaps to the bottom when viewportY > 0, so clear a sub-line offset here. */

@@ -137,6 +137,80 @@ export function wheelTicks(
   return ticks === 0 ? 0 : ticks * dir;
 }
 
+/** One frame at 60 Hz. */
+const FRAME_MS = 1000 / 60;
+
+/**
+ * Sends the scroll ticks of wheel events to an app spread over time instead of in
+ * one burst: a TrackPoint sends a delta of up to 20 lines every 30-200 ms, which
+ * an app would otherwise scroll in jumps. Ticks queued with a duration go out
+ * evenly over it, a few per frame; a new event's ticks join the ones still queued
+ * and spread over its duration, starting from the latest frame so the pace does
+ * not stall. A direction change drops the queued ticks, as `wheelTicks` drops its
+ * remainder. (webtty, ADR 045)
+ */
+export class TickPacer {
+  private seq = '';
+  private dir = 0;
+  private total = 0;
+  private sent = 0;
+  private start = 0;
+  private duration = 0;
+  private lastFrame: number | null = null;
+  private frame = 0;
+
+  constructor(private readonly send: (data: string) => void) {}
+
+  /** Queues `count` ticks of `seq` in direction `dir` (-1 or 1) to send over `duration` ms; 0 sends them now. */
+  push(seq: string, dir: number, count: number, duration: number): void {
+    if (dir !== this.dir) this.cancel();
+    this.dir = dir;
+    // The latest event's sequence: its cell is where the pointer is now.
+    this.seq = seq;
+    const pending = this.total - this.sent;
+    if (duration <= 0) {
+      this.stop();
+      this.send(seq.repeat(pending + count));
+      return;
+    }
+    this.total = pending + count;
+    this.sent = 0;
+    this.start = this.lastFrame ?? performance.now() - FRAME_MS;
+    this.duration = duration;
+    if (!this.frame) this.frame = requestAnimationFrame(this.step);
+  }
+
+  /** Drops the queued ticks. */
+  cancel(): void {
+    this.stop();
+    this.dir = 0;
+  }
+
+  private stop(): void {
+    this.total = 0;
+    this.sent = 0;
+    this.lastFrame = null;
+    if (this.frame) cancelAnimationFrame(this.frame);
+    this.frame = 0;
+  }
+
+  private readonly step = (now: number): void => {
+    this.frame = 0;
+    const t = Math.min(1, Math.max(0, (now - this.start) / this.duration));
+    const due = Math.round(this.total * t) - this.sent;
+    if (due > 0) {
+      this.send(this.seq.repeat(due));
+      this.sent += due;
+    }
+    if (this.sent < this.total) {
+      this.lastFrame = now;
+      this.frame = requestAnimationFrame(this.step);
+    } else {
+      this.stop();
+    }
+  };
+}
+
 /** SGR mouse report for `ticks` wheel ticks at a 1-based cell. */
 export function wheelSgr(ticks: number, col: number, row: number): string {
   const btn = ticks < 0 ? 64 : 65;
@@ -255,6 +329,8 @@ export class Terminal implements ITerminalCore {
   private scrollAnimationFrame?: number;
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
+  private customWheelTickSpread?: (event: WheelEvent) => number;
+  private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
   // DECSCUSR state: the app's cursor shape (undefined = options) and the
   // unfinished sequence at the end of the last write
@@ -1103,6 +1179,15 @@ export class Terminal implements ITerminalCore {
     this.customWheelEventHandler = customWheelEventHandler;
   }
 
+  /**
+   * Sets how long, in ms, to spread the scroll ticks of a wheel event sent to the
+   * app over (mouse tracking, or arrow keys on the alternate screen); 0 sends them
+   * at once, as without a handler. Called once per such event. (webtty, ADR 045)
+   */
+  public attachWheelTickSpread(spread?: (event: WheelEvent) => number): void {
+    this.customWheelTickSpread = spread;
+  }
+
   // ==========================================================================
   // Link Detection Methods
   // ==========================================================================
@@ -1329,6 +1414,8 @@ export class Terminal implements ITerminalCore {
     // Stop render loop and clear write queue
     this.cancelRenderLoop();
     this.writeQueue.length = 0;
+
+    this.tickPacer.cancel();
 
     // Stop smooth scroll animation
     if (this.scrollAnimationFrame) {
@@ -1865,6 +1952,8 @@ export class Terminal implements ITerminalCore {
     if (this.wasmTerm?.hasMouseTracking()) {
       const metrics = this.renderer?.getMetrics();
       if (!metrics || !this.canvas) return;
+      // Every event, so the spread sees the time since the previous one (webtty, ADR 045)
+      const spread = this.customWheelTickSpread?.(e) ?? 0;
       const ticks = wheelTicks(
         this.wheelAccumulator,
         e,
@@ -1878,7 +1967,12 @@ export class Terminal implements ITerminalCore {
         1,
         Math.floor((e.clientY - rect.top - this.renderer!.scrollOffset) / metrics.height) + 1
       );
-      this.dataEmitter.fire(wheelSgr(ticks, col, row));
+      this.tickPacer.push(
+        wheelSgr(Math.sign(ticks), col, row),
+        Math.sign(ticks),
+        Math.abs(ticks),
+        spread
+      );
       return;
     }
 
@@ -1889,16 +1983,11 @@ export class Terminal implements ITerminalCore {
       // Alternate screen: send arrow keys to the application
       // Applications like vim handle scrolling internally
       // Standard: ~3 arrow presses per wheel "click"
-      const direction = e.deltaY > 0 ? 'down' : 'up';
+      const dir = e.deltaY > 0 ? 1 : -1;
       const count = Math.min(Math.abs(Math.round(e.deltaY / 33)), 5); // Cap at 5
-
-      for (let i = 0; i < count; i++) {
-        if (direction === 'up') {
-          this.dataEmitter.fire('\x1B[A'); // Up arrow
-        } else {
-          this.dataEmitter.fire('\x1B[B'); // Down arrow
-        }
-      }
+      // Up or down arrow, paced like the SGR ticks above (webtty, ADR 045)
+      const spread = this.customWheelTickSpread?.(e) ?? 0;
+      if (count > 0) this.tickPacer.push(dir < 0 ? '\x1B[A' : '\x1B[B', dir, count, spread);
     } else {
       // Normal screen: scroll viewport through history with smooth scrolling
       // Handle different deltaMode values for better trackpad/mouse support

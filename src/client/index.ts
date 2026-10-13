@@ -242,10 +242,12 @@ function connect(): void {
 connect();
 
 // Pixel-smooth scrollback for the normal screen. When the app tracks the mouse, the
-// terminal reports wheel ticks to it as SGR scroll buttons (ADR 017, ADR 040).
+// terminal reports wheel ticks to it as SGR scroll buttons (ADR 017, ADR 040), paced
+// for sparse deltas such as a TrackPoint's (ADR 045).
 term.attachCustomWheelEventHandler(
   (e: WheelEvent): boolean => !term.hasMouseTracking() && smoothScroll.handleWheel(e),
 );
+term.attachWheelTickSpread((e: WheelEvent) => smoothScroll.tickSpread(e));
 
 // Shared by the configured-binding listener below and the Ctrl+V paste
 // listener further down, so the latter can tell whether a user has already
