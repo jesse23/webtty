@@ -129,8 +129,8 @@ src/client/
 
 - **Placements stop following the text once the scrollback is full.** A placement
   is anchored to the number of scrollback lines plus its row when it was made.
-  That number stops growing when the scrollback reaches its limit (3277 lines
-  with the default `scrollback`), while output keeps pushing rows off the top,
+  That number stops growing when the scrollback reaches its limit (about 10,000
+  lines with the default `scrollbackLines`, ADR 046), while output keeps pushing rows off the top,
   so from then on a main-screen placement stays at its screen row instead of
   scrolling away with its text. The emulator exposes no count of rows it has
   evicted, so the client cannot correct for it. The alternate screen has no
