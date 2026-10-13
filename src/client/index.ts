@@ -6,6 +6,7 @@ import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
 import { encodePaste } from './paste';
+import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
 
 interface KeyboardBinding {
@@ -92,6 +93,8 @@ const edges = new EdgeExtender(container, config.padding);
 // IME / dictation composition shows at the cursor in the theme's colours, not as a
 // stray line under the canvas. See ADR 038.
 new Composer(term, container, terminalTheme);
+// Pixel-smooth scrollback scrolling for trackpads. See ADR 040.
+const smoothScroll = new SmoothScroll(term, container);
 
 // ghostty-web's FitAddon subtracts a fixed 15px scrollbar reserve, which leaves a
 // strip at the edges even though the scrollbar is an overlay drawn inside the canvas.
@@ -126,6 +129,7 @@ function fit(): void {
   container.style.paddingTop = `${insets.top}px`;
   container.style.paddingBottom = `${insets.bottom}px`;
   edges.update();
+  smoothScroll.update();
 }
 
 // Both ResizeObserver and window 'resize' can fire for the same physical event.
@@ -253,6 +257,7 @@ function connect(): void {
   ws.onmessage = (event: MessageEvent<string>) => {
     applyDecscusr(term, event.data);
     graphics.feed(event.data);
+    smoothScroll.onOutput();
   };
 
   ws.onclose = (event: CloseEvent) => {
@@ -287,10 +292,18 @@ connect();
 // config.mouseScrollSpeed scales SGR events per wheel tick (default 1).
 // Values < 1 reduce rate via accumulation; values > 1 send multiple SGRs.
 // The accumulator resets on direction change to prevent cross-direction bleed.
+//
+// Pixel deltas (trackpads, and mouse wheels in Chromium/Safari on macOS) count by
+// distance: one tick per cell height scrolled, 1:1 with the OS like native macOS
+// scrolling, and mouseScrollSpeed does not apply (Ghostty likewise skips its scroll
+// multiplier for precision scrolls). A trackpad fires many small events per swipe,
+// plus momentum, and counting each as a whole tick made apps scroll far ahead of the
+// fingers. Line and page deltas still count one tick per event, times
+// mouseScrollSpeed. See ADR 040.
 let scrollAccum = 0;
 let scrollDir = 0;
 term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
-  if (!term.hasMouseTracking()) return false;
+  if (!term.hasMouseTracking()) return smoothScroll.handleWheel(e);
   const metrics = term.renderer?.getMetrics();
   if (!metrics) return false;
   const dir = e.deltaY < 0 ? -1 : 1;
@@ -298,7 +311,10 @@ term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
     scrollAccum = 0;
     scrollDir = dir;
   }
-  scrollAccum += config.mouseScrollSpeed;
+  scrollAccum +=
+    e.deltaMode === WheelEvent.DOM_DELTA_PIXEL
+      ? Math.abs(e.deltaY) / metrics.height
+      : config.mouseScrollSpeed;
   const ticks = Math.trunc(scrollAccum);
   if (ticks === 0) return true;
   scrollAccum -= ticks;
