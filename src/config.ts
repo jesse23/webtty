@@ -75,9 +75,9 @@ export interface Config {
   term: string;
   /** `$COLORTERM` env var passed to the shell. */
   colorTerm: string;
-  /** PTY history buffer in bytes; used for server-side replay on reload/reconnect. */
+  /** PTY history buffer in bytes; used for server-side replay on reload/reconnect. The client does not read it. */
   scrollback: number;
-  /** Terminal history in lines on the official engine; `0` = no line limit. History is also capped at 32 MiB. See ADR 046. */
+  /** Terminal history in lines; `0` = no line limit. History is also capped at 32 MiB. See ADR 046. */
   scrollbackLines: number;
   /** Initial terminal width in columns. */
   cols: number;

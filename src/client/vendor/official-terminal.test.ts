@@ -28,7 +28,6 @@ const BG = 0x1e1e1e;
 const RED = 0xcd3131;
 const BLUE = 0x2472c8;
 const THEME = {
-  scrollbackLimit: 10000,
   fgColor: FG,
   bgColor: BG,
   palette: [0x000000, RED, 0x0dbc79, 0xe5e510, BLUE],
@@ -162,19 +161,30 @@ describe('official engine: cells', () => {
   });
 
   test('uses an explicitly black theme background instead of the default', () => {
-    const t = term(40, 5, {
-      fgColor: FG,
-      bgColor: 0,
-      colorsSet: { foreground: true, background: true },
-    });
+    const t = term(40, 5, { fgColor: FG, bgColor: 0 });
     expect(t.getColors().background).toEqual({ r: 0, g: 0, b: 0 });
     t.write('\x1b]11;?\x07');
     expect(t.readResponse()).toBe('\x1b]11;rgb:0000/0000/0000\x07');
     t.free();
   });
 
+  test("sets a black palette entry as black and keeps Ghostty's default for an unset one", () => {
+    const fgs = (config: object) => {
+      const t = term(10, 3, config);
+      t.write('\x1b[30mA\x1b[31mB');
+      t.update();
+      const line = t.getLine(0) ?? [];
+      t.free();
+      return [rgb(line[0]), rgb(line[1])];
+    };
+    const ghosttyBlack = fgs({})[0];
+    expect(ghosttyBlack).not.toBe(0);
+    expect(fgs({ palette: [0x000000, RED] })).toEqual([0, RED]);
+    expect(fgs({ palette: [undefined, RED] })).toEqual([ghosttyBlack, RED]);
+  });
+
   // Ghostty's render state copies the default colours only when both are set, so the
-  // binding always sets both, falling back to the Coder engine's 0xcccccc on black.
+  // binding always sets both, falling back to webtty's default 0xcccccc on black.
   const hex = (c: { r: number; g: number; b: number } | null) =>
     c ? (c.r << 16) | (c.g << 8) | c.b : null;
   const defaults = (t: GhosttyTerminal) => {
@@ -198,10 +208,7 @@ describe('official engine: cells', () => {
   };
 
   test('falls back to the default background when only the foreground is given', () => {
-    for (const config of [
-      { fgColor: FG, bgColor: 0, colorsSet: { foreground: true } },
-      { fgColor: FG, bgColor: 0 },
-    ]) {
+    for (const config of [{ fgColor: FG }, { fgColor: FG, bgColor: undefined }]) {
       const t = term(10, 3, config);
       expect(defaults(t)).toEqual({
         fg: FG,
@@ -216,7 +223,7 @@ describe('official engine: cells', () => {
   });
 
   test('falls back to the default foreground when only the background is given', () => {
-    const t = term(10, 3, { bgColor: 0x202020, colorsSet: { background: true } });
+    const t = term(10, 3, { bgColor: 0x202020 });
     expect(defaults(t)).toEqual({
       fg: 0xcccccc,
       bg: 0x202020,
@@ -229,7 +236,7 @@ describe('official engine: cells', () => {
   });
 
   test('without theme colours still applies OSC 11 and DECSCNM', () => {
-    for (const config of [undefined, { scrollbackLimit: 1000 }]) {
+    for (const config of [undefined, { scrollbackLines: 1000 }]) {
       const t = vt.createTerminal(10, 3, config) as OfficialTerminal;
       expect(defaults(t)).toEqual({
         fg: 0xcccccc,
@@ -317,7 +324,7 @@ describe('official engine: scrollback, resize and the viewport', () => {
   const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\r\n');
 
   test('keeps scrolled-off rows, oldest first', () => {
-    const t = term(20, 5, { scrollbackLimit: 0 });
+    const t = term(20, 5, { scrollbackLines: 0 });
     t.write(lines(50));
     expect(t.getScrollbackLength()).toBe(45);
     expect(scrollbackText(t, 0)).toBe('line 1');
@@ -329,7 +336,7 @@ describe('official engine: scrollback, resize and the viewport', () => {
   });
 
   test('keeps active-screen coordinates while the view is scrolled up', () => {
-    const t = term(20, 5, { scrollbackLimit: 0 });
+    const t = term(20, 5, { scrollbackLines: 0 });
     t.write(lines(50));
     t.setViewportOffset(7);
     expect(t.isRowDirty(0)).toBe(true);
@@ -365,7 +372,7 @@ describe('official engine: scrollback, resize and the viewport', () => {
       ghostty_terminal_scroll_viewport: counted('ghostty_terminal_scroll_viewport', 'scroll'),
     };
     const spied = new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]);
-    const t = spied.createTerminal(20, 5, { scrollbackLimit: 0 });
+    const t = spied.createTerminal(20, 5, { scrollbackLines: 0 });
     t.write(lines(50));
     const sb = t.getScrollbackLength();
     expect(sb).toBe(45);
@@ -530,7 +537,7 @@ describe('official engine: scrollback, resize and the viewport', () => {
 
 describe('official engine: scrollback in lines (ADR 046)', () => {
   /** Writes `n` numbered lines and returns how many scrollback rows the terminal kept. */
-  function keep(config: object, n: number, cols = 80): number {
+  function keep(config: object | undefined, n: number, cols = 80): number {
     const t = vt.createTerminal(cols, 24, config) as OfficialTerminal;
     let chunk = '';
     for (let i = 0; i < n; i++) {
@@ -557,8 +564,12 @@ describe('official engine: scrollback in lines (ADR 046)', () => {
     expect(keep({ scrollbackLines: 0 }, 20000)).toBe(20000 - 24 + 1);
   });
 
-  test('without scrollbackLines the byte limit applies, as before', () => {
-    expect(keep({ scrollbackLimit: 3277 }, 15000)).toBeLessThan(2000);
+  test('without scrollbackLines keeps the default 10,000 lines', () => {
+    for (const config of [undefined, THEME]) {
+      const kept = keep(config, 15000);
+      expect(kept).toBeGreaterThan(9000);
+      expect(kept).toBeLessThanOrEqual(10000 + 200);
+    }
   });
 });
 
@@ -657,7 +668,7 @@ describe('official engine: effects and replies', () => {
 
 describe('official engine: memory growth', () => {
   test('reads correct cells and replies after the wasm memory has grown', () => {
-    const t = term(120, 40, { scrollbackLimit: 0 });
+    const t = term(120, 40, { scrollbackLines: 0 });
     const memory = vt.ex.memory;
     const before = memory.buffer.byteLength;
     let i = 0;

@@ -776,14 +776,11 @@ interface DecodedStyle {
 const I32 = WasmValType.I32;
 /** At most this many pages of scrollback rows stay cached per generation. */
 const PAGE_CACHE_SIZE = 16;
-/**
- * The scrollback byte ceiling: with `scrollbackLines` always (ADR 046), and for
- * `scrollback: 0`, which is unlimited on the Coder wasm.
- */
+/** The scrollback byte ceiling under the line limit (ADR 046). */
 const SCROLLBACK_CEILING_BYTES = 32 * 1024 * 1024;
-/** The Coder engine's default scrollback limit when no config is given. */
-const DEFAULT_SCROLLBACK_BYTES = 10000;
-/** The Coder engine's default colours, used when the theme leaves one unset. */
+/** History in lines when the config gives none (ADR 046, ADR 047). */
+const DEFAULT_SCROLLBACK_LINES = 10000;
+/** webtty's default colours, used when the theme leaves one unset. */
 const FALLBACK_FOREGROUND = 0xcccccc;
 const FALLBACK_BACKGROUND = 0x000000;
 /** Grapheme codepoints read through the scratch buffer; longer clusters allocate. */
@@ -1460,21 +1457,14 @@ export class OfficialTerminal implements GhosttyTerminal {
     const L = this.L;
     const at = this.at;
 
-    // Scrollback in lines under a 32 MiB ceiling (ADR 046); without scrollbackLines,
-    // the derived byte budget (ADR 042). Whichever limit is reached first applies. 0
-    // bytes would disable scrollback and a NULL byte limit would remove the ceiling,
-    // so neither is ever passed; NULL lines removes the line limit.
-    const lines = config?.scrollbackLines;
-    if (lines !== undefined) {
-      this.dv().setUint32(at.u32, SCROLLBACK_CEILING_BYTES, true);
-      this.setOption(L.opt.SCROLLBACK_MAX_BYTES, at.u32, 'SCROLLBACK_MAX_BYTES');
-      if (lines > 0) this.dv().setUint32(at.u32, lines, true);
-      this.setOption(L.opt.SCROLLBACK_MAX_LINES, lines > 0 ? at.u32 : 0, 'SCROLLBACK_MAX_LINES');
-    } else {
-      const limit = config?.scrollbackLimit ?? DEFAULT_SCROLLBACK_BYTES;
-      this.dv().setUint32(at.u32, limit > 0 ? limit : SCROLLBACK_CEILING_BYTES, true);
-      this.setOption(L.opt.SCROLLBACK_MAX_BYTES, at.u32, 'SCROLLBACK_MAX_BYTES');
-    }
+    // Scrollback in lines under a 32 MiB ceiling (ADR 046). Whichever limit is reached
+    // first applies. 0 bytes would disable scrollback and a NULL byte limit would
+    // remove the ceiling, so neither is ever passed; NULL lines removes the line limit.
+    const lines = config?.scrollbackLines ?? DEFAULT_SCROLLBACK_LINES;
+    this.dv().setUint32(at.u32, SCROLLBACK_CEILING_BYTES, true);
+    this.setOption(L.opt.SCROLLBACK_MAX_BYTES, at.u32, 'SCROLLBACK_MAX_BYTES');
+    if (lines > 0) this.dv().setUint32(at.u32, lines, true);
+    this.setOption(L.opt.SCROLLBACK_MAX_LINES, lines > 0 ? at.u32 : 0, 'SCROLLBACK_MAX_LINES');
 
     // Grapheme clustering (mode 2027) on by default, so RIS keeps it.
     const dv = this.dv();
@@ -1482,9 +1472,6 @@ export class OfficialTerminal implements GhosttyTerminal {
     dv.setUint8(at.mode + L.mode.value, 1);
     this.setOption(L.opt.MODE_DEFAULT, at.mode, 'MODE_DEFAULT 2027');
 
-    const given = config?.colorsSet;
-    const isSet = (flag: boolean | undefined, value: number | undefined) =>
-      given ? !!flag && value !== undefined : !!value;
     const setColor = (option: number, value: number, what: string) => {
       this.writeRgb(at.u32, value);
       this.setOption(option, at.u32, what);
@@ -1492,25 +1479,25 @@ export class OfficialTerminal implements GhosttyTerminal {
     // Foreground and background are always both set: Ghostty's render state copies
     // the default colours only when both are set (render.zig `bg_fg`), otherwise it
     // keeps white on black and ignores the given colour, OSC 10/11 and DECSCNM.
-    // An unset one falls back to the Coder engine's effective default.
+    // An unset one falls back to webtty's default.
     setColor(
       L.opt.COLOR_FOREGROUND,
-      isSet(given?.foreground, config?.fgColor) ? (config?.fgColor ?? 0) : FALLBACK_FOREGROUND,
+      config?.fgColor ?? FALLBACK_FOREGROUND,
       'COLOR_FOREGROUND'
     );
     setColor(
       L.opt.COLOR_BACKGROUND,
-      isSet(given?.background, config?.bgColor) ? (config?.bgColor ?? 0) : FALLBACK_BACKGROUND,
+      config?.bgColor ?? FALLBACK_BACKGROUND,
       'COLOR_BACKGROUND'
     );
     if (!config) return;
-    if (isSet(given?.cursor, config.cursorColor)) {
-      setColor(L.opt.COLOR_CURSOR, config.cursorColor ?? 0, 'COLOR_CURSOR');
+    if (config.cursorColor !== undefined) {
+      setColor(L.opt.COLOR_CURSOR, config.cursorColor, 'COLOR_CURSOR');
     }
     const palette = config.palette ?? [];
     const entries = palette
       .map((value, i) => ({ value, i }))
-      .filter(({ value, i }) => i < 16 && isSet(given?.palette?.[i], value));
+      .filter((e): e is { value: number; i: number } => e.i < 16 && e.value !== undefined);
     if (entries.length > 0) {
       // Unset entries and 16-255 keep Ghostty's default palette.
       const rc = this.ex.ghostty_terminal_get(

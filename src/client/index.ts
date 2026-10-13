@@ -47,7 +47,6 @@ interface ClientConfig {
   fontFamily: string;
   cursorStyle: 'block' | 'bar' | 'underline';
   cursorStyleBlink: boolean;
-  scrollback: number;
   scrollbackLines: number;
   theme: Theme;
   copyOnSelect: boolean;
@@ -81,9 +80,6 @@ const term = new Terminal({
   cursorBlink: config.cursorStyleBlink,
   fontSize: config.fontSize,
   fontFamily: config.fontFamily,
-  // The Coder engine's history in bytes, derived from the server's replay buffer;
-  // the official engine uses scrollbackLines (ADR 046).
-  scrollback: Math.ceil(config.scrollback / 80),
   scrollbackLines: config.scrollbackLines,
   mouseScrollSpeed: config.mouseScrollSpeed,
   theme: terminalTheme,

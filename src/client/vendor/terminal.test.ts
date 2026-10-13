@@ -7,7 +7,7 @@ import {
   scanDecscusr,
   Terminal,
 } from './ghostty-web/terminal';
-import type { ILink } from './ghostty-web/types';
+import type { GhosttyTerminalConfig, ILink } from './ghostty-web/types';
 
 describe('mouseCursorFor', () => {
   const link: ILink = {
@@ -156,7 +156,7 @@ describe('Terminal scrollback options', () => {
   const wasmConfig = (options: object) =>
     (
       new Terminal({ ghostty: {} as never, ...options }) as unknown as {
-        buildWasmConfig(): { scrollbackLimit?: number; scrollbackLines?: number } | undefined;
+        buildWasmConfig(): GhosttyTerminalConfig | undefined;
       }
     ).buildWasmConfig();
 
@@ -166,7 +166,15 @@ describe('Terminal scrollback options', () => {
   });
 
   test('leaves it unset when not given', () => {
-    expect(wasmConfig({ scrollback: 3277 })?.scrollbackLines).toBeUndefined();
+    expect(wasmConfig({ theme: {} })?.scrollbackLines).toBeUndefined();
+  });
+
+  test('leaves unset and invalid colours undefined, so #000000 is black', () => {
+    const config = wasmConfig({
+      theme: { foreground: '#d4d4d4', background: '#000000', red: 'nope', green: '#0dbc79' },
+    });
+    expect(config).toMatchObject({ fgColor: 0xd4d4d4, bgColor: 0, cursorColor: undefined });
+    expect(config?.palette?.slice(0, 3)).toEqual([undefined, undefined, 0x0dbc79]);
   });
 });
 

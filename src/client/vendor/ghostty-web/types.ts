@@ -385,31 +385,20 @@ export interface RenderStateColors {
 }
 
 /**
- * Terminal configuration (passed to ghostty_terminal_new_with_config)
- * All color values use 0xRRGGBB format. A value of 0 means "use default".
+ * Terminal configuration, applied when the terminal is created. Colours are
+ * 0xRRGGBB; undefined leaves one unset, so 0 is black. (webtty, ADR 047)
  */
 export interface GhosttyTerminalConfig {
-  scrollbackLimit?: number;
   /**
-   * History in lines, with a 32 MiB ceiling; 0 = no line limit. Official engine
-   * only; when set it replaces `scrollbackLimit` there. (webtty, ADR 046)
+   * History in lines, with a 32 MiB ceiling; 0 = no line limit. Default 10,000.
+   * (webtty, ADR 046)
    */
   scrollbackLines?: number;
   fgColor?: number;
   bgColor?: number;
   cursorColor?: number;
-  palette?: number[];
-  /**
-   * webtty (ADR 042): which colours above were given, so the official engine can
-   * set `#000000` (0) as black instead of reading it as "use default". Without it,
-   * a non-zero value counts as given. The Coder engine ignores it.
-   */
-  colorsSet?: {
-    foreground?: boolean;
-    background?: boolean;
-    cursor?: boolean;
-    palette?: boolean[];
-  };
+  /** The 16 ANSI colours; an undefined entry keeps Ghostty's default. */
+  palette?: (number | undefined)[];
 }
 
 /**

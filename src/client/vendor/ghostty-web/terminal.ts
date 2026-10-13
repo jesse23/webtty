@@ -255,7 +255,6 @@ export class Terminal implements ITerminalCore {
       cursorBlink: options.cursorBlink ?? false,
       cursorStyle: options.cursorStyle ?? 'block',
       theme: options.theme ?? {},
-      scrollback: options.scrollback ?? 10000,
       scrollbackLines: options.scrollbackLines,
       fontSize: options.fontSize ?? 15,
       fontFamily: options.fontFamily ?? 'monospace',
@@ -398,11 +397,10 @@ export class Terminal implements ITerminalCore {
    */
   private buildWasmConfig(): GhosttyTerminalConfig | undefined {
     const theme = this.options.theme;
-    const scrollback = this.options.scrollback;
     const scrollbackLines = this.options.scrollbackLines;
 
     // If no theme and default scrollback, use defaults
-    if (!theme && scrollback === 10000 && scrollbackLines === undefined) {
+    if (!theme && scrollbackLines === undefined) {
       return undefined;
     }
 
@@ -432,20 +430,11 @@ export class Terminal implements ITerminalCore {
     const cursor = this.parseColor(theme?.cursor);
 
     return {
-      scrollbackLimit: scrollback,
       scrollbackLines,
-      fgColor: fg ?? 0,
-      bgColor: bg ?? 0,
-      cursorColor: cursor ?? 0,
-      palette: paletteColors.map((color) => color ?? 0),
-      // Which colours parsed, so the official engine sets #000000 as black instead
-      // of reading 0 as "use default". The Coder engine ignores it. (webtty, ADR 042)
-      colorsSet: {
-        foreground: fg !== undefined,
-        background: bg !== undefined,
-        cursor: cursor !== undefined,
-        palette: paletteColors.map((color) => color !== undefined),
-      },
+      fgColor: fg,
+      bgColor: bg,
+      cursorColor: cursor,
+      palette: paletteColors,
     };
   }
 

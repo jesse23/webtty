@@ -10,8 +10,7 @@ export interface ITerminalOptions {
   cursorBlink?: boolean; // Default: false
   cursorStyle?: 'block' | 'underline' | 'bar';
   theme?: ITheme;
-  scrollback?: number; // Default: 10000
-  scrollbackLines?: number; // Official engine: history in lines, 0 = no line limit (webtty, ADR 046)
+  scrollbackLines?: number; // History in lines, 0 = no line limit; default 10000 (webtty, ADR 046)
   fontSize?: number; // Default: 15
   fontFamily?: string; // Default: 'monospace'
   allowTransparency?: boolean;
