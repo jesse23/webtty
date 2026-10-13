@@ -1892,8 +1892,7 @@ export class OfficialTerminal implements GhosttyTerminal {
       ? 0
       : Math.max(0, Math.min(Math.floor(linesFromBottom) || 0, this.sbRows));
     if (k === this.offset) return;
-    // Back at the bottom, the next frame repaints every row (no row is redecoded).
-    if (k === 0) this.dirtyMax = DirtyState.FULL;
+    // Scrolling changes no row: the renderer repaints what the move needs (ADR 043).
     this.offset = k;
   }
 
@@ -1919,7 +1918,7 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   update(): DirtyState {
     this.refresh();
-    return this.offset > 0 ? DirtyState.FULL : this.dirtyMax;
+    return this.dirtyMax;
   }
 
   getCursor(): RenderStateCursor {
@@ -1946,8 +1945,6 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   isRowDirty(y: number): boolean {
     this.refresh();
-    // The renderer repaints every row while scrolled anyway.
-    if (this.offset > 0) return true;
     return this.dirtyMax === DirtyState.FULL || this.dirtyRows.has(y);
   }
 

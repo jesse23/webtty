@@ -389,8 +389,9 @@ export class Terminal implements ITerminalCore {
     this.canvas.style.width = `${metrics.width * this.cols}px`;
     this.canvas.style.height = `${metrics.height * this.rows}px`;
 
-    // Force full re-render with new font
-    this.renderer.render(this.wasmTerm, true, this.viewportY, this);
+    // Force full re-render with new font, the scrollbar at its current opacity: a frame
+    // that drops it repaints every row (webtty, ADR 043)
+    this.renderer.render(this.wasmTerm, true, this.viewportY, this, this.scrollbarOpacity);
   }
 
   /**
@@ -889,8 +890,8 @@ export class Terminal implements ITerminalCore {
       // (webtty, ADR 042)
       this.processTerminalResponses();
 
-      // Force full render
-      this.renderer!.render(this.wasmTerm!, true, this.viewportY, this);
+      // Force full render, the scrollbar at its current opacity (webtty, ADR 043)
+      this.renderer!.render(this.wasmTerm!, true, this.viewportY, this, this.scrollbarOpacity);
     } catch (e) {
       console.error('Terminal resize failed:', e);
     }
