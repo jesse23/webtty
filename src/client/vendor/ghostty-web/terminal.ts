@@ -137,6 +137,33 @@ export function wheelTicks(
   return ticks === 0 ? 0 : ticks * dir;
 }
 
+/**
+ * Arrow keys a wheel event sends on the alternate screen when the app does not
+ * track the mouse: one per line of travel, like scrolling the normal screen's
+ * scrollback. Pixel deltas count by cell height, line deltas by line, page deltas
+ * by `rows`; the remainder accumulates and a direction change drops it. Negative
+ * is up. (webtty: upstream sent round(deltaY / 33) per event, at most 5, so slow
+ * trackpad deltas and Firefox's 3-line notches sent nothing; ADR 045)
+ */
+export function wheelArrows(
+  acc: WheelAccumulator,
+  e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>,
+  cellHeight: number,
+  rows: number
+): number {
+  const dir = e.deltaY < 0 ? -1 : 1;
+  if (dir !== acc.dir) {
+    acc.accum = 0;
+    acc.dir = dir;
+  }
+  const amount = Math.abs(e.deltaY);
+  // 0 is WheelEvent.DOM_DELTA_PIXEL, 1 DOM_DELTA_LINE.
+  acc.accum += e.deltaMode === 0 ? amount / cellHeight : e.deltaMode === 1 ? amount : amount * rows;
+  const lines = Math.trunc(acc.accum);
+  acc.accum -= lines;
+  return lines === 0 ? 0 : lines * dir;
+}
+
 /** One frame at 60 Hz. */
 const FRAME_MS = 1000 / 60;
 
@@ -329,6 +356,7 @@ export class Terminal implements ITerminalCore {
   private scrollAnimationFrame?: number;
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
+  private arrowAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private customWheelTickSpread?: (event: WheelEvent) => number;
   private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
@@ -1980,14 +2008,19 @@ export class Terminal implements ITerminalCore {
     const isAltScreen = this.wasmTerm?.isAlternateScreen() ?? false;
 
     if (isAltScreen) {
-      // Alternate screen: send arrow keys to the application
-      // Applications like vim handle scrolling internally
-      // Standard: ~3 arrow presses per wheel "click"
-      const dir = e.deltaY > 0 ? 1 : -1;
-      const count = Math.min(Math.abs(Math.round(e.deltaY / 33)), 5); // Cap at 5
-      // Up or down arrow, paced like the SGR ticks above (webtty, ADR 045)
+      // Alternate screen: send arrow keys to the application, one per line of
+      // travel, paced like the SGR ticks above (webtty, ADR 045)
       const spread = this.customWheelTickSpread?.(e) ?? 0;
-      if (count > 0) this.tickPacer.push(dir < 0 ? '\x1B[A' : '\x1B[B', dir, count, spread);
+      const lines = wheelArrows(
+        this.arrowAccumulator,
+        e,
+        this.renderer?.getMetrics()?.height ?? 20,
+        this.rows
+      );
+      const dir = Math.sign(lines);
+      if (lines !== 0) {
+        this.tickPacer.push(dir < 0 ? '\x1B[A' : '\x1B[B', dir, Math.abs(lines), spread);
+      }
     } else {
       // Normal screen: scroll viewport through history with smooth scrolling
       // Handle different deltaMode values for better trackpad/mouse support

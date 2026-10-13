@@ -7,6 +7,7 @@ import {
   scanDecscusr,
   TickPacer,
   type WheelAccumulator,
+  wheelArrows,
   wheelSgr,
   wheelTicks,
 } from './ghostty-web/terminal';
@@ -159,6 +160,31 @@ describe('wheelSgr', () => {
 
   test('scroll down is button 65, one report per tick', () => {
     expect(wheelSgr(2, 1, 1)).toBe('\x1b[<65;1;1M\x1b[<65;1;1M');
+  });
+});
+
+describe('wheelArrows', () => {
+  const acc = (): WheelAccumulator => ({ accum: 0, dir: 0 });
+
+  test('slow trackpad deltas add up to one arrow per line', () => {
+    const a = acc();
+    const sent = [3, 3, 3, 3, 3, 3].map((d) => wheelArrows(a, { deltaY: d, deltaMode: 0 }, 17, 40));
+    expect(sent).toEqual([0, 0, 0, 0, 0, 1]);
+  });
+
+  test('a Firefox notch of 3 lines sends 3 arrows', () => {
+    expect(wheelArrows(acc(), { deltaY: -3, deltaMode: 1 }, 17, 40)).toBe(-3);
+  });
+
+  test('a large delta is not capped', () => {
+    expect(wheelArrows(acc(), { deltaY: 340, deltaMode: 0 }, 17, 40)).toBe(20);
+  });
+
+  test('page deltas scale by rows, and a direction change drops the remainder', () => {
+    const a = acc();
+    expect(wheelArrows(a, { deltaY: 1, deltaMode: 2 }, 17, 40)).toBe(40);
+    expect(wheelArrows(a, { deltaY: 10, deltaMode: 0 }, 17, 40)).toBe(0);
+    expect(wheelArrows(a, { deltaY: -10, deltaMode: 0 }, 17, 40)).toBe(0);
   });
 });
 

@@ -166,6 +166,18 @@ describe('SmoothScroll', () => {
       });
     });
 
+    test('with reduced motion a notch scrolls at once', () => {
+      withFrames(() => {
+        const g = globalThis as { window: { matchMedia?: unknown } };
+        g.window.matchMedia = (q: string) => ({
+          matches: q === '(prefers-reduced-motion: reduce)',
+        });
+        const { term, scroll } = fake(10);
+        scroll.handleWheel(notch(-40));
+        expect(term.viewportY).toBe(4);
+      });
+    });
+
     test('line deltas glide too', () => {
       withFrames((tick) => {
         const { term, scroll } = fake(10);

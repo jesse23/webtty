@@ -116,6 +116,11 @@ function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
 }
 
+/** The OS asks for less motion: wheel and sparse deltas then scroll at once. */
+function reducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+}
+
 function linear(t: number): number {
   return t;
 }
@@ -158,7 +163,11 @@ export class SmoothScroll {
     const { wheel, gap } = this.classify(e);
     // A delta during a glide adds to where the glide is heading.
     const to = this.clamp((this.glide?.to ?? this.position) - lines);
-    if (wheel) {
+    if (reducedMotion()) {
+      this.stopGlide();
+      this.position = to;
+      this.apply();
+    } else if (wheel) {
       this.glideTo(to, WHEEL_GLIDE_MS, easeOutCubic);
     } else if (gap >= SPARSE_GAP_MS) {
       // Spread the delta over the time it took to arrive, so a steady stream scrolls
