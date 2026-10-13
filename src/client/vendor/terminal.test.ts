@@ -221,15 +221,30 @@ describe('TickPacer', () => {
 
   test('the first tick goes out on the first frame', () => {
     frames((pacer, sent, tick) => {
-      pacer.push('A', -1, 1, 125);
+      pacer.push('A', -1, 1, { duration: 125 });
       tick(1000 / 60);
       expect(sent).toEqual(['A']);
     });
   });
 
+  test('with a spring, ticks follow it and all arrive', () => {
+    frames((pacer, sent, tick) => {
+      pacer.push('A', -1, 20, { duration: 125, omega: 28 });
+      const perFrame: number[] = [];
+      for (let i = 0; i < 30; i++) {
+        const before = sent.join('').length;
+        tick(1000 / 60);
+        perFrame.push(sent.join('').length - before);
+      }
+      expect(sent.join('').length).toBe(20);
+      // Spread over several frames, not sent at once.
+      expect(Math.max(...perFrame)).toBeLessThan(10);
+    });
+  });
+
   test('a zero duration sends the ticks at once', () => {
     frames((pacer, sent) => {
-      pacer.push('A', -1, 3, 0);
+      pacer.push('A', -1, 3, { duration: 0 });
       expect(sent).toEqual(['AAA']);
     });
   });
@@ -238,7 +253,7 @@ describe('TickPacer', () => {
     frames((pacer, sent, tick) => {
       // 12 ticks over 50 ms, starting a frame early: 4 per 16.7 ms frame, so the
       // first frame sends 8 and the next the last 4.
-      pacer.push('A', -1, 12, 50);
+      pacer.push('A', -1, 12, { duration: 50 });
       expect(sent).toEqual([]);
       tick(1000 / 60);
       expect(sent).toEqual(['A'.repeat(8)]);
@@ -249,9 +264,9 @@ describe('TickPacer', () => {
 
   test('a new event joins the ticks still queued', () => {
     frames((pacer, sent, tick) => {
-      pacer.push('A', -1, 6, 50);
+      pacer.push('A', -1, 6, { duration: 50 });
       tick(1000 / 60);
-      pacer.push('B', -1, 6, 50);
+      pacer.push('B', -1, 6, { duration: 50 });
       for (let i = 0; i < 6; i++) tick(1000 / 60);
       const all = sent.join('');
       expect(all.length).toBe(12);
@@ -262,18 +277,18 @@ describe('TickPacer', () => {
 
   test('a zero-duration event flushes the queued ticks first', () => {
     frames((pacer, sent) => {
-      pacer.push('A', 1, 6, 50);
-      pacer.push('B', 1, 2, 0);
+      pacer.push('A', 1, 6, { duration: 50 });
+      pacer.push('B', 1, 2, { duration: 0 });
       expect(sent).toEqual(['BBBBBBBB']);
     });
   });
 
   test('a direction change drops the queued ticks', () => {
     frames((pacer, sent, tick) => {
-      pacer.push('A', -1, 10, 100);
+      pacer.push('A', -1, 10, { duration: 100 });
       tick(1000 / 60);
       const before = sent.join('').length;
-      pacer.push('B', 1, 1, 0);
+      pacer.push('B', 1, 1, { duration: 0 });
       expect(sent.join('').length).toBe(before + 1);
       expect(sent.at(-1)).toBe('B');
       tick(1000 / 60);

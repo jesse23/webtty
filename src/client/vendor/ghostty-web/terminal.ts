@@ -168,6 +168,35 @@ export function wheelArrows(
 const FRAME_MS = 1000 / 60;
 
 /**
+ * How to send a wheel event's ticks: spread evenly over `duration` ms (0: at
+ * once), or, with `omega`, following a critically damped spring of that stiffness
+ * (rad/s) toward the queued total. (webtty, ADR 045)
+ */
+export interface WheelPace {
+  duration: number;
+  omega?: number;
+}
+
+/**
+ * Advances a critically damped spring at `x` with velocity `v` (per second)
+ * toward a fixed `target` by `dt` seconds. Exact for a fixed target, so it is
+ * stable at any frame time, and it never overshoots a target it approaches from
+ * rest. Returns the new position and velocity. (webtty, ADR 045)
+ */
+export function springStep(
+  x: number,
+  v: number,
+  target: number,
+  omega: number,
+  dt: number
+): [number, number] {
+  const e = x - target;
+  const k = Math.exp(-omega * dt);
+  const c = v + omega * e;
+  return [target + (e + c * dt) * k, (v - omega * c * dt) * k];
+}
+
+/**
  * Sends the scroll ticks of wheel events to an app spread over time instead of in
  * one burst: a TrackPoint sends a delta of up to 20 lines every 30-200 ms, which
  * an app would otherwise scroll in jumps. Ticks queued with a duration go out
@@ -183,27 +212,44 @@ export class TickPacer {
   private sent = 0;
   private start = 0;
   private duration = 0;
+  /** Spring stiffness while following a fast stream, else 0; and its position and velocity in ticks. */
+  private omega = 0;
+  private x = 0;
+  private v = 0;
   private lastFrame: number | null = null;
   private frame = 0;
 
   constructor(private readonly send: (data: string) => void) {}
 
-  /** Queues `count` ticks of `seq` in direction `dir` (-1 or 1) to send over `duration` ms; 0 sends them now. */
-  push(seq: string, dir: number, count: number, duration: number): void {
+  /** Queues `count` ticks of `seq` in direction `dir` (-1 or 1) to send as `pace` says; a 0 duration sends them now. */
+  push(seq: string, dir: number, count: number, pace: WheelPace): void {
     if (dir !== this.dir) this.cancel();
     this.dir = dir;
     // The latest event's sequence: its cell is where the pointer is now.
     this.seq = seq;
     const pending = this.total - this.sent;
-    if (duration <= 0) {
+    if (pace.omega) {
+      if (!this.omega) {
+        // Take over at the linear pace's speed, so the rate does not jump.
+        const linear = this.frame && this.duration > 0 ? (this.total / this.duration) * 1000 : 0;
+        this.total = pending;
+        this.sent = 0;
+        this.x = 0;
+        this.v = linear;
+      }
+      this.omega = pace.omega;
+      this.total += count;
+    } else if (pace.duration <= 0) {
       this.stop();
       this.send(seq.repeat(pending + count));
       return;
+    } else {
+      this.omega = 0;
+      this.total = pending + count;
+      this.sent = 0;
+      this.start = this.lastFrame ?? performance.now() - FRAME_MS;
+      this.duration = pace.duration;
     }
-    this.total = pending + count;
-    this.sent = 0;
-    this.start = this.lastFrame ?? performance.now() - FRAME_MS;
-    this.duration = duration;
     if (!this.frame) this.frame = requestAnimationFrame(this.step);
   }
 
@@ -216,6 +262,9 @@ export class TickPacer {
   private stop(): void {
     this.total = 0;
     this.sent = 0;
+    this.omega = 0;
+    this.x = 0;
+    this.v = 0;
     this.lastFrame = null;
     if (this.frame) cancelAnimationFrame(this.frame);
     this.frame = 0;
@@ -223,10 +272,18 @@ export class TickPacer {
 
   private readonly step = (now: number): void => {
     this.frame = 0;
-    const t = Math.min(1, Math.max(0, (now - this.start) / this.duration));
+    let progress: number;
+    if (this.omega) {
+      const dt = Math.min(now - (this.lastFrame ?? now - FRAME_MS), 50) / 1000;
+      [this.x, this.v] = springStep(this.x, this.v, this.total, this.omega, dt);
+      progress = Math.min(this.total, this.x);
+    } else {
+      const t = Math.min(1, Math.max(0, (now - this.start) / this.duration));
+      progress = this.total * t;
+    }
     // Rounded up, so the first tick goes out on the first frame: a 1-tick notch
     // is not held back for half the duration.
-    const due = Math.ceil(this.total * t) - this.sent;
+    const due = Math.min(this.total, Math.ceil(progress - 1e-9)) - this.sent;
     if (due > 0) {
       this.send(this.seq.repeat(due));
       this.sent += due;
@@ -359,7 +416,7 @@ export class Terminal implements ITerminalCore {
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private arrowAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
-  private customWheelTickSpread?: (event: WheelEvent) => number;
+  private customWheelTickSpread?: (event: WheelEvent) => WheelPace;
   private beforeRender?: (now: number) => void;
   private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
@@ -1211,11 +1268,11 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Sets how long, in ms, to spread the scroll ticks of a wheel event sent to the
-   * app over (mouse tracking, or arrow keys on the alternate screen); 0 sends them
-   * at once, as without a handler. Called once per such event. (webtty, ADR 045)
+   * Sets how to pace the scroll ticks of a wheel event sent to the app (mouse
+   * tracking, or arrow keys on the alternate screen); a 0 duration sends them at
+   * once, as without a handler. Called once per such event. (webtty, ADR 045)
    */
-  public attachWheelTickSpread(spread?: (event: WheelEvent) => number): void {
+  public attachWheelTickSpread(spread?: (event: WheelEvent) => WheelPace): void {
     this.customWheelTickSpread = spread;
   }
 
@@ -1994,7 +2051,7 @@ export class Terminal implements ITerminalCore {
       const metrics = this.renderer?.getMetrics();
       if (!metrics || !this.canvas) return;
       // Every event, so the spread sees the time since the previous one (webtty, ADR 045)
-      const spread = this.customWheelTickSpread?.(e) ?? 0;
+      const spread = this.customWheelTickSpread?.(e) ?? { duration: 0 };
       const ticks = wheelTicks(
         this.wheelAccumulator,
         e,
@@ -2023,7 +2080,7 @@ export class Terminal implements ITerminalCore {
     if (isAltScreen) {
       // Alternate screen: send arrow keys to the application, one per line of
       // travel, paced like the SGR ticks above (webtty, ADR 045)
-      const spread = this.customWheelTickSpread?.(e) ?? 0;
+      const spread = this.customWheelTickSpread?.(e) ?? { duration: 0 };
       const lines = wheelArrows(
         this.arrowAccumulator,
         e,

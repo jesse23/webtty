@@ -20,6 +20,7 @@
  * when the app tracks the mouse, the app moves its own view in whole lines.
  */
 import type { Terminal } from './vendor/ghostty-web';
+import { springStep, type WheelPace } from './vendor/ghostty-web/terminal';
 
 export interface ScrollSplit {
   /** Whole lines scrolled up from the bottom: ghostty-web's viewportY. */
@@ -63,6 +64,17 @@ export const SPARSE_GAP_MS = 25;
  * (4 px every 150 ms) does not pulse.
  */
 export const STREAM_MS = 200;
+
+/**
+ * A sparse stream whose deltas come this often or faster on average (a TrackPoint
+ * pushed hard, every 30-45 ms) follows a spring instead of gliding linearly over
+ * each gap: its gaps vary, and gliding over each one swung the speed by half
+ * from frame to frame.
+ */
+export const FAST_STREAM_MS = 60;
+
+/** The spring's stiffness, rad/s: about 70 ms to settle, smoothing over a few deltas. */
+export const STREAM_OMEGA = 28;
 
 /** One frame at 60 Hz. */
 const FRAME_MS = 1000 / 60;
@@ -132,19 +144,26 @@ function linear(t: number): number {
   return t;
 }
 
-/** How a wheel event scrolls: over `duration` ms with `ease`, or at once when 0. */
-interface Motion {
-  duration: number;
+/**
+ * How a wheel event scrolls: over `duration` ms with `ease`, at once when 0, or
+ * following a spring of stiffness `omega`.
+ */
+interface Motion extends WheelPace {
   ease: (t: number) => number;
+  /** A wheel notch's motion, which reduced motion turns off everywhere. */
+  wheel: boolean;
 }
 
-interface Glide {
-  from: number;
-  to: number;
-  start: number;
-  duration: number;
-  ease: (t: number) => number;
-}
+type Glide =
+  | {
+      kind: 'ease';
+      from: number;
+      to: number;
+      start: number;
+      duration: number;
+      ease: (t: number) => number;
+    }
+  | { kind: 'spring'; to: number; omega: number };
 
 export class SmoothScroll {
   /** Lines scrolled up from the bottom; fractional between rows. */
@@ -157,9 +176,12 @@ export class SmoothScroll {
   /** `timeStamp` and direction of the previous wheel event. */
   private lastWheel: number | null = null;
   private lastDir = 0;
-  /** In a sparse stream, and how many short gaps in a row it has had. */
+  /** In a sparse stream, how many short gaps in a row it has had, and its average gap. */
   private sparse = false;
   private shortGaps = 0;
+  private averageGap = 0;
+  /** Scroll velocity in lines per second, kept across glides so a spring takes over smoothly. */
+  private velocity = 0;
   /** Set while `apply` moves ghostty-web's viewport, whose onScroll is then our own. */
   private applying = false;
 
@@ -178,10 +200,14 @@ export class SmoothScroll {
     const metrics = this.term.renderer?.getMetrics();
     if (!metrics) return false;
     const lines = wheelLines(e, metrics.height, this.term.rows);
-    const motion = this.classify(e);
+    const classified = this.classify(e);
+    const motion = reducedMotion() ? { ...classified, duration: 0, omega: undefined } : classified;
     // A delta during a glide adds to where the glide is heading.
     const to = this.clamp((this.glide?.to ?? this.position) - lines);
-    if (motion.duration > 0) {
+    if (motion.omega) {
+      if (this.glide?.kind !== 'spring') this.lastFrame ??= performance.now() - FRAME_MS;
+      this.glide = { kind: 'spring', to, omega: motion.omega };
+    } else if (motion.duration > 0) {
       this.glideTo(to, motion.duration, motion.ease);
     } else {
       this.stopGlide();
@@ -198,14 +224,27 @@ export class SmoothScroll {
   frame(now: number): void {
     const glide = this.glide;
     if (!glide) return;
-    // A frame's timestamp can precede the glide's start by part of a frame.
-    const t = Math.min(1, Math.max(0, (now - glide.start) / glide.duration));
-    this.position = this.clamp(glide.from + (glide.to - glide.from) * glide.ease(t));
-    if (t < 1) {
-      this.lastFrame = now;
+    const before = this.position;
+    const dt = Math.min(Math.max(now - (this.lastFrame ?? now - FRAME_MS), 0), 50) / 1000;
+    let done: boolean;
+    if (glide.kind === 'spring') {
+      const [x, v] = springStep(this.position, this.velocity, glide.to, glide.omega, dt);
+      this.velocity = v;
+      done = Math.abs(glide.to - x) < 1e-3 && Math.abs(v) < 0.05;
+      this.position = this.clamp(done ? glide.to : x);
     } else {
+      // A frame's timestamp can precede the glide's start by part of a frame.
+      const t = Math.min(1, Math.max(0, (now - glide.start) / glide.duration));
+      this.position = this.clamp(glide.from + (glide.to - glide.from) * glide.ease(t));
+      if (dt > 0) this.velocity = (this.position - before) / dt;
+      done = t >= 1;
+    }
+    if (done) {
       this.glide = null;
       this.lastFrame = null;
+      this.velocity = 0;
+    } else {
+      this.lastFrame = now;
     }
     this.apply();
   }
@@ -217,8 +256,11 @@ export class SmoothScroll {
    * mouse wheel or TrackPoint scrolls an app a line at a time instead of in bursts.
    * Trackpad deltas, and everything with reduced motion, go at once (0). See ADR 045.
    */
-  tickSpread(e: WheelEvent): number {
-    return this.classify(e).duration;
+  tickSpread(e: WheelEvent): WheelPace {
+    const { duration, omega, wheel } = this.classify(e);
+    // Pacing a sparse stream times input, it does not animate: kept with reduced motion.
+    if (wheel && reducedMotion()) return { duration: 0 };
+    return omega ? { duration, omega } : { duration };
   }
 
   /**
@@ -229,8 +271,9 @@ export class SmoothScroll {
    *   that gap plus a frame, so a stream scrolls at the speed it is sent at; the
    *   extra frame keeps the glide going when the next delta is a little late. A
    *   stream stays sparse until two short gaps in a row, so one delta that comes
-   *   a little early does not snap or flush.
-   * - Trackpad deltas, a frame apart, and everything with reduced motion: at once.
+   *   a little early does not snap or flush. While its deltas come every 60 ms or
+   *   faster on average, it follows a spring instead, which evens out the speed.
+   * - Trackpad deltas, a frame apart: at once.
    */
   private classify(e: WheelEvent): Motion {
     const gap = this.lastWheel === null ? 0 : e.timeStamp - this.lastWheel;
@@ -241,20 +284,25 @@ export class SmoothScroll {
     if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
     const wheel = e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel();
     if (gap >= SPARSE_GAP_MS) {
+      // A stream's first gap is the pause before it; count it as the slowest gap.
+      const capped = Math.min(gap, WHEEL_GLIDE_MS);
+      this.averageGap = this.sparse ? 0.4 * capped + 0.6 * this.averageGap : WHEEL_GLIDE_MS;
       this.sparse = true;
       this.shortGaps = 0;
     } else if (this.sparse && ++this.shortGaps >= 2) {
       this.sparse = false;
     }
-    let motion: Motion = { duration: 0, ease: linear };
     if (wheel && gap > 0 && gap <= STREAM_MS && sameDir) {
-      motion = { duration: Math.min(gap + FRAME_MS, STREAM_MS), ease: linear };
-    } else if (wheel) {
-      motion = { duration: WHEEL_GLIDE_MS, ease: easeOutCubic };
-    } else if (this.sparse) {
-      motion = { duration: Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS), ease: linear };
+      return { duration: Math.min(gap + FRAME_MS, STREAM_MS), ease: linear, wheel };
     }
-    return reducedMotion() ? { duration: 0, ease: linear } : motion;
+    if (wheel) return { duration: WHEEL_GLIDE_MS, ease: easeOutCubic, wheel };
+    if (this.sparse && this.averageGap < FAST_STREAM_MS) {
+      return { duration: WHEEL_GLIDE_MS, omega: STREAM_OMEGA, ease: linear, wheel };
+    }
+    if (this.sparse) {
+      return { duration: Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS), ease: linear, wheel };
+    }
+    return { duration: 0, ease: linear, wheel };
   }
 
   /** New output arrived. ghostty-web only snaps to the bottom when viewportY > 0, so clear a sub-line offset here. */
@@ -285,12 +333,13 @@ export class SmoothScroll {
     // give the next frame, whose timestamp precedes the event, nothing to move, and a
     // stream of deltas would stall every other frame.
     const start = this.lastFrame ?? performance.now() - FRAME_MS;
-    this.glide = { from: this.position, to, start, duration, ease };
+    this.glide = { kind: 'ease', from: this.position, to, start, duration, ease };
   }
 
   private stopGlide(): void {
     this.glide = null;
     this.lastFrame = null;
+    this.velocity = 0;
   }
 
   private apply(): void {
