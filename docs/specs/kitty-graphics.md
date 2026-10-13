@@ -1,6 +1,6 @@
 # SPEC: Kitty Graphics
 
-**Last Updated:** 2026-09-20
+**Last Updated:** 2026-10-13
 
 ---
 
@@ -8,9 +8,10 @@
 
 Display images from PTY programs using the
 [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
-which ghostty-web's WASM core does not implement. The client intercepts the
-protocol's APC sequences before they reach ghostty-web, decodes the images
-itself, and draws them on an overlay canvas above the terminal canvas.
+which the wasm32 libghostty-vt build leaves out ([ADR 041](../adrs/041.client.libghostty-vt.md)).
+The client intercepts the protocol's APC sequences before they reach the
+terminal, decodes the images itself, and draws them on an overlay canvas above
+the terminal canvas.
 
 Primary target for the POC: full-window streaming apps such as
 [terminal-browser](https://github.com/zenbu-labs/terminal-browser) (standalone
@@ -32,8 +33,11 @@ PTY ──► server ──► WebSocket ──► ws.onmessage
                           └─ cursor ───┘                    ▼
                           advance / reply                overlay canvas
                                                        (src/client/graphics.ts)
-replies (a=q OK, CSI 14t/16t/18t) ──► ws.send ──► PTY
+replies (a=q OK) ──► ws.send ──► PTY
 ```
+
+Size queries (`CSI 14t/16t/18t`) are text: they reach the terminal, and Ghostty
+answers them (see Replies).
 
 Text before an APC is written first, so the cursor position read when the
 command is handled is exact.
@@ -66,11 +70,14 @@ Written back to the PTY over the WebSocket:
 - `ESC _ G i=<id>[,p=<pid>] ; OK ESC \` — success, when the command carried an
   image id (`i` or `I`) and `q` did not suppress it.
 - `ESC _ G i=<id> ; E<CODE>:<message> ESC \` — failure.
-- `CSI 4 ; <h> ; <w> t` (answer to `CSI 14 t`) — text-area size in pixels.
-- `CSI 6 ; <ch> ; <cw> t` (answer to `CSI 16 t`) — cell size in pixels.
-- `CSI 8 ; <rows> ; <cols> t` (answer to `CSI 18 t`) — text-area size in cells.
 
-Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
+Window size queries are answered by Ghostty, not by the client: `CSI 14 t`,
+`16 t`, `18 t` and `19 t` and mode 2048, from the cell size `terminal.ts` passes
+it (`OPT_SIZE`, [ADR 042](../adrs/042.client.official-vt-engine.md)). Until
+[ADR 047](../adrs/047.client.official-engine-only.md) the client answered
+`14/16/18 t` itself on the Coder engine.
+
+Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` (`deviceCellPixels`, the same as `kitty.ts`'s `deviceCellSize` that frames are scaled by) and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
 
 ## Limits
 
@@ -118,7 +125,7 @@ reuses the same image id.
 
 ```
 src/client/
-  kitty.ts        ← pure: APC splitter, key=value parser, reply builders (unit tested)
+  kitty.ts        ← pure: APC splitter, key=value parser, kitty reply builder, clear scanner (unit tested)
   kitty.test.ts
   graphics.ts     ← browser: decode, placement table, overlay canvas, scroll tracking
   graphics.test.ts ← state handling against a stubbed DOM and image decoder
@@ -156,10 +163,10 @@ src/client/
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| APC splitter | Stateful across chunks; strips APC from text handed to ghostty-web | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
+| APC splitter | Stateful across chunks; strips APC from text handed to the terminal | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
 | Direct-transmission decode | `t=d`, `f=24/32/100`, `o=z`, chunked | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
 | Overlay canvas + placements | Anchored to scrollback rows, cleared on screen clear / alt switch | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
-| Query and size replies | `a=q`, `CSI 14t` / `16t` / `18t` | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
+| Query and size replies | `a=q` from the client; `CSI 14t` / `16t` / `18t` from Ghostty since ADR 047 | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md), [ADR 047](../adrs/047.client.official-engine-only.md) | ✅ |
 | terminal-browser (standalone) works | Verified end to end in a browser tab on macOS (HiDPI) | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
 | Scrollback APC stripping (server) | Keep image payloads out of `session.scrollback` | — | ⬜ |
 | Unicode placeholders | `U=1`, needed for tmux and terminal-browser embedded mode | — | ⬜ |

@@ -329,9 +329,7 @@ async function update(commit: string): Promise<void> {
     `${JSON.stringify(sidecar, null, 2)}\n`,
   );
   console.log(`wrote ${WASM_FILE}{,.minisig,.json} and LICENSE for ${commit} to ${VENDOR_DIR}`);
-  console.log(
-    'Update PROVENANCE.md if needed, then re-run parity and the binding tests (ADR 041).',
-  );
+  console.log('Update PROVENANCE.md if needed, then re-run the binding tests (ADR 041).');
 }
 
 async function verify(): Promise<void> {

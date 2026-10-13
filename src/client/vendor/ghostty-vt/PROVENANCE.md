@@ -8,4 +8,4 @@ Ghostty's official libghostty-vt wasm, ReleaseSmall build, unpatched and not edi
 
 Checked offline by `src/client/vendor/ghostty-vt.test.ts` (size, sha256, signature, key) on every `bun test`, and by `bun scripts/update-ghostty-vt.ts --verify`. `scripts/build.ts` refuses to copy a wasm whose size or sha256 does not match the sidecar, and writes the licence to `dist/THIRD_PARTY_LICENSES`.
 
-The wasm, signature, sidecar and `LICENSE` are written by `bun scripts/update-ghostty-vt.ts --commit <sha>`, the only step that uses the network, and are not edited by hand. A pin bump is a deliberate change: update the commit above and re-run parity and the binding's tests (ADR 041).
+The wasm, signature, sidecar and `LICENSE` are written by `bun scripts/update-ghostty-vt.ts --commit <sha>`, the only step that uses the network, and are not edited by hand. A pin bump is a deliberate change: update the commit above and re-run the binding's tests (`official-terminal.test.ts`, `official-replay.test.ts`, ADR 041).
