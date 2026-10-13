@@ -1,13 +1,7 @@
 import { describe, expect, test } from 'bun:test';
-import {
-  SmoothScroll,
-  STREAM_OMEGA,
-  splitScroll,
-  WHEEL_GLIDE_MS,
-  WheelClassifier,
-  wheelLines,
-} from './smooth-scroll';
+import { SmoothScroll, splitScroll, wheelLines } from './smooth-scroll';
 import type { Terminal } from './vendor/ghostty-web';
+import { WHEEL_GLIDE_MS, WheelStream } from './wheel-stream';
 
 describe('splitScroll', () => {
   test('a whole-line position has no offset', () => {
@@ -67,7 +61,7 @@ describe('SmoothScroll', () => {
         term.viewportY = line;
       },
     };
-    const scroll = new SmoothScroll(term as unknown as Terminal);
+    const scroll = new SmoothScroll(term as unknown as Terminal, new WheelStream());
     live.push(scroll);
     return { term, metrics, offsets, scroll };
   }
@@ -171,13 +165,6 @@ describe('SmoothScroll', () => {
           const { term, scroll } = fake(10);
           scroll.handleWheel(notch(-40));
           expect(term.viewportY).toBe(4);
-          expect(scroll.tickSpread(notch(-40)).duration).toBe(0);
-          // A sparse stream's ticks to an app are still paced: that times input, it
-          // does not animate.
-          const point = (deltaY: number, timeStamp: number) =>
-            ({ deltaX: 0, deltaY, deltaMode: 0, timeStamp }) as WheelEvent;
-          scroll.tickSpread(point(-95.5, 4000));
-          expect(scroll.tickSpread(point(-97.25, 4040)).duration).toBeGreaterThan(0);
         } finally {
           g.matchMedia = saved;
         }
@@ -195,12 +182,15 @@ describe('SmoothScroll', () => {
           real(l);
           onScroll(l);
         };
-        const s = new SmoothScroll({
-          ...term,
-          onScroll: (cb: (y: number) => void) => {
-            onScroll = cb;
-          },
-        } as unknown as Terminal);
+        const s = new SmoothScroll(
+          {
+            ...term,
+            onScroll: (cb: (y: number) => void) => {
+              onScroll = cb;
+            },
+          } as unknown as Terminal,
+          new WheelStream(),
+        );
         live.push(s);
         void scroll;
         // Frames 0.5 ms apart are sure to land within 0.05 lines below a line, where the
@@ -285,113 +275,5 @@ describe('SmoothScroll', () => {
         expect(term.viewportY).toBe(100);
       });
     });
-  });
-});
-
-describe('SmoothScroll.tickSpread', () => {
-  const scroll = () =>
-    new SmoothScroll({ onScroll: () => {}, onResize: () => {} } as unknown as Terminal);
-  const at = (deltaY: number, timeStamp: number, deltaMode = 0) =>
-    ({ deltaX: 0, deltaY, deltaMode, timeStamp }) as WheelEvent;
-
-  test('spreads a sparse delta over its gap plus a frame', () => {
-    const s = scroll();
-    s.tickSpread(at(-4.000244140625, 1000));
-    expect(s.tickSpread(at(-95.0897216796875, 1040)).duration).toBeCloseTo(40 + 1000 / 60);
-  });
-
-  test('caps the spread at the wheel glide time', () => {
-    const s = scroll();
-    s.tickSpread(at(-4.000244140625, 1000));
-    expect(s.tickSpread(at(-30.25, 1200)).duration).toBe(WHEEL_GLIDE_MS);
-  });
-
-  test('spreads a wheel notch over the wheel glide time', () => {
-    expect(scroll().tickSpread(at(-3, 1000, 1)).duration).toBe(WHEEL_GLIDE_MS);
-  });
-
-  test('a sparse stream stays paced through one short gap', () => {
-    const s = scroll();
-    s.tickSpread(at(-23.5, 1000));
-    expect(s.tickSpread(at(-63.25, 1040)).duration).toBeCloseTo(40 + 1000 / 60);
-    // The capture's 25 ms gap replays as 24.9 ms.
-    expect(s.tickSpread(at(-95.5, 1064.9)).duration).toBeCloseTo(24.9 + 1000 / 60);
-    expect(s.tickSpread(at(-120.75, 1100)).duration).toBeCloseTo(35.1 + 1000 / 60);
-  });
-
-  test('a wheel notch soon after one in the same direction continues linearly', () => {
-    const s = scroll();
-    expect(s.tickSpread(at(-3, 1000, 1)).duration).toBe(WHEEL_GLIDE_MS);
-    expect(s.tickSpread(at(-3, 1150, 1)).duration).toBeCloseTo(150 + 1000 / 60);
-    // Reversing, or after a pause, a notch eases out again.
-    expect(s.tickSpread(at(3, 1200, 1)).duration).toBe(WHEEL_GLIDE_MS);
-    expect(s.tickSpread(at(3, 1500, 1)).duration).toBe(WHEEL_GLIDE_MS);
-  });
-
-  test('a fast sparse stream follows a spring', () => {
-    const s = scroll();
-    let t = 1000;
-    s.tickSpread(at(-23.5, t));
-    const paces = [40, 35, 30, 45, 33, 38, 31].map((gap, i) => {
-      t += gap;
-      return s.tickSpread(at(-(100.5 + i * 1.25), t));
-    });
-    // The pause before the stream counts as a slow gap, so it starts linear and
-    // turns into a spring once the average gap drops under 60 ms.
-    expect(paces[0].omega).toBeUndefined();
-    expect(paces.at(-1)?.omega).toBe(STREAM_OMEGA);
-  });
-
-  test('sends trackpad deltas at once', () => {
-    const s = scroll();
-    s.tickSpread(at(-20.5, 1200));
-    s.tickSpread(at(-21.25, 1208));
-    // Two short gaps in a row end the sparse stream a gesture starts as.
-    expect(s.tickSpread(at(-22.75, 1216)).duration).toBe(0);
-  });
-});
-
-describe('WheelClassifier', () => {
-  const feed = (deltas: [number, number][]) => {
-    const c = new WheelClassifier();
-    for (const [x, y] of deltas) c.accept(x, y);
-    return c.isPhysicalMouseWheel();
-  };
-
-  test('steady integer notches are a wheel', () => {
-    expect(
-      feed([
-        [0, 4],
-        [0, 4],
-        [0, 8],
-        [0, 4],
-      ]),
-    ).toBe(true);
-  });
-
-  test('fractional, accelerating deltas are a trackpad', () => {
-    expect(
-      feed([
-        [0, 1.5],
-        [0, 3.25],
-        [0, 7.75],
-        [0, 12.5],
-      ]),
-    ).toBe(false);
-  });
-
-  test('both axes at once are a trackpad', () => {
-    expect(
-      feed([
-        [0, 4],
-        [0, 4],
-        [1, 4],
-        [2, 6],
-      ]),
-    ).toBe(false);
-  });
-
-  test('no events is not a wheel', () => {
-    expect(new WheelClassifier().isPhysicalMouseWheel()).toBe(false);
   });
 });

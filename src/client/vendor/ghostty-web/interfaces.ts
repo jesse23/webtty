@@ -20,7 +20,6 @@ export interface ITerminalOptions {
   disableStdin?: boolean; // Disable keyboard input (default: false)
 
   // Scrolling options
-  smoothScrollDuration?: number; // Duration in ms for smooth scroll animation (default: 100, 0 = instant)
   mouseScrollSpeed?: number; // Wheel ticks per line/page wheel event when the app tracks the mouse (default: 1)
 
   // Internal: Ghostty WASM instance (optional, for test isolation)

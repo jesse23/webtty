@@ -19,6 +19,7 @@ import { BufferNamespace } from './buffer';
 import { EventEmitter } from './event-emitter';
 import type { Ghostty, GhosttyCell, GhosttyTerminal, GhosttyTerminalConfig } from './ghostty';
 import { getGhostty } from './index';
+import { AT_ONCE, type Pace } from './glide';
 import { InputHandler, type MouseTrackingConfig } from './input-handler';
 import type {
   IBufferNamespace,
@@ -37,6 +38,14 @@ import { UrlRegexProvider } from './providers/url-regex-provider';
 import { CanvasRenderer } from './renderer';
 import { SelectionManager } from './selection-manager';
 import type { ILink, ILinkProvider } from './types';
+import {
+  TickPacer,
+  type WheelAccumulator,
+  wheelArrowKey,
+  wheelArrows,
+  wheelSgr,
+  wheelTicks,
+} from './wheel';
 
 // ============================================================================
 // Terminal Class
@@ -101,221 +110,6 @@ export function decscusrShape(ps: number): CursorShape | undefined {
  */
 export function deviceCellPixels(cssCell: number, dpr: number): number {
   return Math.max(1, Math.round(cssCell * dpr));
-}
-
-/** Wheel travel not yet sent to a mouse-tracking app, and its direction. */
-export interface WheelAccumulator {
-  accum: number;
-  dir: number;
-}
-
-/**
- * Scroll ticks a wheel event sends to an app that tracks the mouse: negative
- * scrolls up (SGR button 64), positive down (65). Pixel deltas (trackpads, and
- * mouse wheels in Chromium/Safari on macOS) count by distance, one tick per cell
- * height, 1:1 with the OS, and `speed` does not apply (Ghostty skips its scroll
- * multiplier for precision scrolls too). Line and page deltas count one tick per
- * event times `speed`; below 1 the remainder accumulates. A direction change
- * drops the remainder. (webtty: upstream sent arrow keys on the alternate screen
- * and one SGR per event elsewhere, so trackpads scrolled far ahead of the fingers.)
- */
-export function wheelTicks(
-  acc: WheelAccumulator,
-  e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>,
-  cellHeight: number,
-  speed: number
-): number {
-  const dir = e.deltaY < 0 ? -1 : 1;
-  if (dir !== acc.dir) {
-    acc.accum = 0;
-    acc.dir = dir;
-  }
-  // 0 is WheelEvent.DOM_DELTA_PIXEL.
-  acc.accum += e.deltaMode === 0 ? Math.abs(e.deltaY) / cellHeight : speed;
-  const ticks = Math.trunc(acc.accum);
-  acc.accum -= ticks;
-  return ticks === 0 ? 0 : ticks * dir;
-}
-
-/**
- * Arrow keys a wheel event sends on the alternate screen when the app does not
- * track the mouse: one per line of travel, like scrolling the normal screen's
- * scrollback. Pixel deltas count by cell height, line deltas by line, page deltas
- * by `rows`; the remainder accumulates and a direction change drops it. Negative
- * is up. (webtty: upstream sent round(deltaY / 33) per event, at most 5, so slow
- * trackpad deltas and Firefox's 3-line notches sent nothing; ADR 045)
- */
-export function wheelArrows(
-  acc: WheelAccumulator,
-  e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>,
-  cellHeight: number,
-  rows: number
-): number {
-  const dir = e.deltaY < 0 ? -1 : 1;
-  if (dir !== acc.dir) {
-    acc.accum = 0;
-    acc.dir = dir;
-  }
-  const amount = Math.abs(e.deltaY);
-  // 0 is WheelEvent.DOM_DELTA_PIXEL, 1 DOM_DELTA_LINE.
-  acc.accum += e.deltaMode === 0 ? amount / cellHeight : e.deltaMode === 1 ? amount : amount * rows;
-  const lines = Math.trunc(acc.accum);
-  acc.accum -= lines;
-  return lines === 0 ? 0 : lines * dir;
-}
-
-/** One frame at 60 Hz. */
-const FRAME_MS = 1000 / 60;
-
-/**
- * How to send a wheel event's ticks: spread evenly over `duration` ms (0: at
- * once), or, with `omega`, following a critically damped spring of that stiffness
- * (rad/s) toward the queued total. (webtty, ADR 045)
- */
-export interface WheelPace {
-  duration: number;
-  omega?: number;
-}
-
-/**
- * A spring's stiffness doubles once no wheel event has come for this long: the
- * stream has stopped, so the view should stop soon rather than coast for many
- * lines, while a running stream keeps the softer, steadier spring. (webtty, ADR 045)
- */
-export const SPRING_RELEASE_MS = 60;
-
-/** The stiffness of a spring with stiffness `omega` `sinceEvent` ms after the latest wheel event. */
-export function springOmega(omega: number, sinceEvent: number): number {
-  return sinceEvent > SPRING_RELEASE_MS ? omega * 2 : omega;
-}
-
-/**
- * Advances a critically damped spring at `x` with velocity `v` (per second)
- * toward a fixed `target` by `dt` seconds. Exact for a fixed target, so it is
- * stable at any frame time, and it never overshoots a target it approaches from
- * rest. Returns the new position and velocity. (webtty, ADR 045)
- */
-export function springStep(
-  x: number,
-  v: number,
-  target: number,
-  omega: number,
-  dt: number
-): [number, number] {
-  const e = x - target;
-  const k = Math.exp(-omega * dt);
-  const c = v + omega * e;
-  return [target + (e + c * dt) * k, (v - omega * c * dt) * k];
-}
-
-/**
- * Sends the scroll ticks of wheel events to an app spread over time instead of in
- * one burst: a TrackPoint sends a delta of up to 20 lines every 30-200 ms, which
- * an app would otherwise scroll in jumps. Ticks queued with a duration go out
- * evenly over it, a few per frame; a new event's ticks join the ones still queued
- * and spread over its duration, starting from the latest frame so the pace does
- * not stall. A direction change drops the queued ticks, as `wheelTicks` drops its
- * remainder. (webtty, ADR 045)
- */
-export class TickPacer {
-  private seq = '';
-  private dir = 0;
-  private total = 0;
-  private sent = 0;
-  private start = 0;
-  private duration = 0;
-  /** Spring stiffness while following a fast stream, else 0; and its position and velocity in ticks. */
-  private omega = 0;
-  private x = 0;
-  private v = 0;
-  private lastPush = 0;
-  private lastFrame: number | null = null;
-  private frame = 0;
-
-  constructor(private readonly send: (data: string) => void) {}
-
-  /** Queues `count` ticks of `seq` in direction `dir` (-1 or 1) to send as `pace` says; a 0 duration sends them now. */
-  push(seq: string, dir: number, count: number, pace: WheelPace): void {
-    if (dir !== this.dir) this.cancel();
-    this.dir = dir;
-    // The latest event's sequence: its cell is where the pointer is now.
-    this.seq = seq;
-    this.lastPush = performance.now();
-    const pending = this.total - this.sent;
-    if (pace.omega) {
-      if (!this.omega) {
-        // Take over at the linear pace's speed, so the rate does not jump.
-        const linear = this.frame && this.duration > 0 ? (this.total / this.duration) * 1000 : 0;
-        this.total = pending;
-        this.sent = 0;
-        this.x = 0;
-        this.v = linear;
-      }
-      this.omega = pace.omega;
-      this.total += count;
-    } else if (pace.duration <= 0) {
-      this.stop();
-      this.send(seq.repeat(pending + count));
-      return;
-    } else {
-      this.omega = 0;
-      this.total = pending + count;
-      this.sent = 0;
-      this.start = this.lastFrame ?? performance.now() - FRAME_MS;
-      this.duration = pace.duration;
-    }
-    if (!this.frame) this.frame = requestAnimationFrame(this.step);
-  }
-
-  /** Drops the queued ticks. */
-  cancel(): void {
-    this.stop();
-    this.dir = 0;
-  }
-
-  private stop(): void {
-    this.total = 0;
-    this.sent = 0;
-    this.omega = 0;
-    this.x = 0;
-    this.v = 0;
-    this.lastFrame = null;
-    if (this.frame) cancelAnimationFrame(this.frame);
-    this.frame = 0;
-  }
-
-  private readonly step = (now: number): void => {
-    this.frame = 0;
-    let progress: number;
-    if (this.omega) {
-      const dt = Math.min(now - (this.lastFrame ?? now - FRAME_MS), 50) / 1000;
-      const omega = springOmega(this.omega, now - this.lastPush);
-      [this.x, this.v] = springStep(this.x, this.v, this.total, omega, dt);
-      progress = Math.min(this.total, this.x);
-    } else {
-      const t = Math.min(1, Math.max(0, (now - this.start) / this.duration));
-      progress = this.total * t;
-    }
-    // Rounded up, so the first tick goes out on the first frame: a 1-tick notch
-    // is not held back for half the duration.
-    const due = Math.min(this.total, Math.ceil(progress - 1e-9)) - this.sent;
-    if (due > 0) {
-      this.send(this.seq.repeat(due));
-      this.sent += due;
-    }
-    if (this.sent < this.total) {
-      this.lastFrame = now;
-      this.frame = requestAnimationFrame(this.step);
-    } else {
-      this.stop();
-    }
-  };
-}
-
-/** SGR mouse report for `ticks` wheel ticks at a 1-based cell. */
-export function wheelSgr(ticks: number, col: number, row: number): string {
-  const btn = ticks < 0 ? 64 : 65;
-  return `\x1b[<${btn};${col};${row}M`.repeat(Math.abs(ticks));
 }
 
 /**
@@ -423,15 +217,11 @@ export class Terminal implements ITerminalCore {
   private currentTitle: string = '';
 
   // Phase 2: Viewport and scrolling state
-  public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom, can be fractional during smooth scroll)
-  private targetViewportY: number = 0; // Target viewport position for smooth scrolling
-  private scrollAnimationStartTime?: number;
-  private scrollAnimationStartY?: number;
-  private scrollAnimationFrame?: number;
+  public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom)
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private arrowAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
-  private customWheelTickSpread?: (event: WheelEvent) => WheelPace;
+  private wheelPace?: (event: WheelEvent) => Pace;
   private beforeRender?: (now: number) => void;
   private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
@@ -470,7 +260,6 @@ export class Terminal implements ITerminalCore {
       allowTransparency: options.allowTransparency ?? false,
       convertEol: options.convertEol ?? false,
       disableStdin: options.disableStdin ?? false,
-      smoothScrollDuration: options.smoothScrollDuration ?? 100, // Default: 100ms smooth scroll
       mouseScrollSpeed: options.mouseScrollSpeed ?? 1,
     };
 
@@ -1284,11 +1073,11 @@ export class Terminal implements ITerminalCore {
 
   /**
    * Sets how to pace the scroll ticks of a wheel event sent to the app (mouse
-   * tracking, or arrow keys on the alternate screen); a 0 duration sends them at
-   * once, as without a handler. Called once per such event. (webtty, ADR 045)
+   * tracking, or arrow keys on the alternate screen); without it they go at once.
+   * Called once for each such event. (webtty, ADR 045)
    */
-  public attachWheelTickSpread(spread?: (event: WheelEvent) => WheelPace): void {
-    this.customWheelTickSpread = spread;
+  public attachWheelPace(pace?: (event: WheelEvent) => Pace): void {
+    this.wheelPace = pace;
   }
 
   /**
@@ -1412,101 +1201,6 @@ export class Terminal implements ITerminalCore {
     }
   }
 
-  /**
-   * Smoothly scroll to a target viewport position
-   * @param targetY Target viewport Y position (in lines, can be fractional)
-   */
-  private smoothScrollTo(targetY: number): void {
-    if (!this.wasmTerm) return;
-
-    const scrollbackLength = this.getScrollbackLength();
-    const maxScroll = scrollbackLength;
-
-    // Clamp target to valid range
-    const newTarget = Math.max(0, Math.min(maxScroll, targetY));
-
-    // If smooth scrolling is disabled (duration = 0), jump immediately
-    const duration = this.options.smoothScrollDuration ?? 100;
-    if (duration === 0) {
-      this.viewportY = newTarget;
-      this.targetViewportY = newTarget;
-      this.scrollEmitter.fire(Math.floor(this.viewportY));
-
-      if (scrollbackLength > 0) {
-        this.showScrollbar();
-      }
-      return;
-    }
-
-    // Update target (accumulate if animation running)
-    this.targetViewportY = newTarget;
-
-    // If animation is already running, don't restart it
-    // Just let it continue toward the updated target
-    // This prevents choppy restarts during continuous scrolling
-    if (this.scrollAnimationFrame) {
-      return;
-    }
-
-    // Start new animation
-    this.scrollAnimationStartTime = Date.now();
-    this.scrollAnimationStartY = this.viewportY;
-    this.animateScroll();
-  }
-
-  /**
-   * Animation loop for smooth scrolling
-   * Uses asymptotic approach - moves a fraction of remaining distance each frame
-   */
-  private animateScroll = (): void => {
-    if (!this.wasmTerm || this.scrollAnimationStartTime === undefined) {
-      return;
-    }
-
-    const duration = this.options.smoothScrollDuration ?? 100;
-
-    // Calculate distance to target
-    const distance = this.targetViewportY - this.viewportY;
-    const absDistance = Math.abs(distance);
-
-    // If very close, snap to target
-    if (absDistance < 0.01) {
-      this.viewportY = this.targetViewportY;
-      this.scrollEmitter.fire(Math.floor(this.viewportY));
-
-      const scrollbackLength = this.getScrollbackLength();
-      if (scrollbackLength > 0) {
-        this.showScrollbar();
-      }
-
-      // Animation complete
-      this.scrollAnimationFrame = undefined;
-      this.scrollAnimationStartTime = undefined;
-      this.scrollAnimationStartY = undefined;
-      return;
-    }
-
-    // Move a fraction of the remaining distance
-    // At 60fps, move ~1/6 of distance per frame for ~100ms total duration
-    // This creates smooth deceleration toward target
-    const framesForDuration = (duration / 1000) * 60; // Convert ms to frame count
-    const moveRatio = 1 - (1 / framesForDuration) ** 2; // Ease-out
-    this.viewportY += distance * moveRatio;
-
-    // Fire scroll event (use floor to convert fractional to integer for API)
-    const intViewportY = Math.floor(this.viewportY);
-    this.scrollEmitter.fire(intViewportY);
-
-    // Show scrollbar during animation
-    const scrollbackLength = this.getScrollbackLength();
-    if (scrollbackLength > 0) {
-      this.showScrollbar();
-    }
-
-    // Continue animation
-    this.scrollAnimationFrame = requestAnimationFrame(this.animateScroll);
-  };
-
   // ==========================================================================
   // Lifecycle
   // ==========================================================================
@@ -1527,12 +1221,6 @@ export class Terminal implements ITerminalCore {
     this.writeQueue.length = 0;
 
     this.tickPacer.cancel();
-
-    // Stop smooth scroll animation
-    if (this.scrollAnimationFrame) {
-      cancelAnimationFrame(this.scrollAnimationFrame);
-      this.scrollAnimationFrame = undefined;
-    }
 
     // Clear mouse move throttle timeout
     if (this.mouseMoveThrottleTimeout) {
@@ -2065,8 +1753,7 @@ export class Terminal implements ITerminalCore {
     if (this.wasmTerm?.hasMouseTracking()) {
       const metrics = this.renderer?.getMetrics();
       if (!metrics || !this.canvas) return;
-      // Every event, so the spread sees the time since the previous one (webtty, ADR 045)
-      const spread = this.customWheelTickSpread?.(e) ?? { duration: 0 };
+      const pace = this.wheelPace?.(e) ?? AT_ONCE;
       const ticks = wheelTicks(
         this.wheelAccumulator,
         e,
@@ -2080,12 +1767,7 @@ export class Terminal implements ITerminalCore {
         1,
         Math.floor((e.clientY - rect.top - this.renderer!.scrollOffset) / metrics.height) + 1
       );
-      this.tickPacer.push(
-        wheelSgr(Math.sign(ticks), col, row),
-        Math.sign(ticks),
-        Math.abs(ticks),
-        spread
-      );
+      this.tickPacer.push(wheelSgr(Math.sign(ticks), col, row), Math.sign(ticks), Math.abs(ticks), pace);
       return;
     }
 
@@ -2095,50 +1777,21 @@ export class Terminal implements ITerminalCore {
     if (isAltScreen) {
       // Alternate screen: send arrow keys to the application, one per line of
       // travel, paced like the SGR ticks above (webtty, ADR 045)
-      const spread = this.customWheelTickSpread?.(e) ?? { duration: 0 };
+      const pace = this.wheelPace?.(e) ?? AT_ONCE;
       const lines = wheelArrows(
         this.arrowAccumulator,
         e,
         this.renderer?.getMetrics()?.height ?? 20,
         this.rows
       );
-      const dir = Math.sign(lines);
       if (lines !== 0) {
-        // Application cursor keys (DECCKM), as less sets: ESC O A/B, else ESC [ A/B
-        const app = this.wasmTerm?.getMode(1, false) ?? false;
-        const seq = (app ? '\x1BO' : '\x1B[') + (dir < 0 ? 'A' : 'B');
-        this.tickPacer.push(seq, dir, Math.abs(lines), spread);
-      }
-    } else {
-      // Normal screen: scroll viewport through history with smooth scrolling
-      // Handle different deltaMode values for better trackpad/mouse support
-      let deltaLines: number;
-
-      if (e.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
-        // Pixel mode (trackpads): convert pixels to lines
-        // Use actual line height from renderer for accurate conversion
-        const lineHeight = this.renderer?.getMetrics()?.height ?? 20;
-        deltaLines = e.deltaY / lineHeight;
-      } else if (e.deltaMode === WheelEvent.DOM_DELTA_LINE) {
-        // Line mode (some mice): use directly
-        deltaLines = e.deltaY;
-      } else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-        // Page mode (rare): convert pages to lines
-        deltaLines = e.deltaY * this.rows;
-      } else {
-        // Fallback: assume pixel mode with legacy divisor
-        deltaLines = e.deltaY / 33;
-      }
-
-      // Use smooth scrolling for any amount (no rounding needed)
-      if (deltaLines !== 0) {
-        // Calculate target position
-        // deltaY > 0 = scroll down (decrease viewportY)
-        // deltaY < 0 = scroll up (increase viewportY)
-        const targetY = this.viewportY - deltaLines;
-        this.smoothScrollTo(targetY);
+        const dir = Math.sign(lines);
+        const key = wheelArrowKey(dir, this.wasmTerm?.getMode(1, false) ?? false);
+        this.tickPacer.push(key, dir, Math.abs(lines), pace);
       }
     }
+    // The normal screen's scrollback is scrolled by the custom handler (webtty's
+    // SmoothScroll, ADR 040, ADR 045); upstream's easing here is removed.
   };
 
   /**

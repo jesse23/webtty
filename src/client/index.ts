@@ -8,6 +8,7 @@ import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
 import { FitAddon, Ghostty, Terminal } from './vendor/ghostty-web';
 import { watchDevicePixelRatio } from './vendor/ghostty-web/renderer';
+import { WheelStream } from './wheel-stream';
 
 interface KeyboardBinding {
   key: string;
@@ -103,7 +104,8 @@ const edges = new EdgeExtender(container, config.padding, () => term.renderer?.v
 // stray line under the canvas. See ADR 038.
 new Composer(term, container, terminalTheme);
 // Pixel-smooth scrollback scrolling for trackpads. See ADR 040 and ADR 043.
-const smoothScroll = new SmoothScroll(term);
+const wheelStream = new WheelStream();
+const smoothScroll = new SmoothScroll(term, wheelStream);
 
 // FitAddon sizes the grid from the full container less its CSS padding, so the
 // padding is set to config.padding on every side first (#terminal is border-box, so
@@ -241,13 +243,16 @@ function connect(): void {
 
 connect();
 
-// Pixel-smooth scrollback for the normal screen. When the app tracks the mouse, the
-// terminal reports wheel ticks to it as SGR scroll buttons (ADR 017, ADR 040), paced
-// for sparse deltas such as a TrackPoint's (ADR 045).
+// Wheel scrolling (ADR 017, ADR 040, ADR 045). WheelStream tells a mouse wheel, a
+// trackpad and a TrackPoint apart and picks how each event moves:
+// - on the normal screen, unless the app tracks the mouse, SmoothScroll glides the
+//   scrollback pixel by pixel, advanced just before each render;
+// - otherwise the terminal sends the app SGR scroll buttons, or arrow keys on the
+//   alternate screen, paced the same way.
 term.attachCustomWheelEventHandler(
   (e: WheelEvent): boolean => !term.hasMouseTracking() && smoothScroll.handleWheel(e),
 );
-term.attachWheelTickSpread((e: WheelEvent) => smoothScroll.tickSpread(e));
+term.attachWheelPace((e: WheelEvent) => wheelStream.forApp(e));
 term.attachBeforeRender((now: number) => smoothScroll.frame(now));
 
 // Shared by the configured-binding listener below and the Ctrl+V paste
