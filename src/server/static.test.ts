@@ -1,7 +1,7 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { findGhosttyWasm, findGhosttyWasms, mimeType, serveFile } from './static';
+import { findGhosttyWasm, mimeType, serveFile } from './static';
 
 describe('mimeType', () => {
   test('returns correct type for known extensions', () => {
@@ -61,15 +61,6 @@ describe('findGhosttyWasm', () => {
     existsSpy.mockRestore();
     exitSpy.mockRestore();
     errorSpy.mockRestore();
-  });
-});
-
-describe('findGhosttyWasms', () => {
-  test('maps the served wasm URL to its file', () => {
-    const paths = findGhosttyWasms();
-    expect(Object.keys(paths)).toEqual(['/ghostty-vt-small.wasm']);
-    expect(path.basename(paths['/ghostty-vt-small.wasm'] as string)).toBe('ghostty-vt-small.wasm');
-    for (const p of Object.values(paths)) expect(fs.existsSync(p)).toBe(true);
   });
 });
 

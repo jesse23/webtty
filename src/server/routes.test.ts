@@ -62,7 +62,7 @@ describe('server — routes', () => {
     expect(createHash('sha256').update(body).digest('hex')).toBe(sidecar.sha256);
   });
 
-  test('wasm routes serve only the listed files', async () => {
+  test('only the wasm itself is served', async () => {
     // /ghostty-vt.wasm was the Coder engine's wasm, removed in ADR 047.
     for (const p of [
       '/ghostty-vt.wasm',

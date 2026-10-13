@@ -14,7 +14,7 @@ import {
   sessionToJson,
   setLastUsedId,
 } from './session';
-import { serveFile } from './static';
+import { GHOSTTY_WASM, serveFile } from './static';
 import { broadcastToSubscribers, closeSession } from './websocket';
 
 const MAX_BODY = 64 * 1024;
@@ -72,14 +72,14 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
  *
  * @param req - The incoming HTTP request.
  * @param res - The HTTP response object.
- * @param wasmPaths - Served wasm files: URL path (`/ghostty-vt-small.wasm`) → file path.
+ * @param wasmPath - Path to the wasm served at `/ghostty-vt-small.wasm`.
  * @param clientDistPath - Path to the client dist directory.
  * @param onStop - Callback invoked when `POST /api/server/stop` is received.
  */
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
-  wasmPaths: Readonly<Record<string, string>>,
+  wasmPath: string,
   clientDistPath: string,
   onStop: () => void,
 ): Promise<void> {
@@ -472,8 +472,7 @@ export async function handleRequest(
     return;
   }
 
-  const wasmPath = Object.hasOwn(wasmPaths, pathname) ? wasmPaths[pathname] : undefined;
-  if (wasmPath) {
+  if (pathname === `/${GHOSTTY_WASM}`) {
     serveFile(wasmPath, res);
     return;
   }

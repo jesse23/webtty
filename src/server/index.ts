@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config';
 import { handleRequest } from './routes';
-import { findGhosttyWasms } from './static';
+import { findGhosttyWasm } from './static';
 import { closeAllSessions, createWebSocketServer, setLastSessionClosedHandler } from './websocket';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -20,7 +20,7 @@ delete process.env.PORT;
 const HTTP_HOST_DISPLAY = config.host;
 const HTTP_HOST = config.host === 'localhost' ? '127.0.0.1' : config.host;
 
-const wasmPaths = findGhosttyWasms();
+const wasmPath = findGhosttyWasm();
 const projectRoot = path.resolve(__dirname, '..', '..');
 const builtDistPath = path.join(projectRoot, 'dist');
 const srcClientPath = path.join(projectRoot, 'src', 'client');
@@ -47,7 +47,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const httpServer = http.createServer((req, res) => {
-  handleRequest(req, res, wasmPaths, clientDistPath, shutdown).catch((err) => {
+  handleRequest(req, res, wasmPath, clientDistPath, shutdown).catch((err) => {
     console.error('[webtty] unhandled route error:', err);
     if (!res.headersSent) {
       res.writeHead(500);
