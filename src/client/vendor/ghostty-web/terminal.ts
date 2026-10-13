@@ -42,6 +42,15 @@ import type { ILink, ILinkProvider } from './types';
 // Terminal Class
 // ============================================================================
 
+/**
+ * Mouse cursor for the terminal surface: 'pointer' over a link, otherwise the
+ * platform default arrow. (webtty: upstream used the 'text' I-beam, which reads
+ * as editable text over TUI menus and widgets.)
+ */
+export function mouseCursorFor(link: ILink | undefined): 'pointer' | 'default' {
+  return link ? 'pointer' : 'default';
+}
+
 export class Terminal implements ITerminalCore {
   // Public properties (xterm.js compatibility)
   public cols: number;
@@ -377,7 +386,7 @@ export class Terminal implements ITerminalCore {
       // Create canvas element
       this.canvas = document.createElement('canvas');
       this.canvas.style.display = 'block';
-      this.canvas.style.cursor = 'text';
+      this.canvas.style.cursor = mouseCursorFor(undefined);
 
       parent.appendChild(this.canvas);
 
@@ -1428,7 +1437,7 @@ export class Terminal implements ITerminalCore {
           link?.hover?.(true);
 
           // Update cursor style on both container and canvas
-          const cursorStyle = link ? 'pointer' : 'text';
+          const cursorStyle = mouseCursorFor(link);
           if (this.element) {
             this.element.style.cursor = cursorStyle;
           }
@@ -1496,9 +1505,9 @@ export class Terminal implements ITerminalCore {
 
       // Reset cursor
       if (this.element) {
-        this.element.style.cursor = 'text';
+        this.element.style.cursor = mouseCursorFor(undefined);
         if (this.canvas) {
-          this.canvas.style.cursor = 'text';
+          this.canvas.style.cursor = mouseCursorFor(undefined);
         }
       }
     }

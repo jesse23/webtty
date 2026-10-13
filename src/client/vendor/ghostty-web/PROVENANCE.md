@@ -9,3 +9,7 @@ Vendored copy of [coder/ghostty-web](https://github.com/coder/ghostty-web), MIT 
 `bun run build` writes both notices to `dist/THIRD_PARTY_LICENSES`.
 
 webtty edits to these files are tracked in git from the commit that added them; diff against that commit to see them.
+
+## Local changes
+
+- `terminal.ts`: the mouse cursor is the default arrow instead of the `text` I-beam when not over a link (`mouseCursorFor`); `pointer` over links is unchanged.

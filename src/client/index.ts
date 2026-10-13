@@ -219,20 +219,6 @@ function watchDevicePixelRatio(): void {
 syncDevicePixelRatio();
 watchDevicePixelRatio();
 
-// ghostty-web sets the mouse cursor to 'text' (I-beam) whenever the pointer
-// isn't over a detected hyperlink — it only ever writes 'text' or 'pointer'
-// (see the hover-link logic in ghostty-web's dist bundle). The I-beam reads
-// as "editable text" even over TUI menus/widgets, which is misleading, so
-// rewrite it to the platform default arrow while leaving the hyperlink
-// 'pointer' cursor untouched.
-function normalizeCursor(el: HTMLElement): void {
-  if (el.style.cursor === 'text') el.style.cursor = 'default';
-}
-normalizeCursor(container);
-new MutationObserver((mutations) => {
-  for (const m of mutations) normalizeCursor(m.target as HTMLElement);
-}).observe(container, { attributes: true, attributeFilter: ['style'], subtree: true });
-
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 let ws: WebSocket;
 
