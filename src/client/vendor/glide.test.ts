@@ -81,6 +81,28 @@ describe('Glide', () => {
     expect(g.value - from).toBeGreaterThan(linearStep * 0.8);
   });
 
+  test('a spring taking over a steady stream does not slow the value down much', () => {
+    const g = new Glide();
+    // 300 units every 30 ms, gliding linearly over each gap plus a frame for the first
+    // four, then following a spring; frames at 60 Hz, independent of the events.
+    const moved: number[] = [];
+    let target = 0;
+    let event = 0;
+    for (let frame = 1; frame <= 24; frame++) {
+      const now = frame * FRAME_MS;
+      for (; event * 30 <= now && event < 12; event++) {
+        target += 300;
+        const pace = event < 4 ? { duration: 30 + FRAME_MS } : { duration: 125, omega: 28 };
+        g.retarget(target, pace, event * 30);
+      }
+      const before = g.value;
+      g.step(now, 1e-3);
+      if (event > 4) moved.push(g.value - before);
+    }
+    // The input moves 167 per frame. Opening the spring's lag at once dipped to 89.
+    expect(Math.min(...moved.slice(0, 12))).toBeGreaterThan(0.55 * 167);
+  });
+
   test('a spring settles on its target', () => {
     const g = new Glide();
     g.retarget(10, { duration: 100, omega: 28 }, 0);

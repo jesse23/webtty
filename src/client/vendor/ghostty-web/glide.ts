@@ -53,6 +53,14 @@ export function springStep(
   return [target + (e + c * dt) * k, (v - omega * c * dt) * k];
 }
 
+/**
+ * How long a spring that takes over from a timed glide takes to relax from the
+ * stiffness matching the glide's lag to its own (time constant, ms). The spring
+ * follows further behind than a glide over each gap does, and opening that gap at
+ * once slowed the view by half for a few frames; this opens it over a few deltas.
+ */
+export const SPRING_TAKEOVER_MS = 150;
+
 /** The stiffness of a spring with stiffness `omega` `idle` ms after its target last moved. */
 export function springOmega(omega: number, idle: number): number {
   return idle > SPRING_RELEASE_MS ? omega * 2 : omega;
@@ -81,6 +89,9 @@ export class Glide {
   private ease: Ease = linear;
   /** The spring's stiffness while following one, else 0. */
   private omega = 0;
+  /** Stiffness the spring took over at, and when; it relaxes to `omega` from there. */
+  private takeoverOmega = 0;
+  private takeoverAt = 0;
   private lastFrame: number | null = null;
   private lastRetarget = 0;
   private moving = false;
@@ -92,9 +103,12 @@ export class Glide {
 
   /** Heads for `target` as `pace` says; at once when its duration is 0. `now` is `performance.now()`. */
   retarget(target: number, pace: Pace, now: number): void {
+    const gap = now - this.lastRetarget;
+    const step = target - this.target;
     this.lastRetarget = now;
     if (pace.omega) {
       if (!this.moving) this.lastFrame = now - FRAME_MS;
+      if (!this.omega) this.takeOver(target, step, gap, pace.omega, now);
       this.omega = pace.omega;
       this.target = target;
       this.moving = true;
@@ -111,6 +125,22 @@ export class Glide {
     }
   }
 
+  /**
+   * Starts a spring at the input's speed (`step` over `gap` ms) and at the stiffness
+   * whose lag matches the distance still to go, so the view neither slows down nor
+   * jumps when the spring takes over; it relaxes to `omega` over a few deltas.
+   */
+  private takeOver(target: number, step: number, gap: number, omega: number, now: number): void {
+    const rate = gap > 0 ? step / (gap / 1000) : 0;
+    if (Math.sign(rate) === Math.sign(target - this.value) && Math.abs(rate) > Math.abs(this.velocity)) {
+      this.velocity = rate;
+    }
+    // A critically damped spring following a steady ramp trails it by 2 / omega.
+    const lag = rate ? Math.abs(target - this.value) / Math.abs(rate) : 0;
+    this.takeoverOmega = lag > 0 ? Math.min(Math.max(2 / lag, omega), omega * 3) : omega;
+    this.takeoverAt = now;
+  }
+
   /** Puts the value at `value` and stops. */
   jump(value: number): void {
     this.value = value;
@@ -122,6 +152,7 @@ export class Glide {
   stop(): void {
     this.moving = false;
     this.omega = 0;
+    this.takeoverOmega = 0;
     this.velocity = 0;
     this.lastFrame = null;
   }
@@ -136,7 +167,9 @@ export class Glide {
     const dt = Math.min(Math.max(now - (this.lastFrame ?? now - FRAME_MS), 0), 50) / 1000;
     let done: boolean;
     if (this.omega) {
-      const omega = springOmega(this.omega, now - this.lastRetarget);
+      const relax = Math.exp(-(now - this.takeoverAt) / SPRING_TAKEOVER_MS);
+      const base = this.omega + (this.takeoverOmega - this.omega) * relax;
+      const omega = springOmega(base, now - this.lastRetarget);
       const [x, v] = springStep(this.value, this.velocity, this.target, omega, dt);
       this.velocity = v;
       done = Math.abs(this.target - x) < settle && Math.abs(v) * (FRAME_MS / 1000) < settle;
