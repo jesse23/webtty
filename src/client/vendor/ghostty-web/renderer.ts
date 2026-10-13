@@ -64,7 +64,22 @@ export interface RendererOptions {
   cursorBlink?: boolean; // Default: false
   theme?: ITheme;
   devicePixelRatio?: number; // Default: window.devicePixelRatio, rounded up and followed
+  overscan?: number; // Rows drawn above and below the viewport. Default: DEFAULT_OVERSCAN (webtty, ADR 043)
 }
+
+/**
+ * Rows drawn above and below the viewport, so pixel-smooth scrolling moves the canvas
+ * across lines without drawing (webtty, ADR 043). At least 1: the row above the
+ * viewport shows while it is at a fraction of a line.
+ */
+export const DEFAULT_OVERSCAN = 16;
+
+// The state of a canvas row's pixels (webtty, ADR 043)
+const ROW_INVALID = 0;
+// Its own cells plus what the next line draws into it, as a full redraw leaves a row
+const ROW_JOINED = 1;
+// Its own cells only, as a full redraw leaves the last row
+const ROW_CUT = 2;
 
 /**
  * The ratio the canvas is drawn at: the device pixel ratio rounded up to a whole
@@ -122,6 +137,42 @@ export function frameLines(
   };
 }
 
+/** A selection: start and end cell, rows inclusive. */
+interface CellRange {
+  startCol: number;
+  startRow: number;
+  endCol: number;
+  endRow: number;
+}
+
+/** A hovered regex link: start and end cell, rows inclusive. */
+interface LinkRange {
+  startX: number;
+  startY: number;
+  endX: number;
+  endY: number;
+}
+
+/** A selection moved down by `rows` rows (up when negative). */
+function moveRows(range: CellRange | null, rows: number): CellRange | null {
+  return range && { ...range, startRow: range.startRow + rows, endRow: range.endRow + rows };
+}
+
+/** A link range moved down by `rows` rows (up when negative). */
+function moveRange(range: LinkRange | null, rows: number): LinkRange | null {
+  return range && { ...range, startY: range.startY + rows, endY: range.endY + rows };
+}
+
+function sameRange(a: CellRange | null, b: CellRange | null): boolean {
+  if (!a || !b) return a === b;
+  return (
+    a.startCol === b.startCol &&
+    a.startRow === b.startRow &&
+    a.endCol === b.endCol &&
+    a.endRow === b.endRow
+  );
+}
+
 export interface FontMetrics {
   width: number; // Character cell width in CSS pixels
   height: number; // Character cell height in CSS pixels
@@ -164,6 +215,11 @@ export const DEFAULT_THEME: Required<ITheme> = {
 // ============================================================================
 
 export class CanvasRenderer {
+  // The terminal's canvas element: it takes the viewport's place in the layout and gets
+  // the mouse events, and draws nothing (webtty, ADR 043)
+  private element: HTMLCanvasElement;
+  // The canvas the rows are drawn on. It also holds the overscan rows, sits over the
+  // element, moved up by a transform, and is clipped to the element's box (webtty, ADR 043)
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
   private fontSize: number;
@@ -179,8 +235,8 @@ export class CanvasRenderer {
   // Cursor blinking state
   private cursorVisible: boolean = true;
   private cursorBlinkInterval?: number;
-  // Where the last frame drew the cursor: its canvas row (-1: not drawn) and column (webtty)
-  private cursorRow: number = -1;
+  // Where the last frame drew the cursor: its canvas row (null: not drawn) and column (webtty)
+  private cursorRow: number | null = null;
   private cursorCol: number = 0;
   // Cursor style or blink changed since the last frame: repaint the cursor cell so
   // the old shape does not stay under the new one (webtty)
@@ -190,11 +246,29 @@ export class CanvasRenderer {
   private lastViewportY: number = 0;
   private lastScrollbackLength: number = 0;
 
+  // The canvas holds `overscan` rows above and below the viewport and is moved and
+  // clipped to show the viewport's part of it. Canvas row k shows viewport row k - overscan at
+  // viewportY `bandY`, so a scroll within the band only moves the canvas
+  // (webtty, ADR 043).
+  private readonly overscan: number;
+  private bandY: number = 0;
+  // ROW_INVALID, ROW_JOINED or ROW_CUT per canvas row. Rows out of view stay invalid
+  // until they come into view.
+  private rowState: Uint8Array = new Uint8Array(0);
+  // The pixel offset below its whole line the viewport shows at, in CSS pixels (ADR 040)
+  private requestedScrollOffset: number = 0;
+  private shownScrollOffset: number = 0;
+  // CSS pixels from the canvas top to the top of what is shown
+  private shownTop: number = 0;
+  private shownRows: number = 0;
+  private shownTransform: string = '';
+  private shownClip: string = '';
+  // The first canvas row the last frame painted the scrollbar over (null: none)
+  private scrollbarRow: number | null = null;
+
   // The canvas no longer matches its rows (theme, font or ratio change); the next frame
   // repaints every row (webtty, ADR 043)
   private canvasStale: boolean = false;
-  // The last frame painted the scrollbar over the right edge of the rows (webtty, ADR 043)
-  private scrollbarPainted: boolean = false;
   // The browser restored a lost context: the backing store is blank and the context
   // state reset, so the next frame resizes and repaints every row (webtty, ADR 043)
   private contextRestored: boolean = false;
@@ -212,38 +286,44 @@ export class CanvasRenderer {
 
   // Selection manager (for rendering selection)
   private selectionManager?: SelectionManager;
-  // Cached selection coordinates for current render pass (viewport-relative)
-  private currentSelectionCoords: {
-    startCol: number;
-    startRow: number;
-    endCol: number;
-    endRow: number;
-  } | null = null;
+  // Cached selection coordinates for current render pass, in canvas rows and not
+  // clamped to the viewport (webtty, ADR 043)
+  private currentSelectionCoords: CellRange | null = null;
+  // The selection the canvas rows were drawn with, in canvas rows (webtty, ADR 043)
+  private drawnSelection: CellRange | null = null;
 
   // Link rendering state
   private hoveredHyperlinkId: number = 0;
   private previousHoveredHyperlinkId: number = 0;
 
-  // Regex link hover tracking (for links without hyperlink_id)
+  // Regex link hover tracking (for links without hyperlink_id), in viewport rows
   private hoveredLinkRange: { startX: number; startY: number; endX: number; endY: number } | null =
     null;
-  private previousHoveredLinkRange: {
-    startX: number;
-    startY: number;
-    endX: number;
-    endY: number;
-  } | null = null;
+  // The regex link range this frame draws and the one the canvas rows were drawn with,
+  // in canvas rows (webtty, ADR 043)
+  private currentLinkRange: LinkRange | null = null;
+  private drawnLinkRange: LinkRange | null = null;
 
   constructor(canvas: HTMLCanvasElement, options: RendererOptions = {}) {
-    this.canvas = canvas;
-    const ctx = canvas.getContext('2d', { alpha: true });
+    this.element = canvas;
+    // Positioned with no offsets, the drawing canvas sits where the element's box starts
+    // (its static position), wherever padding moves it. Positioned, it paints over the
+    // element, and lets the mouse through to it. (webtty, ADR 043)
+    this.canvas = document.createElement('canvas');
+    this.canvas.style.position = 'absolute';
+    this.canvas.style.pointerEvents = 'none';
+    this.canvas.style.display = 'block';
+    // Excluded from the lookups of the terminal canvas, like the edge strips
+    this.canvas.dataset.edge = 'true';
+    canvas.parentNode?.insertBefore(this.canvas, canvas);
+    const ctx = this.canvas.getContext('2d', { alpha: true });
     if (!ctx) {
       throw new Error('Failed to get 2D rendering context');
     }
     this.ctx = ctx;
     // Frames only draw what changed, so a canvas the browser blanked would stay blank
     // (webtty, ADR 043)
-    canvas.addEventListener('contextrestored', this.onContextRestored);
+    this.canvas.addEventListener('contextrestored', this.onContextRestored);
     this.scratch = document.createElement('canvas');
     this.scratch.width = 0;
     this.scratch.height = 0;
@@ -253,6 +333,7 @@ export class CanvasRenderer {
     this.fontFamily = options.fontFamily ?? 'monospace';
     this.cursorStyle = options.cursorStyle ?? 'block';
     this.cursorBlink = options.cursorBlink ?? false;
+    this.overscan = Math.max(1, Math.floor(options.overscan ?? DEFAULT_OVERSCAN));
     this.theme = { ...DEFAULT_THEME, ...options.theme };
     this._devicePixelRatio = wholeDevicePixelRatio(
       options.devicePixelRatio ?? window.devicePixelRatio
@@ -355,13 +436,19 @@ export class CanvasRenderer {
     const cssWidth = cols * this.metrics.width;
     const cssHeight = rows * this.metrics.height;
 
-    // Set CSS size (what user sees)
-    this.canvas.style.width = `${cssWidth}px`;
-    this.canvas.style.height = `${cssHeight}px`;
+    // Set CSS size (what user sees). The element draws nothing. (webtty, ADR 043)
+    this.element.style.width = `${cssWidth}px`;
+    this.element.style.height = `${cssHeight}px`;
+    this.element.width = 0;
+    this.element.height = 0;
 
-    // Set actual canvas size (scaled for DPI)
+    // Set actual canvas size (scaled for DPI). The canvas also holds the overscan rows;
+    // render() moves and clips it to show the viewport's rows. (webtty, ADR 043)
+    const canvasHeight = (rows + 2 * this.overscan) * this.metrics.height;
+    this.canvas.style.width = `${cssWidth}px`;
+    this.canvas.style.height = `${canvasHeight}px`;
     this.canvas.width = Math.round(cssWidth * this.devicePixelRatio);
-    this.canvas.height = Math.round(cssHeight * this.devicePixelRatio);
+    this.canvas.height = Math.round(canvasHeight * this.devicePixelRatio);
 
     // Scale context to match DPI (setting canvas.width/height resets the context)
     this.ctx.scale(this.devicePixelRatio, this.devicePixelRatio);
@@ -372,7 +459,10 @@ export class CanvasRenderer {
 
     // Fill background after resize
     this.ctx.fillStyle = this.theme.background;
-    this.ctx.fillRect(0, 0, cssWidth, cssHeight);
+    this.ctx.fillRect(0, 0, cssWidth, canvasHeight);
+    // Free the scratch canvas' backing store; the next partial repaint sizes it
+    this.scratch.width = 0;
+    this.scratch.height = 0;
     this.canvasStale = true;
   }
 
@@ -383,11 +473,13 @@ export class CanvasRenderer {
   /**
    * Render the terminal buffer to canvas
    *
-   * Only the canvas rows that changed are repainted. When the viewport moves by whole
-   * lines and nothing else changed, the rows still in view are copied to their new place
-   * with one drawImage of the canvas onto itself and only the rows that came into view
-   * are drawn. A partial frame leaves the canvas exactly as a full redraw would (webtty,
-   * ADR 043; see repaintRows).
+   * The canvas holds `overscan` rows above and below the viewport, and is moved and
+   * clipped to show the viewport's part of it. A scroll within those rows only moves the
+   * canvas; one past them moves the canvas content with one
+   * drawImage of the canvas onto itself. Only rows that come into view or changed are
+   * drawn, and rows out of view are drawn when they come into view. What the element
+   * shows is exactly a full redraw of the viewport, plus at a fraction of a line the row
+   * above it drawn on its own. (webtty, ADR 043; see repaintRows)
    */
   public render(
     buffer: IRenderable,
@@ -409,6 +501,9 @@ export class CanvasRenderer {
     const getLine = frameLines(buffer, dims.cols, dims.rows);
     this.currentLine = getLine;
     const scrollbackLength = scrollbackProvider ? scrollbackProvider.getScrollbackLength() : 0;
+    const rows = dims.rows;
+    const total = rows + 2 * this.overscan;
+    const view = Math.max(0, Math.floor(viewportY));
 
     // Check if buffer needs full redraw (e.g., screen change between normal/alternate)
     if (buffer.needsFullRedraw?.()) {
@@ -419,12 +514,16 @@ export class CanvasRenderer {
     const needsResize =
       this.contextRestored ||
       this.canvas.width !== Math.round(dims.cols * this.metrics.width * this.devicePixelRatio) ||
-      this.canvas.height !== Math.round(dims.rows * this.metrics.height * this.devicePixelRatio);
+      this.canvas.height !== Math.round(total * this.metrics.height * this.devicePixelRatio);
 
     if (needsResize) {
       this.resize(dims.cols, dims.rows);
       this.contextRestored = false;
       forceAll = true; // Force full render after resize
+    }
+    if (this.rowState.length !== total) {
+      this.rowState = new Uint8Array(total);
+      forceAll = true;
     }
 
     // A theme, font or ratio change since the last frame changes every row (webtty, ADR 043)
@@ -433,215 +532,171 @@ export class CanvasRenderer {
       this.canvasStale = false;
     }
 
-    // The scrollbar is painted over the right edge of every row, so a frame that does not
-    // paint it repaints every row: none keeps the old thumb (webtty, ADR 043)
-    const paintsScrollbar = !!scrollbackProvider && scrollbarOpacity > 0;
-    if (this.scrollbarPainted && !paintsScrollbar) {
-      forceAll = true;
-    }
-
-    // Check if we need to redraw selection-related lines
-    const hasSelection = this.selectionManager && this.selectionManager.hasSelection();
-    const selectionRows = new Set<number>();
-
-    // Cache selection coordinates for use during cell rendering
-    // This is used by isInSelection() to determine if a cell needs selection colors
-    this.currentSelectionCoords = hasSelection ? this.selectionManager!.getSelectionCoords() : null;
-
-    // Mark current selection rows for redraw (includes programmatic selections)
-    if (this.currentSelectionCoords) {
-      const coords = this.currentSelectionCoords;
-      for (let row = coords.startRow; row <= coords.endRow; row++) {
-        selectionRows.add(row);
-      }
-    }
-
-    // Always mark dirty selection rows for redraw (to clear old overlay). They were
-    // marked at the viewport of their time, so a viewport move with any of them
-    // repaints every row (webtty, ADR 043)
-    let selectionDirty = false;
-    if (this.selectionManager) {
-      const dirtyRows = this.selectionManager.getDirtySelectionRows();
-      if (dirtyRows.size > 0) {
-        selectionDirty = true;
-        for (const row of dirtyRows) {
-          selectionRows.add(row);
-        }
-        // Clear the dirty rows tracking after marking for redraw
-        this.selectionManager.clearDirtySelectionRows();
-      }
-    }
-
-    // Track rows with hyperlinks that need redraw when hover changes
-    const hyperlinkRows = new Set<number>();
-    const hyperlinkChanged = this.hoveredHyperlinkId !== this.previousHoveredHyperlinkId;
-    const linkRangeChanged =
-      JSON.stringify(this.hoveredLinkRange) !== JSON.stringify(this.previousHoveredLinkRange);
-    // The regex link underline the last frame drew (webtty, ADR 043)
-    const drawnLinkRange = this.previousHoveredLinkRange;
-
-    if (hyperlinkChanged) {
-      // Find rows containing the old or new hovered hyperlink
-      // Must check the correct buffer based on viewportY (scrollback vs screen)
-      for (let y = 0; y < dims.rows; y++) {
-        let line: GhosttyCell[] | null = null;
-
-        // Same logic as rendering: fetch from scrollback or screen
-        if (viewportY > 0) {
-          if (y < viewportY && scrollbackProvider) {
-            // This row is from scrollback
-            // Floor viewportY for array access (handles fractional values during smooth scroll)
-            const scrollbackOffset = scrollbackLength - Math.floor(viewportY) + y;
-            line = scrollbackProvider.getScrollbackLine(scrollbackOffset);
-          } else {
-            // This row is from visible screen
-            const screenRow = y - Math.floor(viewportY);
-            line = getLine(screenRow);
-          }
-        } else {
-          // At bottom - fetch from visible screen
-          line = getLine(y);
-        }
-
-        if (line) {
-          for (const cell of line) {
-            if (
-              cell.hyperlink_id === this.hoveredHyperlinkId ||
-              cell.hyperlink_id === this.previousHoveredHyperlinkId
-            ) {
-              hyperlinkRows.add(y);
-              break; // Found hyperlink in this row
-            }
-          }
-        }
-      }
-      // Update previous state
-      this.previousHoveredHyperlinkId = this.hoveredHyperlinkId;
-    }
-
-    // Track rows affected by link range changes (for regex URLs)
-    if (linkRangeChanged) {
-      // Add rows from old range
-      if (this.previousHoveredLinkRange) {
-        for (
-          let y = this.previousHoveredLinkRange.startY;
-          y <= this.previousHoveredLinkRange.endY;
-          y++
-        ) {
-          hyperlinkRows.add(y);
-        }
-      }
-      // Add rows from new range
-      if (this.hoveredLinkRange) {
-        for (let y = this.hoveredLinkRange.startY; y <= this.hoveredLinkRange.endY; y++) {
-          hyperlinkRows.add(y);
-        }
-      }
-      this.previousHoveredLinkRange = this.hoveredLinkRange;
-    }
-
-    // Rows the engine changed. They are screen rows, which are canvas rows only at the
-    // bottom; while scrolled, any change repaints every row. (webtty, ADR 043)
+    // Rows the engine changed, in screen rows
     const dirtyRows: number[] = [];
     if (!forceAll) {
-      for (let y = 0; y < dims.rows; y++) {
+      for (let y = 0; y < rows; y++) {
         if (buffer.isRowDirty(y)) dirtyRows.push(y);
       }
     }
 
-    // Canvas rows the kept rows moved down by (up when negative) this frame
-    let shift = 0;
-    if (viewportY !== this.lastViewportY) {
-      // The viewport moved. When only the viewport moved, by whole lines and by less than
-      // a screen, copy the rows still in view to their new place; otherwise repaint
-      // every row as before. (webtty, ADR 043)
-      const moved = viewportY - this.lastViewportY;
-      const onlyViewportMoved =
-        !forceAll &&
-        Number.isInteger(viewportY) &&
-        Number.isInteger(this.lastViewportY) &&
-        Math.abs(moved) < dims.rows &&
-        scrollbackLength === this.lastScrollbackLength &&
-        dirtyRows.length === 0 &&
-        !selectionDirty;
-      if (onlyViewportMoved) {
-        this.shiftRows(moved);
-        shift = moved;
+    // A fractional viewportY (ghostty-web's own eased scroll) repaints every row
+    const moved = viewportY !== this.lastViewportY;
+    if (moved && !(Number.isInteger(viewportY) && Number.isInteger(this.lastViewportY))) {
+      forceAll = true;
+    }
+    this.lastViewportY = viewportY;
+    // New scrollback or a changed row may have moved every line: the screen scrolled.
+    // While scrolled, or on a move, that repaints every row. At the bottom, the screen's
+    // rows are repainted as dirty and the rows out of view when they come into view.
+    const linesMoved = scrollbackLength !== this.lastScrollbackLength || dirtyRows.length > 0;
+    if (linesMoved && (view > 0 || moved)) forceAll = true;
+    this.lastScrollbackLength = scrollbackLength;
+
+    // The row above the viewport shows while it is at a fraction of a line (ADR 040)
+    // An offset set for a taller cell (before a font change) shows at most a line.
+    const maxOffset = this.metrics.height - 1 / this.devicePixelRatio;
+    const offset = view < scrollbackLength ? Math.min(this.requestedScrollOffset, maxOffset) : 0;
+    const above = offset > 0 ? 1 : 0;
+
+    // Keep the canvas rows while the rows in view are among them. Otherwise draw them for
+    // a viewportY half the overscan further in the direction of the move, so the next
+    // moves that way stay within them, and copy the rows still in view.
+    const fits = (band: number) =>
+      band - view <= this.overscan && this.overscan + band - view - above >= 0;
+    let band = this.bandY;
+    if (forceAll) {
+      band = view;
+    } else if (!fits(band)) {
+      const ahead = Math.sign(view - band) * Math.floor(this.overscan / 2);
+      band = Math.max(0, Math.min(Math.max(scrollbackLength, view), view + ahead));
+      if (!fits(band)) band = view;
+      const shift = band - this.bandY;
+      if (Math.abs(shift) < total) {
+        this.shiftRows(shift);
+        const state = new Uint8Array(total);
+        for (let k = Math.max(0, -shift); k < Math.min(total, total - shift); k++) {
+          state[k + shift] = this.rowState[k];
+        }
+        this.rowState = state;
+        if (this.cursorRow !== null) this.cursorRow += shift;
+        if (this.scrollbarRow !== null) this.scrollbarRow += shift;
+        this.drawnSelection = moveRows(this.drawnSelection, shift);
+        this.drawnLinkRange = moveRange(this.drawnLinkRange, shift);
       } else {
         forceAll = true;
       }
-      this.lastViewportY = viewportY;
-    } else if (
-      viewportY > 0 &&
-      (dirtyRows.length > 0 || scrollbackLength !== this.lastScrollbackLength)
-    ) {
-      forceAll = true;
     }
-    this.lastScrollbackLength = scrollbackLength;
+    this.bandY = band;
+    // The canvas row of viewport row 0
+    const top = this.overscan + band - view;
 
-    // Canvas rows whose pixels are repainted. A row whose content or highlight changed
-    // also repaints the row above, which its glyphs may overflow into.
-    const rows = dims.rows;
-    const repaint = new Uint8Array(rows);
-    const region = (y: number) => {
-      if (y >= 0 && y < rows) repaint[y] = 1;
+    const state = this.rowState;
+    if (forceAll) state.fill(ROW_INVALID);
+    // A row whose own pixels changed (an overlay over it)
+    const invalidate = (k: number) => {
+      if (k >= 0 && k < total) state[k] = ROW_INVALID;
     };
-    const changed = (y: number) => {
-      region(y);
-      region(y - 1);
+    // A row whose content or highlight changed: the row above may hold its overflow
+    const changed = (k: number) => {
+      invalidate(k);
+      if (k > 0 && k <= total && state[k - 1] === ROW_JOINED) state[k - 1] = ROW_INVALID;
     };
-    if (forceAll) {
-      repaint.fill(1);
-    } else {
-      for (const y of dirtyRows) changed(y);
-      for (const y of selectionRows) changed(y);
-      for (const y of hyperlinkRows) changed(y);
-      if (shift > 0) {
-        // Rows came into view at the top. The last row lost the row below it, whose
-        // glyphs overflowed into it.
-        for (let y = 0; y < shift; y++) changed(y);
-        region(rows - 1);
-      } else if (shift < 0) {
-        // Rows came into view at the bottom
-        for (let y = rows + shift; y < rows; y++) changed(y);
-      }
-      if (shift !== 0) {
-        // A regex link underline is drawn at fixed canvas rows, so it did not move with
-        // the rows: clear it where the copy moved it and draw it where it is.
-        for (const range of [drawnLinkRange, this.hoveredLinkRange]) {
-          if (!range) continue;
-          for (let y = range.startY; y <= range.endY; y++) {
-            changed(y);
-            changed(y + shift);
-          }
+    if (!forceAll) {
+      for (const y of dirtyRows) changed(top + y);
+      if (linesMoved) {
+        for (let k = 0; k < total; k++) {
+          if (k < top || k >= top + rows) state[k] = ROW_INVALID;
         }
       }
     }
 
+    // The selection, in canvas rows. It is anchored to buffer lines like the canvas rows,
+    // so it only repaints rows when it changed. (webtty, ADR 043)
+    const selection =
+      this.selectionManager && this.selectionManager.hasSelection()
+        ? this.selectionManager.getSelectionRange()
+        : null;
+    this.currentSelectionCoords = moveRows(selection, top);
+    if (!sameRange(this.currentSelectionCoords, this.drawnSelection)) {
+      for (const range of [this.drawnSelection, this.currentSelectionCoords]) {
+        if (!range) continue;
+        const last = Math.min(range.endRow, total - 1);
+        for (let k = Math.max(0, range.startRow); k <= last; k++) changed(k);
+      }
+    }
+    this.drawnSelection = this.currentSelectionCoords;
+    this.selectionManager?.clearDirtySelectionRows();
+
+    // Rows with the old or new hovered hyperlink. Rows not drawn yet are drawn with it.
+    const rowAt = (k: number) =>
+      this.rowAt(k - this.overscan, band, rows, getLine, buffer, scrollbackProvider, scrollbackLength);
+    if (this.hoveredHyperlinkId !== this.previousHoveredHyperlinkId) {
+      for (let k = 0; k < total; k++) {
+        if (state[k] === ROW_INVALID) continue;
+        const line = rowAt(k).line;
+        if (
+          line?.some(
+            (cell) =>
+              cell.hyperlink_id === this.hoveredHyperlinkId ||
+              cell.hyperlink_id === this.previousHoveredHyperlinkId
+          )
+        ) {
+          changed(k);
+        }
+      }
+      this.previousHoveredHyperlinkId = this.hoveredHyperlinkId;
+    }
+
+    // A regex link underline is drawn at viewport rows, which are other canvas rows after a
+    // scroll: clear it where it was drawn and draw it where it is.
+    this.currentLinkRange = moveRange(this.hoveredLinkRange, top);
+    if (JSON.stringify(this.currentLinkRange) !== JSON.stringify(this.drawnLinkRange)) {
+      for (const range of [this.drawnLinkRange, this.currentLinkRange]) {
+        if (!range) continue;
+        for (let k = range.startY; k <= range.endY; k++) changed(k);
+      }
+    }
+    this.drawnLinkRange = this.currentLinkRange;
+
     // The cursor is drawn over its cell after the rows. Repaint the cell the last frame's
     // cursor is in now unless the same cursor is drawn there again.
-    const drawsCursor = viewportY === 0 && cursor.visible && this.cursorVisible;
+    const drawsCursor = view === 0 && cursor.visible && this.cursorVisible;
+    const cursorRow = top + cursor.y;
     let sameCursor = false;
-    if (this.cursorRow >= 0) {
-      const row = this.cursorRow + shift;
+    if (this.cursorRow !== null) {
       sameCursor =
-        drawsCursor && row === cursor.y && cursor.x === this.cursorCol && !this.cursorShapeChanged;
-      if (!sameCursor) region(row);
+        drawsCursor &&
+        this.cursorRow === cursorRow &&
+        cursor.x === this.cursorCol &&
+        !this.cursorShapeChanged;
+      if (!sameCursor) invalidate(this.cursorRow);
     }
     this.cursorShapeChanged = false;
-    // The same cursor over an unrepainted row is still on the canvas. Drawing it again
-    // would blend a translucent cursor colour over itself until it is opaque.
-    const cursorKept = sameCursor && !repaint[cursor.y];
 
-    // Repaint each run of rows
-    for (let y = 0; y < rows; y++) {
-      if (!repaint[y]) continue;
-      let end = y;
-      while (end + 1 < rows && repaint[end + 1]) end++;
-      this.repaintRows(y, end, dims.cols, rows, (row) =>
-        this.rowAt(row, viewportY, getLine, buffer, scrollbackProvider, scrollbackLength)
-      );
-      y = end;
+    // The scrollbar is painted over the right edge of the rows in view. Rows it no longer
+    // covers are repainted, so none keeps the old thumb.
+    const paintsScrollbar = !!scrollbackProvider && scrollbarOpacity > 0;
+    const scrollbarRow = paintsScrollbar ? top : null;
+    if (this.scrollbarRow !== null && this.scrollbarRow !== scrollbarRow) {
+      for (let k = this.scrollbarRow; k < this.scrollbarRow + rows; k++) {
+        if (scrollbarRow === null || k < scrollbarRow || k >= scrollbarRow + rows) invalidate(k);
+      }
+    }
+
+    // Repaint the rows in view that are not as a full redraw of the viewport leaves them:
+    // the last row and the row above the viewport have nothing drawn into them from below.
+    const first = top - above;
+    const last = top + rows - 1;
+    const wanted = (k: number) => (k === last || k < top ? ROW_CUT : ROW_JOINED);
+    const repainted = new Uint8Array(total);
+    for (let k = first; k <= last; k++) {
+      if (state[k] === wanted(k)) continue;
+      let end = k;
+      while (end < last && wanted(end) === ROW_JOINED && state[end + 1] !== wanted(end + 1)) end++;
+      this.repaintRows(k, end, wanted(end) === ROW_CUT, dims.cols, rowAt);
+      repainted.fill(1, k, end + 1);
+      k = end;
     }
 
     // Selection highlighting is now integrated into renderCellBackground/renderCellText
@@ -649,18 +704,38 @@ export class CanvasRenderer {
 
     // Link underlines are drawn during cell rendering (see renderCell)
 
-    // Render cursor (only if we're at the bottom, not scrolled)
-    if (drawsCursor && !cursorKept) {
-      this.renderCursor(cursor.x, cursor.y);
+    // Render cursor (only if we're at the bottom, not scrolled). The same cursor over a
+    // row that was not repainted is still on the canvas: drawing it again would blend a
+    // translucent cursor colour over itself until it is opaque.
+    if (drawsCursor && !(sameCursor && !repainted[cursorRow])) {
+      this.renderCursor(cursor.x, cursorRow, cursor.y);
     }
-    this.cursorRow = drawsCursor ? cursor.y : -1;
+    this.cursorRow = drawsCursor ? cursorRow : null;
     this.cursorCol = cursor.x;
 
     // Render scrollbar if scrolled or scrollback exists (with opacity for fade effect)
     if (paintsScrollbar) {
-      this.renderScrollbar(viewportY, scrollbackLength, dims.rows, scrollbarOpacity);
+      this.renderScrollbar(viewportY, scrollbackLength, rows, scrollbarOpacity, top);
     }
-    this.scrollbarPainted = paintsScrollbar;
+    this.scrollbarRow = scrollbarRow;
+
+    // Show the viewport's rows, moved down by the offset: move the canvas up by what is
+    // above them and clip it to the element's box. A transform places it to the device
+    // pixel; object-position would round to CSS pixels.
+    this.shownScrollOffset = offset;
+    this.shownTop = top * this.metrics.height - offset;
+    this.shownRows = rows;
+    const below = (total - rows) * this.metrics.height - this.shownTop;
+    const transform = `translateY(${-this.shownTop}px)`;
+    const clip = `inset(${this.shownTop}px 0px ${below}px 0px)`;
+    if (transform !== this.shownTransform) {
+      this.canvas.style.transform = transform;
+      this.shownTransform = transform;
+    }
+    if (clip !== this.shownClip) {
+      this.canvas.style.clipPath = clip;
+      this.shownClip = clip;
+    }
 
     // Without scrollback rows a scrolled frame left its top rows unpainted
     if (viewportY > 0 && !scrollbackProvider) this.canvasStale = true;
@@ -672,79 +747,78 @@ export class CanvasRenderer {
   }
 
   /**
-   * The line shown at canvas row `y`, from scrollback or the screen, with a grapheme
-   * lookup on the same source: canvas row y is not screen row y while scrolled. (webtty)
+   * The line at viewport row `y` for `viewportY`, from scrollback or the screen, with a
+   * grapheme lookup on the same source: canvas row y is not screen row y while scrolled.
+   * Null above the scrollback and below the screen. (webtty)
    */
   private rowAt(
     y: number,
     viewportY: number,
+    rows: number,
     getLine: (y: number) => GhosttyCell[] | null,
     buffer: IRenderable,
     scrollbackProvider: IScrollbackProvider | undefined,
     scrollbackLength: number
   ): { line: GhosttyCell[] | null; grapheme?: GraphemeLookup } {
-    if (viewportY > 0) {
-      // Scrolled up - need to fetch from scrollback + visible screen
-      // When scrolled up N lines, we want to show:
-      // - Scrollback lines (from the end) + visible screen lines
-
-      // Check if this row should come from scrollback or visible screen
-      if (y < viewportY && scrollbackProvider) {
-        // This row is from scrollback (upper part of viewport)
-        // Get from end of scrollback buffer
-        // Floor viewportY for array access (handles fractional values during smooth scroll)
-        const scrollbackOffset = scrollbackLength - Math.floor(viewportY) + y;
-        return {
-          line: scrollbackProvider.getScrollbackLine(scrollbackOffset),
-          grapheme: this.scrollbackGraphemes(scrollbackProvider, scrollbackOffset),
-        };
-      }
-      // This row is from visible screen (lower part of viewport)
-      const screenRow = y - Math.floor(viewportY);
-      return { line: getLine(screenRow), grapheme: this.screenGraphemes(buffer, screenRow) };
+    if (y < viewportY) {
+      // This row is from scrollback, counted from its end
+      const scrollbackOffset = scrollbackLength - viewportY + y;
+      if (!scrollbackProvider || scrollbackOffset < 0) return { line: null };
+      return {
+        line: scrollbackProvider.getScrollbackLine(scrollbackOffset),
+        grapheme: this.scrollbackGraphemes(scrollbackProvider, scrollbackOffset),
+      };
     }
-    // At bottom - fetch from visible screen
-    return { line: getLine(y) };
+    // This row is from the screen
+    const screenRow = y - viewportY;
+    if (screenRow >= rows) return { line: null };
+    return { line: getLine(screenRow), grapheme: this.screenGraphemes(buffer, screenRow) };
   }
 
   /**
    * Repaints canvas rows `first` to `last` exactly as a full redraw leaves them. A full
    * redraw draws every row in order, each clearing its own cell area first, so a row's
-   * pixels are its own cells plus whatever the row below draws over it (tall glyphs,
+   * pixels are its own cells plus whatever the next line draws over it (tall glyphs,
    * combining marks); what the row above overflows into it is cleared. So the rows are
-   * drawn in order, plus the row below the last.
+   * drawn in order, plus the next line unless the last row is `cut`: drawn with its own
+   * cells only, as the last row of a full redraw is.
    *
-   * A run short of the whole canvas is drawn on the scratch canvas and its rows copied
-   * into the canvas. Drawing it clipped to the run is not the same: Chrome skips a glyph
-   * whose box is outside the clip, so a combining mark of the row below loses the
-   * antialiased edge it draws on the run's last pixel line. (webtty, ADR 043)
+   * The rows are drawn on the scratch canvas and copied into the canvas, unless they are
+   * cut and the rows they draw into around them are invalid anyway. A run that is not cut
+   * ends before a row that is kept. Drawing them clipped to the rows is
+   * not the same: Chrome skips a glyph whose box is outside the clip, so a combining mark
+   * of the next line loses the antialiased edge it draws on the last pixel line.
+   * (webtty, ADR 043)
    */
   private repaintRows(
     first: number,
     last: number,
+    cut: boolean,
     cols: number,
-    rows: number,
-    rowAt: (y: number) => { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
+    rowAt: (k: number) => { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
   ): void {
-    const whole = first === 0 && last === rows - 1;
+    const state = this.rowState;
+    const total = state.length;
+    const end = cut ? last : last + 1;
+    const free = (k: number) => k < 0 || k >= total || state[k] === ROW_INVALID;
+    // Drawn on the canvas, the row above gets the first row's overflow and the row below
+    // the last one's
+    const direct = cut && free(first - 1) && free(last + 1);
     const own = this.ctx;
-    const scratch = whole ? null : this.scratchContext();
+    const rowHeight = this.metrics.height * this.devicePixelRatio;
+    const scratch = direct ? null : this.scratchContext(first, end - first + 1);
     if (scratch) this.ctx = scratch;
     try {
-      for (let y = first; y <= Math.min(last + 1, rows - 1); y++) {
-        const { line, grapheme } = rowAt(y);
-        if (line) {
-          this.renderLine(line, y, cols, grapheme);
-        }
-      }
+      for (let k = first; k <= end; k++) this.drawRow(k, cols, rowAt(k));
     } finally {
       this.ctx = own;
     }
-    if (!scratch) return;
+    for (let k = first; k <= last; k++) state[k] = ROW_JOINED;
+    state[last] = cut ? ROW_CUT : ROW_JOINED;
+    if (direct) return;
     // Replace the rows' pixels in device pixels: cleared first, the copy is not blended
     // over them, so a translucent background does not darken
     const width = this.canvas.width;
-    const rowHeight = this.metrics.height * this.devicePixelRatio;
     const top = first * rowHeight;
     const height = (last - first + 1) * rowHeight;
     own.save();
@@ -753,21 +827,44 @@ export class CanvasRenderer {
     own.globalCompositeOperation = 'source-over';
     own.imageSmoothingEnabled = false;
     own.clearRect(0, top, width, height);
-    own.drawImage(this.scratch, 0, top, width, height, 0, top, width, height);
+    own.drawImage(this.scratch, 0, 0, width, height, 0, top, width, height);
     own.restore();
   }
 
-  /** The scratch canvas' context, sized and scaled like the canvas. (webtty, ADR 043) */
-  private scratchContext(): CanvasRenderingContext2D {
-    const { width, height } = this.canvas;
+  /** Draws canvas row `k`; a row with no line (past the buffer's ends) is left blank. */
+  private drawRow(
+    k: number,
+    cols: number,
+    { line, grapheme }: { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
+  ): void {
+    if (line) {
+      this.renderLine(line, k, cols, grapheme);
+      return;
+    }
+    const y = k * this.metrics.height;
+    const width = cols * this.metrics.width;
+    this.ctx.clearRect(0, y, width, this.metrics.height);
+    this.ctx.fillStyle = this.theme.background;
+    this.ctx.fillRect(0, y, width, this.metrics.height);
+  }
+
+  /**
+   * The scratch canvas' context, as wide as the canvas and at least `count` rows high,
+   * scaled like the canvas and moved up so canvas row `first` is drawn at its top.
+   * (webtty, ADR 043)
+   */
+  private scratchContext(first: number, count: number): CanvasRenderingContext2D {
+    const rowHeight = this.metrics.height * this.devicePixelRatio;
+    const width = this.canvas.width;
+    const height = count * rowHeight;
     if (this.scratch.width !== width) this.scratch.width = width;
-    if (this.scratch.height !== height) this.scratch.height = height;
+    if (this.scratch.height < height) this.scratch.height = height;
     const ctx = this.scratch.getContext('2d', { alpha: true });
     if (!ctx) {
       throw new Error('Failed to get 2D rendering context');
     }
     // Set every time: resizing, or a lost context, resets the context state
-    ctx.setTransform(this.devicePixelRatio, 0, 0, this.devicePixelRatio, 0, 0);
+    ctx.setTransform(this.devicePixelRatio, 0, 0, this.devicePixelRatio, 0, -first * rowHeight);
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     return ctx;
@@ -777,7 +874,7 @@ export class CanvasRenderer {
    * Moves the canvas content down by `rows` rows (up when negative) with one drawImage of
    * the canvas onto itself, in device pixels. The 'copy' operator replaces pixels instead
    * of blending onto them (a translucent background would darken) and clears the rest of
-   * the canvas: the rows that came into view, which are all repainted. (webtty, ADR 043)
+   * the canvas: the rows that came in, which are invalid. (webtty, ADR 043)
    */
   private shiftRows(rows: number): void {
     const { width, height } = this.canvas;
@@ -1014,9 +1111,9 @@ export class CanvasRenderer {
       }
     }
 
-    // Draw regex link underline (for plain text URLs)
-    if (this.hoveredLinkRange) {
-      const range = this.hoveredLinkRange;
+    // Draw regex link underline (for plain text URLs), in canvas rows (webtty, ADR 043)
+    if (this.currentLinkRange) {
+      const range = this.currentLinkRange;
       // Check if this cell is within the hovered link range
       const isInRange =
         (y === range.startY && x >= range.startX && (y < range.endY || x <= range.endX)) ||
@@ -1036,9 +1133,9 @@ export class CanvasRenderer {
   }
 
   /**
-   * Render cursor
+   * Render cursor at canvas row `y`, which shows screen row `screenRow` (webtty)
    */
-  private renderCursor(x: number, y: number): void {
+  private renderCursor(x: number, y: number, screenRow: number): void {
     const cursorX = x * this.metrics.width;
     const cursorY = y * this.metrics.height;
 
@@ -1050,13 +1147,20 @@ export class CanvasRenderer {
         this.ctx.fillRect(cursorX, cursorY, this.metrics.width, this.metrics.height);
         // Re-draw character under cursor with cursorAccent color
         {
-          const line = this.currentLine(y);
+          const line = this.currentLine(screenRow);
           if (line?.[x]) {
             this.ctx.save();
             this.ctx.beginPath();
             this.ctx.rect(cursorX, cursorY, this.metrics.width, this.metrics.height);
             this.ctx.clip();
-            this.renderCellText(line[x], x, y, this.theme.cursorAccent);
+            // The grapheme of the screen row, not of the canvas row (webtty, ADR 043)
+            this.renderCellText(
+              line[x],
+              x,
+              y,
+              this.theme.cursorAccent,
+              this.screenGraphemes(this.currentBuffer, screenRow)
+            );
             this.ctx.restore();
           }
         }
@@ -1181,15 +1285,18 @@ export class CanvasRenderer {
    * Render scrollbar (Phase 2)
    * Shows scroll position and allows click/drag interaction
    * @param opacity Opacity level (0-1) for fade in/out effect
+   * @param row The canvas row of viewport row 0: it is painted over the rows in view (webtty)
    */
   private renderScrollbar(
     viewportY: number,
     scrollbackLength: number,
     visibleRows: number,
-    opacity: number = 1
+    opacity: number = 1,
+    row: number = 0
   ): void {
     const ctx = this.ctx;
-    const canvasHeight = this.canvas.height / this.devicePixelRatio;
+    const top = row * this.metrics.height;
+    const canvasHeight = visibleRows * this.metrics.height;
     const canvasWidth = this.canvas.width / this.devicePixelRatio;
 
     // Scrollbar dimensions
@@ -1199,9 +1306,9 @@ export class CanvasRenderer {
     const scrollbarTrackHeight = canvasHeight - scrollbarPadding * 2;
 
     // Always clear the scrollbar area first (fixes ghosting when fading out)
-    ctx.clearRect(scrollbarX - 2, 0, scrollbarWidth + 6, canvasHeight);
+    ctx.clearRect(scrollbarX - 2, top, scrollbarWidth + 6, canvasHeight);
     ctx.fillStyle = this.theme.background;
-    ctx.fillRect(scrollbarX - 2, 0, scrollbarWidth + 6, canvasHeight);
+    ctx.fillRect(scrollbarX - 2, top, scrollbarWidth + 6, canvasHeight);
 
     // Don't draw scrollbar if fully transparent or no scrollback
     if (opacity <= 0 || scrollbackLength === 0) return;
@@ -1216,13 +1323,13 @@ export class CanvasRenderer {
 
     // Draw scrollbar track (subtle background) with opacity
     ctx.fillStyle = `rgba(128, 128, 128, ${0.1 * opacity})`;
-    ctx.fillRect(scrollbarX, scrollbarPadding, scrollbarWidth, scrollbarTrackHeight);
+    ctx.fillRect(scrollbarX, top + scrollbarPadding, scrollbarWidth, scrollbarTrackHeight);
 
     // Draw scrollbar thumb with opacity
     const isScrolled = viewportY > 0;
     const baseOpacity = isScrolled ? 0.5 : 0.3;
     ctx.fillStyle = `rgba(128, 128, 128, ${baseOpacity * opacity})`;
-    ctx.fillRect(scrollbarX, thumbY, scrollbarWidth, thumbHeight);
+    ctx.fillRect(scrollbarX, top + thumbY, scrollbarWidth, thumbHeight);
   }
   public getMetrics(): FontMetrics {
     return { ...this.metrics };
@@ -1232,7 +1339,45 @@ export class CanvasRenderer {
    * Get canvas element (needed by SelectionManager)
    */
   public getCanvas(): HTMLCanvasElement {
-    return this.canvas;
+    return this.element;
+  }
+
+  /**
+   * Sets the pixel offset below its whole line the viewport shows at, in CSS pixels
+   * snapped to device pixels, for pixel-smooth scrolling. The next frame moves what the
+   * element shows by it. (webtty, ADR 040, ADR 043)
+   */
+  public setScrollOffset(offset: number): void {
+    this.requestedScrollOffset = offset;
+  }
+
+  /**
+   * The offset the viewport is shown at, in CSS pixels: viewport row 0 starts
+   * this far below the element's top. Hit testing adds it. (webtty, ADR 043)
+   */
+  public get scrollOffset(): number {
+    return this.shownScrollOffset;
+  }
+
+  /**
+   * The canvas the rows are drawn on and the part of it in view, in canvas pixels; the
+   * rest is overscan. `lastLine` is the bottom pixel line of the viewport's last row,
+   * which at a fraction of a line is below the part in view. (webtty, ADR 043)
+   */
+  public get visibleArea(): {
+    canvas: HTMLCanvasElement;
+    y: number;
+    height: number;
+    lastLine: number;
+  } {
+    const dpr = this.devicePixelRatio;
+    const bottom = this.shownTop + this.shownScrollOffset + this.shownRows * this.metrics.height;
+    return {
+      canvas: this.canvas,
+      y: Math.round(this.shownTop * dpr),
+      height: this.shownRows * this.metrics.height * dpr,
+      lastLine: Math.round(bottom * dpr) - 1,
+    };
   }
 
   /**
@@ -1327,6 +1472,7 @@ export class CanvasRenderer {
     this.stopCursorBlink();
     this.stopWatchingDevicePixelRatio?.();
     this.canvas.removeEventListener('contextrestored', this.onContextRestored);
+    this.canvas.remove?.();
     // Free the scratch canvas' backing store
     this.scratch.width = 0;
     this.scratch.height = 0;

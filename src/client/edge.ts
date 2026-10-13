@@ -47,6 +47,18 @@ export function computeEdgeRects(
   };
 }
 
+/** A canvas and the rows of it in view, in canvas pixels. */
+export interface VisibleArea {
+  canvas: HTMLCanvasElement;
+  y: number;
+  height: number;
+  /**
+   * The bottom pixel line of the last row in view. At a fraction of a line the part in
+   * view ends inside that row, through its glyphs; its own last line is the background.
+   */
+  lastLine: number;
+}
+
 interface Strip {
   el: HTMLCanvasElement;
   ctx: CanvasRenderingContext2D;
@@ -89,8 +101,13 @@ export class EdgeExtender {
   constructor(
     private readonly container: HTMLElement,
     private readonly padding: number,
+    /**
+     * The canvas the terminal draws on and the part of it in view, in canvas pixels, when
+     * that is not the terminal canvas (ADR 043). Undefined: all of the terminal canvas.
+     */
+    private readonly visibleArea: () => VisibleArea | undefined = () => undefined,
   ) {
-    // Appended after the terminal canvas, so `querySelector('canvas')` still finds that one.
+    // Marked so the lookups of the terminal canvas skip them.
     for (const strip of [this.bottom, this.right]) {
       if (strip) container.append(strip.el);
     }
@@ -124,15 +141,21 @@ export class EdgeExtender {
 
   private readonly paint = (): void => {
     this.frame = null;
-    const src = this.terminalCanvas();
-    if (!src || src.width === 0 || src.height === 0) return;
+    const terminal = this.terminalCanvas();
+    const area =
+      this.visibleArea() ??
+      (terminal
+        ? { canvas: terminal, y: 0, height: terminal.height, lastLine: terminal.height - 1 }
+        : null);
+    const src = area?.canvas;
+    if (!area || !src || src.width === 0 || area.height === 0) return;
     if (this.bottom?.visible) {
       const { ctx, el } = this.bottom;
-      ctx.drawImage(src, 0, src.height - 1, src.width, 1, 0, 0, el.width, el.height);
+      ctx.drawImage(src, 0, area.lastLine, src.width, 1, 0, 0, el.width, el.height);
     }
     if (this.right?.visible) {
       const { ctx, el } = this.right;
-      ctx.drawImage(src, src.width - 1, 0, 1, src.height, 0, 0, el.width, el.height);
+      ctx.drawImage(src, src.width - 1, area.y, 1, area.height, 0, 0, el.width, el.height);
     }
     if (this.bottom?.visible || this.right?.visible) {
       this.frame = window.requestAnimationFrame(this.paint);

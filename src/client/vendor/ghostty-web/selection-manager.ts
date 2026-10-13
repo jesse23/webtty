@@ -364,6 +364,31 @@ export class SelectionManager {
   }
 
   /**
+   * The selection in viewport rows like getSelectionCoords, but not clamped to the
+   * viewport: rows above it are negative. The renderer also draws rows out of view.
+   * (webtty, ADR 043)
+   */
+  getSelectionRange(): SelectionCoordinates | null {
+    if (!this.selectionStart || !this.selectionEnd) return null;
+
+    let { col: startCol, absoluteRow: startAbsRow } = this.selectionStart;
+    let { col: endCol, absoluteRow: endAbsRow } = this.selectionEnd;
+
+    // Swap if selection goes backwards
+    if (startAbsRow > endAbsRow || (startAbsRow === endAbsRow && startCol > endCol)) {
+      [startCol, endCol] = [endCol, startCol];
+      [startAbsRow, endAbsRow] = [endAbsRow, startAbsRow];
+    }
+
+    return {
+      startCol,
+      startRow: this.absoluteRowToViewport(startAbsRow),
+      endCol,
+      endRow: this.absoluteRowToViewport(endAbsRow),
+    };
+  }
+
+  /**
    * Get dirty selection rows that need redraw (for clearing old highlight)
    */
   getDirtySelectionRows(): Set<number> {
@@ -852,7 +877,8 @@ export class SelectionManager {
     const metrics = this.renderer.getMetrics();
 
     const col = Math.floor(x / metrics.width);
-    const row = Math.floor(y / metrics.height);
+    // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
+    const row = Math.floor((y - this.renderer.scrollOffset) / metrics.height);
 
     // Clamp to terminal bounds
     return {
@@ -866,20 +892,9 @@ export class SelectionManager {
    * Returns coordinates in VIEWPORT space for rendering, clamped to visible area
    */
   private normalizeSelection(): SelectionCoordinates | null {
-    if (!this.selectionStart || !this.selectionEnd) return null;
-
-    let { col: startCol, absoluteRow: startAbsRow } = this.selectionStart;
-    let { col: endCol, absoluteRow: endAbsRow } = this.selectionEnd;
-
-    // Swap if selection goes backwards
-    if (startAbsRow > endAbsRow || (startAbsRow === endAbsRow && startCol > endCol)) {
-      [startCol, endCol] = [endCol, startCol];
-      [startAbsRow, endAbsRow] = [endAbsRow, startAbsRow];
-    }
-
-    // Convert to viewport coordinates
-    let startRow = this.absoluteRowToViewport(startAbsRow);
-    let endRow = this.absoluteRowToViewport(endAbsRow);
+    const range = this.getSelectionRange();
+    if (!range) return null;
+    let { startCol, startRow, endCol, endRow } = range;
 
     // Clamp to visible viewport range
     const dims = this.wasmTerm.getDimensions();

@@ -382,10 +382,9 @@ export class Terminal implements ITerminalCore {
     // Resize canvas to match new font metrics
     this.renderer.resize(this.cols, this.rows);
 
-    // Update canvas element dimensions to match renderer
+    // Update canvas element dimensions to match renderer. The element draws nothing: the
+    // renderer draws on a canvas of its own (webtty, ADR 043)
     const metrics = this.renderer.getMetrics();
-    this.canvas.width = metrics.width * this.cols;
-    this.canvas.height = metrics.height * this.rows;
     this.canvas.style.width = `${metrics.width * this.cols}px`;
     this.canvas.style.height = `${metrics.height * this.rows}px`;
 
@@ -604,7 +603,8 @@ export class Terminal implements ITerminalCore {
         }),
         getCanvasOffset: () => {
           const rect = canvas.getBoundingClientRect();
-          return { left: rect.left, top: rect.top };
+          // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
+          return { left: rect.left, top: rect.top + renderer.scrollOffset };
         },
       };
 
@@ -876,10 +876,9 @@ export class Terminal implements ITerminalCore {
       // Resize renderer
       this.renderer!.resize(cols, rows);
 
-      // Update canvas dimensions
+      // Update canvas dimensions. The element draws nothing: the renderer draws on a
+      // canvas of its own (webtty, ADR 043)
       const metrics = this.renderer!.getMetrics();
-      this.canvas!.width = metrics.width * cols;
-      this.canvas!.height = metrics.height * rows;
       this.canvas!.style.width = `${metrics.width * cols}px`;
       this.canvas!.style.height = `${metrics.height * rows}px`;
 
@@ -1634,7 +1633,10 @@ export class Terminal implements ITerminalCore {
     // Convert mouse coordinates to terminal cell position
     const rect = this.canvas.getBoundingClientRect();
     const x = Math.floor((e.clientX - rect.left) / this.renderer.charWidth);
-    const y = Math.floor((e.clientY - rect.top) / this.renderer.charHeight);
+    // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
+    const y = Math.floor(
+      (e.clientY - rect.top - this.renderer.scrollOffset) / this.renderer.charHeight
+    );
 
     // Get hyperlink_id directly from the cell at this position
     // Must account for viewportY (scrollback position)
@@ -1806,7 +1808,10 @@ export class Terminal implements ITerminalCore {
     // Get click position
     const rect = this.canvas.getBoundingClientRect();
     const x = Math.floor((e.clientX - rect.left) / this.renderer.charWidth);
-    const y = Math.floor((e.clientY - rect.top) / this.renderer.charHeight);
+    // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
+    const y = Math.floor(
+      (e.clientY - rect.top - this.renderer.scrollOffset) / this.renderer.charHeight
+    );
 
     // Calculate buffer row (same logic as processMouseMove)
     const viewportRow = y;
@@ -1869,7 +1874,10 @@ export class Terminal implements ITerminalCore {
       if (ticks === 0) return;
       const rect = this.canvas.getBoundingClientRect();
       const col = Math.max(1, Math.floor((e.clientX - rect.left) / metrics.width) + 1);
-      const row = Math.max(1, Math.floor((e.clientY - rect.top) / metrics.height) + 1);
+      const row = Math.max(
+        1,
+        Math.floor((e.clientY - rect.top - this.renderer!.scrollOffset) / metrics.height) + 1
+      );
       this.dataEmitter.fire(wheelSgr(ticks, col, row));
       return;
     }
@@ -1934,7 +1942,8 @@ export class Terminal implements ITerminalCore {
 
     const rect = this.canvas.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
-    const mouseY = e.clientY - rect.top;
+    // The scrollbar is painted over the rows in view (webtty, ADR 043)
+    const mouseY = e.clientY - rect.top - this.renderer.scrollOffset;
 
     // Calculate scrollbar dimensions (match renderer's logic)
     // Use rect dimensions which are already in CSS pixels
@@ -2013,7 +2022,7 @@ export class Terminal implements ITerminalCore {
     if (scrollbackLength === 0) return;
 
     const rect = this.canvas.getBoundingClientRect();
-    const mouseY = e.clientY - rect.top;
+    const mouseY = e.clientY - rect.top - this.renderer.scrollOffset;
 
     // Calculate how much the mouse moved
     const deltaY = mouseY - this.scrollbarDragStart;

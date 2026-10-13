@@ -189,6 +189,7 @@ function recordingCanvas(cellHeight: number) {
   const canvas = {
     getContext: () => ctx,
     style: {},
+    dataset: {},
     width: 0,
     height: 0,
     addEventListener: () => {},
@@ -220,16 +221,16 @@ describe('graphemes while scrolled', () => {
           getScrollbackGraphemeString: (o: number, c: number) =>
             term.getScrollbackGraphemeString(o, c),
         };
-        const renderer = new CanvasRenderer(canvas, { devicePixelRatio: 1 });
+        const renderer = new CanvasRenderer(canvas, { devicePixelRatio: 1, overscan: 1 });
         renderer.resize(30, 6);
         renderer.render(term, true, 3, provider);
-        // Canvas rows 0-2 show the last three scrollback lines (line i is the i-th
-        // written); rows 3-5 the top of the screen.
+        // Below the overscan row, canvas rows 1-3 show the last three scrollback lines
+        // (line i is the i-th written); rows 4-6 the top of the screen.
         for (let row = 0; row < 3; row++) {
-          expect(drawn.get(row)).toContain('e\u0301');
-          expect(drawn.get(row)?.join('')).toContain(` ${sb - 3 + row} `);
+          expect(drawn.get(row + 1)).toContain('e\u0301');
+          expect(drawn.get(row + 1)?.join('')).toContain(` ${sb - 3 + row} `);
         }
-        expect(drawn.get(3)).toContain('e\u0301');
+        expect(drawn.get(4)).toContain('e\u0301');
         term.free();
       } finally {
         globalThis.document = doc;
@@ -374,6 +375,7 @@ function rasterCanvas() {
   const canvas = {
     getContext: () => ctx,
     style: {},
+    dataset: {},
     addEventListener: (type: string, listener: () => void) => {
       if (type === 'contextrestored') restored.add(listener);
     },
@@ -405,32 +407,67 @@ function rasterCanvas() {
   return { canvas: canvas as unknown as HTMLCanvasElement, pixels: () => pixels, lose };
 }
 
-describe('whole-line scroll copies rows (ADR 043)', () => {
+describe('overscan and copied scrolls (ADR 043)', () => {
   const cols = 30;
   const rows = 8;
 
-  /** A fresh renderer on its own raster canvas, counting the rows it draws. */
+  /** A fresh renderer on its own raster canvas, counting the rows it draws and its copies. */
   function renderer(dpr: number, options: ConstructorParameters<typeof CanvasRenderer>[1] = {}) {
-    const raster = rasterCanvas();
+    const element = rasterCanvas();
+    const created: ReturnType<typeof rasterCanvas>[] = [];
     const doc = globalThis.document;
-    // Other canvases (font measuring, the scratch canvas) rasterise on their own
+    // The canvas the renderer draws on is the first it creates. The others (scratch, font
+    // measuring) rasterise on their own.
     globalThis.document = {
-      createElement: () => rasterCanvas().canvas,
+      createElement: () => {
+        const canvas = rasterCanvas();
+        created.push(canvas);
+        return canvas.canvas;
+      },
     } as unknown as Document;
     try {
-      const r = new CanvasRenderer(raster.canvas, { ...options, devicePixelRatio: dpr });
+      const r = new CanvasRenderer(element.canvas, { ...options, devicePixelRatio: dpr });
+      const raster = created[0];
       r.resize(cols, rows);
       const drawn: number[] = [];
-      const internals = r as unknown as { renderLine: (...args: unknown[]) => void };
+      let copies = 0;
+      const internals = r as unknown as {
+        renderLine: (...args: unknown[]) => void;
+        shiftRows: (...args: unknown[]) => void;
+      };
       const renderLine = internals.renderLine.bind(r);
       internals.renderLine = (...args: unknown[]) => {
         drawn.push(args[1] as number);
         renderLine(...args);
       };
-      return { r, pixels: raster.pixels, lose: raster.lose, drawn };
+      const shiftRows = internals.shiftRows.bind(r);
+      internals.shiftRows = (...args: unknown[]) => {
+        copies++;
+        shiftRows(...args);
+      };
+      /** The device pixels the element shows. */
+      const shown = () => {
+        const { y, height } = r.visibleArea;
+        const width = raster.canvas.width;
+        return raster.pixels().slice(y * width, (y + height) * width);
+      };
+      /** The device pixels of the line the bottom edge strip stretches. */
+      const lastLine = () => {
+        const width = raster.canvas.width;
+        const y = r.visibleArea.lastLine;
+        return raster.pixels().slice(y * width, (y + 1) * width);
+      };
+      return { r, shown, lastLine, lose: raster.lose, drawn, copies: () => copies };
     } finally {
       globalThis.document = doc;
     }
+  }
+
+  /** Splits a fractional position into viewportY and an offset snapped to device pixels. */
+  function split(position: number, cellHeight: number, dpr: number) {
+    const line = Math.floor(position);
+    const offset = Math.round((position - line) * cellHeight * dpr) / dpr;
+    return offset >= cellHeight ? { line: line + 1, offset: 0 } : { line, offset };
   }
 
   for (const [engine, wasm] of [
@@ -445,11 +482,14 @@ describe('whole-line scroll copies rows (ADR 043)', () => {
       for (let i = 0; i < 40; i++) {
         term.write(
           i % 3 === 0
-            ? `\x1b[3${i % 8}mline ${i} é g\x1b[0m\r\n`
+            ? `\x1b[3${i % 8}mline ${i} e\u0301 g\x1b[0m\r\n`
             : i % 3 === 1
               ? `\x1b[4${i % 8}m bg ${i} \x1b[0m 中 g\r\n`
-              : `plain ${i} á\r\n`,
+              : `plain ${i} a\u0301\r\n`,
         );
+        // OSC 8 links, two lines each
+        if (i % 7 === 0)
+          term.write(`\x1b]8;;https://x/${i % 2}\x1b\\link ${i}\r\nmore g\x1b]8;;\x1b\\\r\n`);
       }
       // The cursor mid-screen, so a scroll moves it onto another row in view.
       term.write('$ prompt\x1b[5;3H');
@@ -463,25 +503,306 @@ describe('whole-line scroll copies rows (ADR 043)', () => {
       return { term, provider };
     }
 
-    test(`each step draws only the rows that came into view and equals a full redraw (${engine})`, async () => {
-      const { term, provider } = await terminal();
-      for (const dpr of [1, 1.5]) {
-        const live = renderer(dpr);
-        live.r.render(term, true, 0, provider, 1);
-        for (const y of [1, 2, 5, 4, 0, 3, 10, 9, 17, 16, 0, 1]) {
-          const before = live.drawn.length;
-          const from = (live.r as unknown as { lastViewportY: number }).lastViewportY;
-          live.r.render(term, false, y, provider, 1);
-          const steps = Math.abs(y - from);
-          // The rows that came into view and the one their glyphs overflow into, the last
-          // row (scrolling up) and the row the old cursor moved to with the row below it.
-          expect(live.drawn.length - before).toBeLessThanOrEqual(steps + 4);
-          const full = renderer(dpr);
-          full.r.render(term, true, y, provider, 1);
-          expect(live.pixels()).toEqual(full.pixels());
+    type Term = Awaited<ReturnType<typeof terminal>>;
+
+    /**
+     * What the previous renderer showed at a position, drawn independently: the viewport
+     * as a screen of its own lines, nothing below it, and at a fraction of a line the
+     * bottom of the line above drawn on its own (ADR 040's strip). No scrollbar.
+     */
+    function previous({ term, provider }: Term, view: number, offset: number, dpr: number) {
+      const sb = provider.getScrollbackLength();
+      const source = (r: number) =>
+        r < view
+          ? {
+              line: provider.getScrollbackLine(sb - view + r),
+              grapheme: (c: number) => provider.getScrollbackGraphemeString(sb - view + r, c),
+            }
+          : {
+              line: term.getLine(r - view),
+              grapheme: (c: number) => term.getGraphemeString(r - view, c),
+            };
+      const screen = (from: number, count: number, cursor: boolean) => {
+        const lines = Array.from({ length: count }, (_, i) => source(from + i));
+        const t = renderer(dpr);
+        t.r.resize(cols, count);
+        t.r.render(
+          {
+            getLine: (y) => lines[y]?.line ?? null,
+            getGraphemeString: (y, c) => lines[y].grapheme(c),
+            getCursor: () => (cursor ? term.getCursor() : { x: 0, y: 0, visible: false }),
+            getDimensions: () => ({ cols, rows: count }),
+            isRowDirty: () => false,
+            clearDirty: () => {},
+          },
+          true,
+          0,
+        );
+        return t.shown();
+      };
+      const width = cols * 8 * dpr;
+      const cut = offset * dpr * width;
+      const viewport = screen(0, rows, view === 0);
+      if (!offset) return viewport;
+      const above = screen(-1, 1, false);
+      return [...above.slice(above.length - cut), ...viewport.slice(0, viewport.length - cut)];
+    }
+
+    test(`the rows in view equal the previous renderer at every position (${engine})`, async () => {
+      const t = await terminal();
+      const sb = t.provider.getScrollbackLength();
+      for (const [dpr, overscan] of [
+        [1, 3],
+        [2, 1],
+        [2, 2],
+        [2, undefined],
+      ] as const) {
+        const live = renderer(dpr, { overscan });
+        const h = live.r.getMetrics().height;
+        live.r.render(t.term, true, 0, t.provider, 0);
+        // Trackpad steps up and down, a jump past the overscan, line steps, the top
+        const positions = [
+          ...Array.from({ length: 24 }, (_, i) => i * 0.35),
+          18.6,
+          15.4,
+          ...Array.from({ length: 12 }, (_, i) => 15.4 - i * 0.45),
+          1,
+          2,
+          5,
+          4,
+          0,
+          3,
+          10,
+          9,
+          17,
+          16,
+          0.5,
+          0,
+          sb,
+          sb - 0.25,
+          sb - 7.75,
+          0,
+        ];
+        for (const p of positions) {
+          const { line, offset } = split(p, h, dpr);
+          live.r.setScrollOffset(offset);
+          live.r.render(t.term, false, line, t.provider, 0);
+          expect(live.r.scrollOffset).toBe(offset);
+          expect(live.shown()).toEqual(previous(t, line, offset, dpr));
+          // The bottom strip's line is the last row's own, at any fraction: not the
+          // glyphs the part in view ends on, offset above it.
+          const area = live.r.visibleArea;
+          expect(area.lastLine).toBe(area.y + area.height - 1 + offset * dpr);
+          const whole = previous(t, line, 0, dpr);
+          expect(live.lastLine()).toEqual(whole.slice(whole.length - cols * 8 * dpr));
+        }
+      }
+      t.term.free();
+    });
+
+    test(`an offset set for a taller cell shows at most a line (${engine})`, async () => {
+      const t = await terminal();
+      const live = renderer(2);
+      const h = live.r.getMetrics().height;
+      live.r.setScrollOffset(h + 6);
+      live.r.render(t.term, true, 3, t.provider, 0);
+      expect(live.r.scrollOffset).toBe(h - 0.5);
+      expect(live.shown()).toEqual(previous(t, 3, h - 0.5, 2));
+      t.term.free();
+    });
+
+    test(`random scrolls, output, selection, hover and scrollbar equal a full redraw (${engine})`, async () => {
+      const { term } = await terminal();
+      const provider = {
+        getScrollbackLine: (o: number) => term.getScrollbackLine(o),
+        getScrollbackLength: () => term.getScrollbackLength(),
+        getScrollbackGraphemeString: (o: number, c: number) =>
+          term.getScrollbackGraphemeString(o, c),
+      };
+      // A fixed pseudo-random sequence
+      let seed = 7;
+      const random = () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+      };
+      let view = 0;
+      let selection: {
+        startCol: number;
+        startLine: number;
+        endCol: number;
+        endLine: number;
+      } | null = null;
+      const manager = {
+        hasSelection: () => selection !== null,
+        getSelectionRange: () => {
+          if (!selection) return null;
+          const sb = term.getScrollbackLength();
+          return {
+            startCol: selection.startCol,
+            startRow: selection.startLine - sb + view,
+            endCol: selection.endCol,
+            endRow: selection.endLine - sb + view,
+          };
+        },
+        clearDirtySelectionRows: () => {},
+      } as unknown as Parameters<CanvasRenderer['setSelectionManager']>[0];
+      let range: { startX: number; startY: number; endX: number; endY: number } | null = null;
+      // The OSC 8 link ids, and none
+      const ids = new Set([0]);
+      for (let o = 0; o < term.getScrollbackLength(); o++) {
+        for (const cell of term.getScrollbackLine(o) ?? []) ids.add(cell.hyperlink_id);
+      }
+      const links = [...ids];
+      expect(links.length).toBeGreaterThan(1);
+      let hovered = 0;
+      for (const overscan of [1, 3]) {
+        const options = { overscan };
+        const live = renderer(2, options);
+        live.r.setSelectionManager(manager);
+        const h = live.r.getMetrics().height;
+        let position = 0;
+        let opacity = 1;
+        for (let step = 0; step < 500; step++) {
+          const sb = term.getScrollbackLength();
+          // Some steps also move, so a change can land on the frame that copies rows
+          const op = random();
+          if (op >= 0.45 && random() < 0.4) position += (random() - 0.5) * 10;
+          if (op < 0.45) position += (random() - 0.5) * (random() < 0.3 ? 14 : 4);
+          else if (op < 0.5) position = 0;
+          else if (op < 0.6) {
+            const i = Math.floor(random() * 30);
+            term.write(i % 2 ? `out ${i} e\u0301 g\r\n` : `\x1b[4${i % 8}m${i}\x1b[0m \u4e2d g`);
+          } else if (op < 0.7) opacity = opacity ? 0 : 1;
+          else if (op < 0.8) {
+            const line = Math.floor(random() * (sb + rows));
+            selection =
+              random() < 0.3
+                ? null
+                : {
+                    startCol: Math.floor(random() * cols),
+                    startLine: line,
+                    endCol: Math.floor(random() * cols),
+                    endLine: line + Math.floor(random() * 6),
+                  };
+          } else if (op < 0.9) {
+            const y = Math.floor(random() * rows);
+            range = random() < 0.3 ? null : { startX: 2, startY: y, endX: 6, endY: y };
+          } else {
+            hovered = links[Math.floor(random() * links.length)];
+          }
+          position = Math.max(0, Math.min(term.getScrollbackLength(), position));
+          const { line, offset } = split(position, h, 2);
+          view = line;
+          live.r.setHoveredLinkRange(range);
+          live.r.setHoveredHyperlinkId(hovered);
+          live.r.setScrollOffset(offset);
+          live.r.render(term, false, view, provider, opacity);
+          const full = renderer(2, options);
+          full.r.setSelectionManager(manager);
+          full.r.setHoveredLinkRange(range);
+          full.r.setHoveredHyperlinkId(hovered);
+          full.r.setScrollOffset(offset);
+          full.r.render(term, true, view, provider, opacity);
+          expect(live.shown()).toEqual(full.shown());
         }
       }
       term.free();
+    });
+
+    test(`a hovered link is repainted out of view too (${engine})`, async () => {
+      const { term, provider } = await terminal();
+      const live = renderer(2, { overscan: 4 });
+      live.r.render(term, true, 0, provider, 0);
+      // Each line in turn is the last row, then just below the viewport while the hover
+      // changes, then the last row again.
+      let hovered = 0;
+      for (let y = 0; y < 24; y++) {
+        live.r.render(term, false, y, provider, 0);
+        live.r.render(term, false, y + 1, provider, 0);
+        hovered = 1 - hovered;
+        live.r.setHoveredHyperlinkId(hovered);
+        live.r.render(term, false, y + 1, provider, 0);
+        live.r.render(term, false, y, provider, 0);
+        const full = renderer(2, { overscan: 4 });
+        full.r.setHoveredHyperlinkId(hovered);
+        full.r.render(term, true, y, provider, 0);
+        expect(live.shown()).toEqual(full.shown());
+      }
+      term.free();
+    });
+
+    test(`rows out of view follow output at the bottom (${engine})`, async () => {
+      const { term } = await terminal();
+      const provider = {
+        getScrollbackLine: (o: number) => term.getScrollbackLine(o),
+        getScrollbackLength: () => term.getScrollbackLength(),
+        getScrollbackGraphemeString: (o: number, c: number) =>
+          term.getScrollbackGraphemeString(o, c),
+      };
+      const live = renderer(2, { overscan: 4 });
+      live.r.render(term, true, 0, provider, 0);
+      // Draw the rows above the viewport, return, and let output (a new line, then a line
+      // changed in place) move the lines they show
+      for (const output of [
+        '\x1b[8;1H\r\nnew line e\u0301 g',
+        '\rsame line g\x1b[K',
+        '\r\n\x1b[41m\u4e2d\u4e2d\x1b[0m',
+      ]) {
+        for (const y of [3, 2, 1, 0]) live.r.render(term, false, y, provider, 0);
+        term.write(output);
+        live.r.render(term, false, 0, provider, 0);
+        for (const [y, offset] of [
+          [0, 7.5],
+          [2, 0],
+          [3, 0.5],
+        ]) {
+          live.r.setScrollOffset(offset);
+          live.r.render(term, false, y, provider, 0);
+          expect(live.shown()).toEqual(previous({ term, provider }, y, offset, 2));
+        }
+        live.r.setScrollOffset(0);
+      }
+      term.free();
+    });
+
+    test(`a scroll draws only the rows that came into view and the edges (${engine})`, async () => {
+      const t = await terminal();
+      const live = renderer(2, { overscan: 6 });
+      const h = live.r.getMetrics().height;
+      live.r.render(t.term, true, 0, t.provider, 1);
+      let view = 0;
+      for (const y of [1, 2, 5, 4, 0, 3, 10, 9, 17, 16, 0, 1]) {
+        const before = live.drawn.length;
+        live.r.render(t.term, false, y, t.provider, 1);
+        // The rows that came into view and the one their glyphs overflow into, the new
+        // last row, and the row the old cursor moved to with the row below it.
+        expect(live.drawn.length - before).toBeLessThanOrEqual(Math.abs(y - view) + 4);
+        view = y;
+      }
+      // Up and down within the overscan once its rows are drawn: no copy, and per line
+      // only the rows at the edges, which lose or gain what the line beyond draws into them
+      for (let p = 1; p <= 4; p += 0.25) {
+        const { line, offset } = split(p, h, 2);
+        live.r.setScrollOffset(offset);
+        live.r.render(t.term, false, line, t.provider, 1);
+      }
+      const copies = live.copies();
+      const before = live.drawn.length;
+      for (let p = 4; p >= 1; p -= 0.25) {
+        const { line, offset } = split(p, h, 2);
+        live.r.setScrollOffset(offset);
+        live.r.render(t.term, false, line, t.provider, 1);
+      }
+      expect(live.copies()).toBe(copies);
+      expect(live.drawn.length - before).toBeLessThanOrEqual(3 * 4 + 2);
+      // Frames at a fraction of a line with nothing else changed draw nothing
+      const still = live.drawn.length;
+      for (const offset of [0.5, 3, 7.5, 3]) {
+        live.r.setScrollOffset(offset);
+        live.r.render(t.term, false, 1, t.provider, 1);
+      }
+      expect(live.drawn.length).toBe(still);
+      t.term.free();
     });
 
     test(`a scrolled frame with nothing changed draws no row (${engine})`, async () => {
@@ -492,44 +813,73 @@ describe('whole-line scroll copies rows (ADR 043)', () => {
       const before = live.drawn.length;
       for (let i = 0; i < 3; i++) live.r.render(term, false, 6, provider, 1);
       expect(live.drawn.length).toBe(before);
-      // Dropping the scrollbar repaints every row, so none keeps the thumb.
+      // Dropping the scrollbar repaints the rows in view, so none keeps the thumb.
       live.r.render(term, false, 6, provider, 0);
       expect(live.drawn.length - before).toBe(rows);
       const full = renderer(2);
       full.r.render(term, true, 6, provider, 0);
-      expect(live.pixels()).toEqual(full.pixels());
+      expect(live.shown()).toEqual(full.shown());
       term.free();
     });
 
-    test(`selection, link underline and cursor follow a copied scroll (${engine})`, async () => {
+    test(`selection, link underline and cursor follow a scroll (${engine})`, async () => {
       const { term, provider } = await terminal();
       const sb = provider.getScrollbackLength();
       let view = 0;
-      // A selection anchored to buffer lines, as SelectionManager keeps it.
-      const selection = {
+      // A selection anchored to buffer lines, as SelectionManager keeps it, reaching past
+      // the viewport.
+      const first = { startCol: 3, startLine: sb - 4, endCol: 12, endLine: sb + 2 };
+      const second = { startCol: 0, startLine: sb - 12, endCol: 4, endLine: sb - 9 };
+      let selection = first;
+      const manager = {
         hasSelection: () => true,
-        getSelectionCoords: () => ({
-          startCol: 3,
-          startRow: sb - 4 - sb + view,
-          endCol: 12,
-          endRow: sb - 2 - sb + view,
+        getSelectionRange: () => ({
+          startCol: selection.startCol,
+          startRow: selection.startLine - sb + view,
+          endCol: selection.endCol,
+          endRow: selection.endLine - sb + view,
         }),
-        getDirtySelectionRows: () => new Set<number>(),
         clearDirtySelectionRows: () => {},
       } as unknown as Parameters<CanvasRenderer['setSelectionManager']>[0];
-      const range = { startX: 2, startY: 3, endX: 9, endY: 3 };
-      const live = renderer(2);
-      live.r.setSelectionManager(selection);
-      live.r.setHoveredLinkRange(range);
-      live.r.render(term, true, 0, provider, 1);
-      for (const y of [1, 3, 2, 0, 2, 7, 6]) {
-        view = y;
-        live.r.render(term, false, y, provider, 1);
-        const full = renderer(2);
-        full.r.setSelectionManager(selection);
-        full.r.setHoveredLinkRange(range);
-        full.r.render(term, true, y, provider, 1);
-        expect(live.pixels()).toEqual(full.pixels());
+      const range = { startX: 2, startY: 6, endX: 9, endY: 6 };
+      for (const overscan of [1, 4]) {
+        const options = { overscan, theme: { cursor: 'rgba(255, 0, 0, 0.3)' } };
+        const live = renderer(2, options);
+        live.r.setSelectionManager(manager);
+        live.r.setHoveredLinkRange(range);
+        live.r.render(term, true, 0, provider, 1);
+        selection = first;
+        for (const [y, offset, changed] of [
+          [1, 0],
+          [3, 0],
+          [3, 7.5],
+          [2, 0.5],
+          [0, 4],
+          [0, 0],
+          [2, 3],
+          [7, 0],
+          [9, 1],
+          [6, 0],
+          [6, 0, second],
+          [6, 2],
+          [11, 0],
+          // The selection changes on a frame that copies rows, with the old one still in view
+          [13, 0, first],
+          [12, 0, second],
+          [5, 3, first],
+          [0, 0],
+        ] as const) {
+          if (changed) selection = changed;
+          view = y;
+          live.r.setScrollOffset(offset);
+          live.r.render(term, false, view, provider, 1);
+          const full = renderer(2, options);
+          full.r.setSelectionManager(manager);
+          full.r.setHoveredLinkRange(range);
+          full.r.setScrollOffset(offset);
+          full.r.render(term, true, view, provider, 1);
+          expect(live.shown()).toEqual(full.shown());
+        }
       }
       term.free();
     });
@@ -553,10 +903,40 @@ describe('whole-line scroll copies rows (ADR 043)', () => {
           live.r.render(term, force, y, provider, 1);
           const full = renderer(2, { theme, cursorStyle });
           full.r.render(term, true, y, provider, 1);
-          expect(live.pixels()).toEqual(full.pixels());
+          expect(live.shown()).toEqual(full.shown());
         }
         live.r.dispose();
       }
+      term.free();
+    });
+
+    test(`the block cursor redraws the grapheme of its own screen row (${engine})`, async () => {
+      const ghostty = await Ghostty.load(wasm, engine);
+      const term = ghostty.createTerminal(cols, rows, { scrollbackLimit: 10000 });
+      // Every row starts with a cluster of its own, the cursor on a combining one
+      term.write(
+        Array.from({ length: rows }, (_, i) => `${'abcdefgh'[i]}\u0301\u0302 ${i}`).join('\r\n'),
+      );
+      term.write('\x1b[3;1H');
+      const provider = {
+        getScrollbackLine: (o: number) => term.getScrollbackLine(o),
+        getScrollbackLength: () => term.getScrollbackLength(),
+        getScrollbackGraphemeString: (o: number, c: number) =>
+          term.getScrollbackGraphemeString(o, c),
+      };
+      const live = renderer(2, { cursorStyle: 'block' });
+      const internals = live.r as unknown as { renderCellText: (...args: unknown[]) => void };
+      const renderCellText = internals.renderCellText.bind(live.r);
+      const accented: string[] = [];
+      internals.renderCellText = (...args: unknown[]) => {
+        // The cursor draws its character in the accent colour
+        if (args[3] !== undefined) accented.push((args[4] as (col: number) => string)(0));
+        renderCellText(...args);
+      };
+      live.r.render(term, true, 0, provider, 1);
+      expect(accented).toEqual([term.getGraphemeString(2, 0)]);
+      expect(accented[0]).toBe('c\u0301\u0302');
+      live.r.dispose();
       term.free();
     });
 
@@ -570,12 +950,12 @@ describe('whole-line scroll copies rows (ADR 043)', () => {
         live.r.render(term, false, y, provider, 1);
         const full = renderer(2);
         full.r.render(term, true, y, provider, 1);
-        expect(live.pixels()).toEqual(full.pixels());
+        expect(live.shown()).toEqual(full.shown());
         // Disposed, it no longer listens
         live.r.dispose();
         live.lose();
         live.r.render(term, false, y, provider, 1);
-        expect(live.pixels()).not.toEqual(full.pixels());
+        expect(live.shown()).not.toEqual(full.shown());
       }
       term.free();
     });

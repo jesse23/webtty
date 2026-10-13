@@ -97,12 +97,13 @@ if (paddingColor) {
   container.style.background = paddingColor;
 }
 await term.open(container);
-const edges = new EdgeExtender(container, config.padding);
+// The strips copy the edges of the part of the canvas in view (ADR 043).
+const edges = new EdgeExtender(container, config.padding, () => term.renderer?.visibleArea);
 // IME / dictation composition shows at the cursor in the theme's colours, not as a
 // stray line under the canvas. See ADR 038.
 new Composer(term, container, terminalTheme);
-// Pixel-smooth scrollback scrolling for trackpads. See ADR 040.
-const smoothScroll = new SmoothScroll(term, container);
+// Pixel-smooth scrollback scrolling for trackpads. See ADR 040 and ADR 043.
+const smoothScroll = new SmoothScroll(term);
 
 // FitAddon sizes the grid from the full container less its CSS padding, so the
 // padding is set to config.padding on every side first (#terminal is border-box, so
@@ -123,7 +124,7 @@ function fit(): void {
   // already sent the new cell pixels with resize; this sends them when only the
   // pixels changed, for the official engine's size reports (ADR 042).
   term.syncCellPixelSize();
-  const canvas = container.querySelector('canvas') as HTMLElement | null;
+  const canvas = container.querySelector('canvas:not([data-edge])') as HTMLElement | null;
   if (!canvas) return;
   const insets = computeInsets(
     Math.max(0, container.clientWidth - canvas.offsetWidth),

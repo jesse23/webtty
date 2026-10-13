@@ -582,7 +582,12 @@ export class KittyGraphics {
   }
 
   private terminalCanvas(): HTMLCanvasElement | null {
-    return this.container.querySelector('canvas:not([data-kitty])');
+    return this.container.querySelector('canvas:not([data-kitty]):not([data-edge])');
+  }
+
+  /** The pixel offset of pixel-smooth scrolling (ADR 040, ADR 043). */
+  private scrollOffset(): number {
+    return this.term.renderer?.scrollOffset ?? 0;
   }
 
   private tick = (): void => {
@@ -594,6 +599,7 @@ export class KittyGraphics {
     const signature = [
       this.scrollbackLength(),
       this.term.viewportY,
+      this.scrollOffset(),
       cell.width,
       cell.height,
       canvas.offsetLeft,
@@ -628,6 +634,8 @@ export class KittyGraphics {
     ctx.clearRect(0, 0, w, h);
 
     const topRow = this.scrollbackLength() - this.term.viewportY;
+    // Viewport row 0 starts the scroll offset below the canvas top (ADR 043)
+    const offset = this.scrollOffset();
     for (const p of this.placements.values()) {
       const img = this.images.get(p.imageId)?.bitmap;
       if (!img) continue;
@@ -647,7 +655,7 @@ export class KittyGraphics {
       const dw = span ? span.cols * cell.width : sw / p.scale.x;
       const dh = span ? span.rows * cell.height : sh / p.scale.y;
       const x = p.col * cell.width + p.offX / p.scale.x;
-      const y = (p.absRow - topRow) * cell.height + p.offY / p.scale.y;
+      const y = (p.absRow - topRow) * cell.height + p.offY / p.scale.y + offset;
       if (y + dh < 0 || y > h || x + dw < 0 || x > w) continue;
       ctx.drawImage(img, sx, sy, sw, sh, x, y, dw, dh);
     }
