@@ -79,6 +79,7 @@ const term = new Terminal({
   fontSize: config.fontSize,
   fontFamily: config.fontFamily,
   scrollback: Math.ceil(config.scrollback / 80),
+  mouseScrollSpeed: config.mouseScrollSpeed,
   theme: terminalTheme,
 });
 
@@ -237,52 +238,11 @@ function connect(): void {
 
 connect();
 
-// ghostty-web's Terminal.handleWheel sends \x1b[A/\x1b[B (arrow keys) on the
-// alternate screen regardless of mouse tracking state, moving the cursor instead
-// of scrolling. When the PTY application has enabled mouse tracking (e.g. vim
-// with `set mouse=a`), intercept wheel events and send the correct SGR mouse
-// scroll sequence so the app receives a scroll event, not a cursor move.
-// SGR button 64 = scroll up, 65 = scroll down. See ADR 017.
-//
-// config.mouseScrollSpeed scales SGR events per wheel tick (default 1).
-// Values < 1 reduce rate via accumulation; values > 1 send multiple SGRs.
-// The accumulator resets on direction change to prevent cross-direction bleed.
-//
-// Pixel deltas (trackpads, and mouse wheels in Chromium/Safari on macOS) count by
-// distance: one tick per cell height scrolled, 1:1 with the OS like native macOS
-// scrolling, and mouseScrollSpeed does not apply (Ghostty likewise skips its scroll
-// multiplier for precision scrolls). A trackpad fires many small events per swipe,
-// plus momentum, and counting each as a whole tick made apps scroll far ahead of the
-// fingers. Line and page deltas still count one tick per event, times
-// mouseScrollSpeed. See ADR 040.
-let scrollAccum = 0;
-let scrollDir = 0;
-term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
-  if (!term.hasMouseTracking()) return smoothScroll.handleWheel(e);
-  const metrics = term.renderer?.getMetrics();
-  if (!metrics) return false;
-  const dir = e.deltaY < 0 ? -1 : 1;
-  if (dir !== scrollDir) {
-    scrollAccum = 0;
-    scrollDir = dir;
-  }
-  scrollAccum +=
-    e.deltaMode === WheelEvent.DOM_DELTA_PIXEL
-      ? Math.abs(e.deltaY) / metrics.height
-      : config.mouseScrollSpeed;
-  const ticks = Math.trunc(scrollAccum);
-  if (ticks === 0) return true;
-  scrollAccum -= ticks;
-  const rect = (e.target as HTMLElement).getBoundingClientRect();
-  const col = Math.max(1, Math.floor((e.clientX - rect.left) / metrics.width) + 1);
-  const row = Math.max(1, Math.floor((e.clientY - rect.top) / metrics.height) + 1);
-  const btn = dir < 0 ? 64 : 65;
-  const seq = `\x1b[<${btn};${col};${row}M`;
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    for (let i = 0; i < ticks; i++) ws.send(seq);
-  }
-  return true;
-});
+// Pixel-smooth scrollback for the normal screen. When the app tracks the mouse, the
+// terminal reports wheel ticks to it as SGR scroll buttons (ADR 017, ADR 040).
+term.attachCustomWheelEventHandler(
+  (e: WheelEvent): boolean => !term.hasMouseTracking() && smoothScroll.handleWheel(e),
+);
 
 // Shared by the configured-binding listener below and the Ctrl+V paste
 // listener further down, so the latter can tell whether a user has already

@@ -93,6 +93,46 @@ export function decscusrShape(ps: number): CursorShape | undefined {
   };
 }
 
+/** Wheel travel not yet sent to a mouse-tracking app, and its direction. */
+export interface WheelAccumulator {
+  accum: number;
+  dir: number;
+}
+
+/**
+ * Scroll ticks a wheel event sends to an app that tracks the mouse: negative
+ * scrolls up (SGR button 64), positive down (65). Pixel deltas (trackpads, and
+ * mouse wheels in Chromium/Safari on macOS) count by distance, one tick per cell
+ * height, 1:1 with the OS, and `speed` does not apply (Ghostty skips its scroll
+ * multiplier for precision scrolls too). Line and page deltas count one tick per
+ * event times `speed`; below 1 the remainder accumulates. A direction change
+ * drops the remainder. (webtty: upstream sent arrow keys on the alternate screen
+ * and one SGR per event elsewhere, so trackpads scrolled far ahead of the fingers.)
+ */
+export function wheelTicks(
+  acc: WheelAccumulator,
+  e: Pick<WheelEvent, 'deltaY' | 'deltaMode'>,
+  cellHeight: number,
+  speed: number
+): number {
+  const dir = e.deltaY < 0 ? -1 : 1;
+  if (dir !== acc.dir) {
+    acc.accum = 0;
+    acc.dir = dir;
+  }
+  // 0 is WheelEvent.DOM_DELTA_PIXEL.
+  acc.accum += e.deltaMode === 0 ? Math.abs(e.deltaY) / cellHeight : speed;
+  const ticks = Math.trunc(acc.accum);
+  acc.accum -= ticks;
+  return ticks === 0 ? 0 : ticks * dir;
+}
+
+/** SGR mouse report for `ticks` wheel ticks at a 1-based cell. */
+export function wheelSgr(ticks: number, col: number, row: number): string {
+  const btn = ticks < 0 ? 64 : 65;
+  return `\x1b[<${btn};${col};${row}M`.repeat(Math.abs(ticks));
+}
+
 export class Terminal implements ITerminalCore {
   // Public properties (xterm.js compatibility)
   public cols: number;
@@ -171,6 +211,7 @@ export class Terminal implements ITerminalCore {
   private scrollAnimationStartY?: number;
   private scrollAnimationFrame?: number;
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
+  private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
   // DECSCUSR state: the app's cursor shape (undefined = options) and the
   // unfinished sequence at the end of the last write
@@ -208,6 +249,7 @@ export class Terminal implements ITerminalCore {
       convertEol: options.convertEol ?? false,
       disableStdin: options.disableStdin ?? false,
       smoothScrollDuration: options.smoothScrollDuration ?? 100, // Default: 100ms smooth scroll
+      mouseScrollSpeed: options.mouseScrollSpeed ?? 1,
     };
 
     // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)
@@ -1641,6 +1683,25 @@ export class Terminal implements ITerminalCore {
 
     // Allow custom handler to override
     if (this.customWheelEventHandler && this.customWheelEventHandler(e)) {
+      return;
+    }
+
+    // App tracks the mouse (e.g. vim `set mouse=a`): report scroll ticks as SGR
+    // buttons 64/65 at the cell under the pointer, on either screen.
+    if (this.wasmTerm?.hasMouseTracking()) {
+      const metrics = this.renderer?.getMetrics();
+      if (!metrics || !this.canvas) return;
+      const ticks = wheelTicks(
+        this.wheelAccumulator,
+        e,
+        metrics.height,
+        this.options.mouseScrollSpeed
+      );
+      if (ticks === 0) return;
+      const rect = this.canvas.getBoundingClientRect();
+      const col = Math.max(1, Math.floor((e.clientX - rect.left) / metrics.width) + 1);
+      const row = Math.max(1, Math.floor((e.clientY - rect.top) / metrics.height) + 1);
+      this.dataEmitter.fire(wheelSgr(ticks, col, row));
       return;
     }
 

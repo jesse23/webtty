@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { decscusrShape, mouseCursorFor, scanDecscusr } from './ghostty-web/terminal';
+import {
+  decscusrShape,
+  mouseCursorFor,
+  scanDecscusr,
+  type WheelAccumulator,
+  wheelSgr,
+  wheelTicks,
+} from './ghostty-web/terminal';
 import type { ILink } from './ghostty-web/types';
 
 describe('mouseCursorFor', () => {
@@ -96,5 +103,58 @@ describe('scanDecscusr', () => {
     expect(scanDecscusr('\x1b[6 q').carry).toBe('');
     expect(scanDecscusr('\x1b[6m').carry).toBe('');
     expect(scanDecscusr('\x1b[6 x').carry).toBe('');
+  });
+});
+
+describe('wheelTicks', () => {
+  const fresh = (): WheelAccumulator => ({ accum: 0, dir: 0 });
+  const PIXEL = 0;
+  const LINE = 1;
+  const PAGE = 2;
+
+  test('a line delta is one tick per event, down positive and up negative', () => {
+    const acc = fresh();
+    expect(wheelTicks(acc, { deltaY: 3, deltaMode: LINE }, 14, 1)).toBe(1);
+    expect(wheelTicks(acc, { deltaY: -3, deltaMode: LINE }, 14, 1)).toBe(-1);
+  });
+
+  test('a page delta is one tick per event too', () => {
+    expect(wheelTicks(fresh(), { deltaY: 1, deltaMode: PAGE }, 14, 1)).toBe(1);
+  });
+
+  test('speed above 1 sends several ticks per line event', () => {
+    expect(wheelTicks(fresh(), { deltaY: 3, deltaMode: LINE }, 14, 3)).toBe(3);
+  });
+
+  test('speed below 1 accumulates across events', () => {
+    const acc = fresh();
+    expect(wheelTicks(acc, { deltaY: 3, deltaMode: LINE }, 14, 0.5)).toBe(0);
+    expect(wheelTicks(acc, { deltaY: 3, deltaMode: LINE }, 14, 0.5)).toBe(1);
+    expect(wheelTicks(acc, { deltaY: 3, deltaMode: LINE }, 14, 0.5)).toBe(0);
+  });
+
+  test('pixel deltas count one tick per cell height, ignoring speed', () => {
+    const acc = fresh();
+    expect(wheelTicks(acc, { deltaY: 7, deltaMode: PIXEL }, 14, 3)).toBe(0);
+    expect(wheelTicks(acc, { deltaY: 7, deltaMode: PIXEL }, 14, 3)).toBe(1);
+    expect(wheelTicks(acc, { deltaY: -42, deltaMode: PIXEL }, 14, 3)).toBe(-3);
+  });
+
+  test('a direction change drops the remainder', () => {
+    const acc = fresh();
+    expect(wheelTicks(acc, { deltaY: 10, deltaMode: PIXEL }, 14, 1)).toBe(0);
+    expect(wheelTicks(acc, { deltaY: -10, deltaMode: PIXEL }, 14, 1)).toBe(0);
+    expect(wheelTicks(acc, { deltaY: -4, deltaMode: PIXEL }, 14, 1)).toBe(-1);
+    expect(wheelTicks(acc, { deltaY: 10, deltaMode: PIXEL }, 14, 1)).toBe(0);
+  });
+});
+
+describe('wheelSgr', () => {
+  test('scroll up is button 64 at the cell', () => {
+    expect(wheelSgr(-1, 5, 3)).toBe('\x1b[<64;5;3M');
+  });
+
+  test('scroll down is button 65, one report per tick', () => {
+    expect(wheelSgr(2, 1, 1)).toBe('\x1b[<65;1;1M\x1b[<65;1;1M');
   });
 });

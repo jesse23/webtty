@@ -59,7 +59,7 @@ src/client/vendor/
 1. Reads `sessionId` from `window.location.pathname` (`/s/main` → `main`)
 2. Fetches `GET /api/config` to get terminal config
 3. Sets `document.title = sessionId + ' | webtty'`
-4. Loads `/ghostty-vt.wasm` and initialises the vendored ghostty-web `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, theme, copyOnSelect, rightClickBehavior)
+4. Loads `/ghostty-vt.wasm` and initialises the vendored ghostty-web `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback, mouseScrollSpeed, theme, copyOnSelect, rightClickBehavior)
 5. Connects to `ws://<host>/ws/:id?cols=<cols>&rows=<rows>` over WebSocket
 6. Fits the terminal to the viewport from the full container size (no scrollbar reserve, see ADR 033) and observes resize events
 7. Sends a `{ type: 'resize', cols, rows }` JSON message on open and on every terminal resize
@@ -73,7 +73,7 @@ src/client/vendor/
 {
   cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollback,
   theme, copyOnSelect, rightClickBehavior,
-  mouseScrollSpeed,       // used by the custom wheel handler, not passed to Terminal constructor
+  mouseScrollSpeed,       // Terminal option: SGR wheel ticks per line/page event when the app tracks the mouse
   padding,                // px around the canvas, used by fit(); coloured by theme.padding or theme.background
   keyboardBindings        // used by the keydown capture handler, not passed to Terminal constructor
 }
@@ -190,7 +190,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Official libghostty-vt wasm | The terminal runs on Ghostty's official, unpatched libghostty-vt wasm (pinned, sha256- and signature-checked) with current Ghostty parsing and query replies; `?engine=coder` falls back to the old engine until it is removed | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Scrollback in lines | Terminal history keeps the configured number of lines (`scrollbackLines`, default 10,000) up to a 32 MiB ceiling, instead of a few hundred rows | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Smooth scroll via `OVERSCAN` | Pixel-smooth scrollback draws the rows Ghostty's render state provides above and below the viewport, replacing ADR 040's strip canvas | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
-| Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), wheel events are forwarded as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
+| Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), the terminal forwards wheel events as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md), [ADR 041](../adrs/041.client.libghostty-vt.md) | ✅ |
 | Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.key-bindings.config-support.md) | ✅ |
 | Canvas gap fill | After each fit, distribute the gap between the container and canvas as symmetric padding so the canvas is centred at the new size | [ADR 022](../adrs/022.client.canvas-fill.md) | ✅ |
 | Font-size zoom | `Ctrl/Cmd` + `=`/`-`/`0` adjust terminal font size in-session; not configurable; same shortcuts as VS Code | [ADR 023](../adrs/023.client.font-size-zoom.md) | ✅ |
