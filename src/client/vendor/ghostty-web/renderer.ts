@@ -18,6 +18,11 @@ import { CellFlags } from './types';
 // Interface for objects that can be rendered
 export interface IRenderable {
   getLine(y: number): GhosttyCell[] | null;
+  /**
+   * All viewport cells, row-major, read in one call. The array may be reused by
+   * the next call, so rows taken from it are only valid until then.
+   */
+  getViewport?(): GhosttyCell[];
   getCursor(): { x: number; y: number; visible: boolean };
   getDimensions(): { cols: number; rows: number };
   isRowDirty(y: number): boolean;
@@ -87,6 +92,25 @@ export function watchDevicePixelRatio(
   return () => stop();
 }
 
+/**
+ * Returns a row reader for one frame. When the buffer has getViewport, the
+ * viewport is read once, on the first row asked for, and every row is a slice of
+ * that snapshot; getLine copies and parses the whole viewport on each call.
+ */
+export function frameLines(
+  buffer: Pick<IRenderable, 'getLine' | 'getViewport'>,
+  cols: number,
+  rows: number
+): (y: number) => GhosttyCell[] | null {
+  if (!buffer.getViewport) return (y) => buffer.getLine(y);
+  let viewport: GhosttyCell[] | null = null;
+  return (y) => {
+    if (y < 0 || y >= rows) return null;
+    viewport ??= buffer.getViewport!();
+    return viewport.slice(y * cols, (y + 1) * cols);
+  };
+}
+
 export interface FontMetrics {
   width: number; // Character cell width in CSS pixels
   height: number; // Character cell height in CSS pixels
@@ -151,6 +175,8 @@ export class CanvasRenderer {
 
   // Current buffer being rendered (for grapheme lookups)
   private currentBuffer: IRenderable | null = null;
+  // Row reader for the current render pass (one viewport read per frame)
+  private currentLine: (y: number) => GhosttyCell[] | null = () => null;
 
   // Selection manager (for rendering selection)
   private selectionManager?: SelectionManager;
@@ -330,6 +356,8 @@ export class CanvasRenderer {
     // Multiple update() calls are safe - dirty state persists until clearDirty().
     const cursor = buffer.getCursor();
     const dims = buffer.getDimensions();
+    const getLine = frameLines(buffer, dims.cols, dims.rows);
+    this.currentLine = getLine;
     const scrollbackLength = scrollbackProvider ? scrollbackProvider.getScrollbackLength() : 0;
 
     // Check if buffer needs full redraw (e.g., screen change between normal/alternate)
@@ -360,7 +388,7 @@ export class CanvasRenderer {
       // Mark cursor lines as needing redraw
       if (!forceAll && !buffer.isRowDirty(cursor.y)) {
         // Need to redraw cursor line
-        const line = buffer.getLine(cursor.y);
+        const line = getLine(cursor.y);
         if (line) {
           this.renderLine(line, cursor.y, dims.cols);
         }
@@ -368,7 +396,7 @@ export class CanvasRenderer {
       if (cursorMoved && this.lastCursorPosition.y !== cursor.y) {
         // Also redraw old cursor line if cursor moved to different line
         if (!forceAll && !buffer.isRowDirty(this.lastCursorPosition.y)) {
-          const line = buffer.getLine(this.lastCursorPosition.y);
+          const line = getLine(this.lastCursorPosition.y);
           if (line) {
             this.renderLine(line, this.lastCursorPosition.y, dims.cols);
           }
@@ -426,11 +454,11 @@ export class CanvasRenderer {
           } else {
             // This row is from visible screen
             const screenRow = y - Math.floor(viewportY);
-            line = buffer.getLine(screenRow);
+            line = getLine(screenRow);
           }
         } else {
           // At bottom - fetch from visible screen
-          line = buffer.getLine(y);
+          line = getLine(y);
         }
 
         if (line) {
@@ -518,11 +546,11 @@ export class CanvasRenderer {
         } else {
           // This row is from visible screen (lower part of viewport)
           const screenRow = viewportY > 0 ? y - Math.floor(viewportY) : y;
-          line = buffer.getLine(screenRow);
+          line = getLine(screenRow);
         }
       } else {
         // At bottom - fetch from visible screen
-        line = buffer.getLine(y);
+        line = getLine(y);
       }
 
       if (line) {
@@ -780,7 +808,7 @@ export class CanvasRenderer {
         this.ctx.fillRect(cursorX, cursorY, this.metrics.width, this.metrics.height);
         // Re-draw character under cursor with cursorAccent color
         {
-          const line = this.currentBuffer?.getLine(y);
+          const line = this.currentLine(y);
           if (line?.[x]) {
             this.ctx.save();
             this.ctx.beginPath();
