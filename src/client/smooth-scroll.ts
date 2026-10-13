@@ -12,6 +12,9 @@
  * sliding into view. At a whole-line position there is no offset, so a resting
  * terminal renders exactly as before.
  *
+ * A mouse wheel notch glides to its target instead of jumping there (ADR 045);
+ * trackpad deltas apply at once.
+ *
  * Only the normal screen's scrollback scrolls this way. On the alternate screen, or
  * when the app tracks the mouse, the app moves its own view in whole lines.
  */
@@ -44,9 +47,72 @@ export function wheelLines(
   return e.deltaY / cellHeight;
 }
 
+/** How long a mouse wheel notch glides to its target: VS Code's `smoothScrollDuration`. */
+export const WHEEL_GLIDE_MS = 125;
+
+/**
+ * Tells a physical mouse wheel from a trackpad by its recent pixel deltas.
+ * Adapted from VS Code's `MouseWheelClassifier` (scrollableElement.ts),
+ * Copyright (c) Microsoft Corporation, MIT License.
+ */
+export class WheelClassifier {
+  private static readonly CAPACITY = 5;
+  /** Scores of the latest events, newest last: 0 looks like a wheel, 1 like a trackpad. */
+  private scores: number[] = [];
+  private previous: { deltaX: number; deltaY: number } | null = null;
+
+  accept(deltaX: number, deltaY: number): void {
+    this.scores.push(this.score(deltaX, deltaY));
+    if (this.scores.length > WheelClassifier.CAPACITY) this.scores.shift();
+    this.previous = { deltaX, deltaY };
+  }
+
+  /** The newest score weighs 1/2, the next 1/4, and so on; the oldest takes the rest. */
+  isPhysicalMouseWheel(): boolean {
+    if (this.scores.length === 0) return false;
+    let remaining = 1;
+    let total = 0;
+    for (let i = this.scores.length - 1; i >= 0; i--) {
+      const influence = i === 0 ? remaining : 2 ** -(this.scores.length - i);
+      remaining -= influence;
+      total += this.scores[i] * influence;
+    }
+    return total <= 0.5;
+  }
+
+  private score(deltaX: number, deltaY: number): number {
+    // Both axes at once: a trackpad.
+    if (deltaX !== 0 && deltaY !== 0) return 1;
+    let score = 0.5;
+    if (!isAlmostInt(deltaX) || !isAlmostInt(deltaY)) score += 0.25;
+    // A wheel's notches are multiples of each other; a trackpad accelerates smoothly.
+    const prev = this.previous;
+    if (prev) {
+      const [ax, ay] = [Math.abs(deltaX), Math.abs(deltaY)];
+      const [px, py] = [Math.abs(prev.deltaX), Math.abs(prev.deltaY)];
+      const minX = Math.max(Math.min(ax, px), 1);
+      const minY = Math.max(Math.min(ay, py), 1);
+      if (Math.max(ax, px) % minX === 0 && Math.max(ay, py) % minY === 0) score -= 0.5;
+    }
+    return Math.min(Math.max(score, 0), 1);
+  }
+}
+
+function isAlmostInt(value: number): boolean {
+  return Math.abs(Math.round(value) - value) < 0.01 + Number.EPSILON * 100;
+}
+
+function easeOutCubic(t: number): number {
+  return 1 - (1 - t) ** 3;
+}
+
 export class SmoothScroll {
   /** Lines scrolled up from the bottom; fractional between rows. */
   private position = 0;
+  private readonly classifier = new WheelClassifier();
+  /** A mouse wheel glide in progress: positions and its start time. */
+  private glide: { from: number; to: number; start: number } | null = null;
+  private frame = 0;
 
   constructor(private readonly term: Terminal) {
     // ghostty-web moves the viewport itself on new output (to the bottom), keyboard
@@ -62,9 +128,15 @@ export class SmoothScroll {
     if (this.term.wasmTerm?.isAlternateScreen()) return false;
     const metrics = this.term.renderer?.getMetrics();
     if (!metrics) return false;
-    const max = this.term.getScrollbackLength();
     const lines = wheelLines(e, metrics.height, this.term.rows);
-    this.position = Math.max(0, Math.min(max, this.position - lines));
+    if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
+    if (e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel()) {
+      // A notch during a glide adds to where the glide is heading.
+      this.glideTo(this.clamp((this.glide?.to ?? this.position) - lines));
+      return true;
+    }
+    this.stopGlide();
+    this.position = this.clamp(this.position - lines);
     this.apply();
     return true;
   }
@@ -83,9 +155,37 @@ export class SmoothScroll {
   }
 
   private jump(line: number): void {
+    this.stopGlide();
     this.position = line;
     this.apply();
   }
+
+  private clamp(position: number): number {
+    return Math.max(0, Math.min(this.term.getScrollbackLength(), position));
+  }
+
+  private glideTo(to: number): void {
+    this.glide = { from: this.position, to, start: performance.now() };
+    if (!this.frame) this.frame = window.requestAnimationFrame(this.step);
+  }
+
+  private stopGlide(): void {
+    this.glide = null;
+    if (this.frame) window.cancelAnimationFrame(this.frame);
+    this.frame = 0;
+  }
+
+  private readonly step = (now: number): void => {
+    this.frame = 0;
+    const glide = this.glide;
+    if (!glide) return;
+    // A frame's timestamp can precede the glide's start by part of a frame.
+    const t = Math.min(1, Math.max(0, (now - glide.start) / WHEEL_GLIDE_MS));
+    this.position = this.clamp(glide.from + (glide.to - glide.from) * easeOutCubic(t));
+    if (t < 1) this.frame = window.requestAnimationFrame(this.step);
+    else this.glide = null;
+    this.apply();
+  };
 
   private apply(): void {
     const renderer = this.term.renderer;

@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { SmoothScroll, splitScroll, wheelLines } from './smooth-scroll';
+import {
+  SmoothScroll,
+  splitScroll,
+  WHEEL_GLIDE_MS,
+  WheelClassifier,
+  wheelLines,
+} from './smooth-scroll';
 import type { Terminal } from './vendor/ghostty-web';
 
 describe('splitScroll', () => {
@@ -89,7 +95,8 @@ describe('SmoothScroll', () => {
     try {
       g.window = { devicePixelRatio: 1 };
       const { term, metrics, offsets, scroll } = fake(14);
-      scroll.handleWheel(wheel(-14 * 2.5));
+      // A fractional delta, so the trackpad path applies it at once: 2.518 lines.
+      scroll.handleWheel(wheel(-14 * 2.5 - 0.25));
       expect(offsets.at(-1)).toBe(7);
       metrics.height = 20;
       scroll.update();
@@ -98,5 +105,140 @@ describe('SmoothScroll', () => {
     } finally {
       g.window = saved;
     }
+  });
+
+  describe('mouse wheel glide', () => {
+    function withFrames(run: (tick: (ms: number) => void) => void) {
+      const g = globalThis as { window?: unknown; performance?: unknown };
+      const [savedWindow, savedPerformance] = [g.window, g.performance];
+      let now = 0;
+      let pending: ((t: number) => void) | null = null;
+      g.window = {
+        devicePixelRatio: 1,
+        requestAnimationFrame: (cb: (t: number) => void) => {
+          pending = cb;
+          return 1;
+        },
+        cancelAnimationFrame: () => {
+          pending = null;
+        },
+      };
+      g.performance = { now: () => now };
+      try {
+        run((ms) => {
+          now += ms;
+          const cb = pending;
+          pending = null;
+          cb?.(now);
+        });
+      } finally {
+        g.window = savedWindow;
+        g.performance = savedPerformance;
+      }
+    }
+    const notch = (deltaY: number) => ({ deltaX: 0, deltaY, deltaMode: 0 }) as WheelEvent;
+
+    test('a notch glides to its target instead of jumping', () => {
+      withFrames((tick) => {
+        const { term, offsets, scroll } = fake(10);
+        scroll.handleWheel(notch(-40));
+        expect(term.viewportY).toBe(0);
+        expect(offsets).toEqual([]);
+        tick(WHEEL_GLIDE_MS / 2);
+        // Ease-out cubic at t = 0.5: 0.875 of 4 lines.
+        expect(term.viewportY).toBe(3);
+        expect(offsets.at(-1)).toBe(5);
+        tick(WHEEL_GLIDE_MS);
+        expect(term.viewportY).toBe(4);
+        expect(offsets.at(-1)).toBe(0);
+      });
+    });
+
+    test('a notch during a glide adds to its target', () => {
+      withFrames((tick) => {
+        const { term, scroll } = fake(10);
+        scroll.handleWheel(notch(-40));
+        tick(WHEEL_GLIDE_MS / 2);
+        scroll.handleWheel(notch(-40));
+        tick(WHEEL_GLIDE_MS);
+        expect(term.viewportY).toBe(8);
+      });
+    });
+
+    test('line deltas glide too', () => {
+      withFrames((tick) => {
+        const { term, scroll } = fake(10);
+        scroll.handleWheel({ deltaX: 0, deltaY: -3, deltaMode: 1 } as WheelEvent);
+        expect(term.viewportY).toBe(0);
+        tick(WHEEL_GLIDE_MS);
+        expect(term.viewportY).toBe(3);
+      });
+    });
+
+    test('a trackpad delta stops the glide where it is', () => {
+      withFrames((tick) => {
+        const { term, offsets, scroll } = fake(10);
+        scroll.handleWheel(notch(-40));
+        tick(WHEEL_GLIDE_MS / 2);
+        scroll.handleWheel({ deltaX: 0.5, deltaY: -0.5, deltaMode: 0 } as WheelEvent);
+        const [line, offset] = [term.viewportY, offsets.at(-1)];
+        tick(WHEEL_GLIDE_MS);
+        expect([term.viewportY, offsets.at(-1)]).toEqual([line, offset]);
+      });
+    });
+
+    test('the glide stops at the top of scrollback', () => {
+      withFrames((tick) => {
+        const { term, scroll } = fake(10);
+        scroll.handleWheel(notch(-10_000));
+        tick(WHEEL_GLIDE_MS);
+        expect(term.viewportY).toBe(100);
+      });
+    });
+  });
+});
+
+describe('WheelClassifier', () => {
+  const feed = (deltas: [number, number][]) => {
+    const c = new WheelClassifier();
+    for (const [x, y] of deltas) c.accept(x, y);
+    return c.isPhysicalMouseWheel();
+  };
+
+  test('steady integer notches are a wheel', () => {
+    expect(
+      feed([
+        [0, 4],
+        [0, 4],
+        [0, 8],
+        [0, 4],
+      ]),
+    ).toBe(true);
+  });
+
+  test('fractional, accelerating deltas are a trackpad', () => {
+    expect(
+      feed([
+        [0, 1.5],
+        [0, 3.25],
+        [0, 7.75],
+        [0, 12.5],
+      ]),
+    ).toBe(false);
+  });
+
+  test('both axes at once are a trackpad', () => {
+    expect(
+      feed([
+        [0, 4],
+        [0, 4],
+        [1, 4],
+        [2, 6],
+      ]),
+    ).toBe(false);
+  });
+
+  test('no events is not a wheel', () => {
+    expect(new WheelClassifier().isPhysicalMouseWheel()).toBe(false);
   });
 });
