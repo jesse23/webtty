@@ -22,13 +22,18 @@ export function spawn(
 ): PtyProcess {
   let onDataCb: ((data: string) => void) | undefined;
   let onExitCb: ((e: { exitCode: number }) => void) | undefined;
+  // One streaming decoder per PTY: a read can end mid-character, and decoding each
+  // chunk on its own turns both halves of a split multi-byte character (e.g. `─`)
+  // into U+FFFD. The decoder holds the partial bytes until the rest arrives.
+  const decoder = new TextDecoder();
 
   const proc = Bun.spawn([shell], {
     terminal: {
       cols,
       rows,
       data(_term: unknown, data: Uint8Array) {
-        onDataCb?.(Buffer.from(data).toString('utf8'));
+        const text = decoder.decode(data, { stream: true });
+        if (text) onDataCb?.(text);
       },
     },
     cwd,

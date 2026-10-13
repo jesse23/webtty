@@ -1,4 +1,7 @@
 import { describe, expect, test } from 'bun:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { spawnForSession } from './index';
 
 function waitForData(received: string[], content: string, timeout = 3000): Promise<void> {
@@ -74,4 +77,36 @@ describe('spawnForSession', () => {
     await new Promise<void>((resolve) => pty.onExit(() => resolve()));
     expect(received.join('')).toContain('hello-pty');
   });
+
+  test.skipIf(process.platform === 'win32')(
+    'multi-byte characters split across reads arrive intact',
+    async () => {
+      // `cat` writes in fixed-size blocks, so 3-byte `─` characters after a 1-byte
+      // prefix straddle block (and read) boundaries.
+      const file = path.join(os.tmpdir(), `webtty-pty-mb-${process.pid}.txt`);
+      fs.writeFileSync(file, `x${'─'.repeat(100_000)}\n`);
+      const pty = spawnForSession(
+        80,
+        24,
+        TEST_SHELL,
+        'xterm-256color',
+        'truecolor',
+        process.cwd(),
+        {},
+      );
+      const received: string[] = [];
+      pty.onData((d) => received.push(d));
+      pty.write(`cat '${file}'; echo DONE-$((40+2))\n`);
+      try {
+        await waitForData(received, 'DONE-42', 15000);
+      } finally {
+        pty.kill();
+        fs.rmSync(file, { force: true });
+      }
+      const out = received.join('');
+      expect(out.split('\uFFFD').length - 1).toBe(0);
+      expect(out.split('─').length - 1).toBe(100_000);
+    },
+    20000,
+  );
 });
