@@ -46,7 +46,12 @@ export interface IRenderable {
 export interface IScrollbackProvider {
   getScrollbackLine(offset: number): GhosttyCell[] | null;
   getScrollbackLength(): number;
+  /** Full grapheme string for a scrollback cell, as getGraphemeString for screen rows. */
+  getScrollbackGraphemeString?(offset: number, col: number): string;
 }
+
+/** Looks up the full grapheme string for a column of the line being drawn. */
+export type GraphemeLookup = (col: number) => string;
 
 // ============================================================================
 // Type Definitions
@@ -543,8 +548,10 @@ export class CanvasRenderer {
 
       anyLinesRendered = true;
 
-      // Fetch line from scrollback or visible screen
+      // Fetch line from scrollback or visible screen. Graphemes are looked up in the
+      // same source: canvas row y is not screen row y while scrolled. (webtty)
       let line: GhosttyCell[] | null = null;
+      let grapheme: GraphemeLookup | undefined;
       if (viewportY > 0) {
         // Scrolled up - need to fetch from scrollback + visible screen
         // When scrolled up N lines, we want to show:
@@ -557,10 +564,12 @@ export class CanvasRenderer {
           // Floor viewportY for array access (handles fractional values during smooth scroll)
           const scrollbackOffset = scrollbackLength - Math.floor(viewportY) + y;
           line = scrollbackProvider.getScrollbackLine(scrollbackOffset);
+          grapheme = this.scrollbackGraphemes(scrollbackProvider, scrollbackOffset);
         } else {
           // This row is from visible screen (lower part of viewport)
           const screenRow = viewportY > 0 ? y - Math.floor(viewportY) : y;
           line = getLine(screenRow);
+          grapheme = this.screenGraphemes(buffer, screenRow);
         }
       } else {
         // At bottom - fetch from visible screen
@@ -568,7 +577,7 @@ export class CanvasRenderer {
       }
 
       if (line) {
-        this.renderLine(line, y, dims.cols);
+        this.renderLine(line, y, dims.cols, grapheme);
       }
     }
 
@@ -607,7 +616,12 @@ export class CanvasRenderer {
    * and text in a single pass (cell by cell), the background of cell N would
    * cover any left-extending portions of graphemes from cell N-1.
    */
-  private renderLine(line: GhosttyCell[], y: number, cols: number): void {
+  private renderLine(
+    line: GhosttyCell[],
+    y: number,
+    cols: number,
+    grapheme: GraphemeLookup = this.screenGraphemes(this.currentBuffer, y)
+  ): void {
     const lineY = y * this.metrics.height;
     const lineWidth = cols * this.metrics.width;
 
@@ -634,8 +648,18 @@ export class CanvasRenderer {
     for (let x = 0; x < line.length; x++) {
       const cell = line[x];
       if (cell.width === 0) continue; // Skip spacer cells for wide characters
-      this.renderCellText(cell, x, y);
+      this.renderCellText(cell, x, y, undefined, grapheme);
     }
+  }
+
+  /** Grapheme lookup for a screen row. */
+  private screenGraphemes(buffer: IRenderable | null, row: number): GraphemeLookup {
+    return (col) => buffer?.getGraphemeString?.(row, col) ?? ' ';
+  }
+
+  /** Grapheme lookup for a scrollback row. */
+  private scrollbackGraphemes(provider: IScrollbackProvider, offset: number): GraphemeLookup {
+    return (col) => provider.getScrollbackGraphemeString?.(offset, col) ?? ' ';
   }
 
   /**
@@ -683,7 +707,13 @@ export class CanvasRenderer {
    * Render a cell's text and decorations (Pass 2 of two-pass rendering)
    * Selection foreground color is applied here to match the selection background.
    */
-  private renderCellText(cell: GhosttyCell, x: number, y: number, colorOverride?: string): void {
+  private renderCellText(
+    cell: GhosttyCell,
+    x: number,
+    y: number,
+    colorOverride?: string,
+    grapheme: GraphemeLookup = this.screenGraphemes(this.currentBuffer, y)
+  ): void {
     const cellX = x * this.metrics.width;
     const cellY = y * this.metrics.height;
     const cellWidth = this.metrics.width * cell.width;
@@ -734,9 +764,9 @@ export class CanvasRenderer {
 
     // Get the character to render - use grapheme lookup for complex scripts
     let char: string;
-    if (cell.grapheme_len > 0 && this.currentBuffer?.getGraphemeString) {
+    if (cell.grapheme_len > 0) {
       // Cell has additional codepoints - get full grapheme cluster
-      char = this.currentBuffer.getGraphemeString(y, x);
+      char = grapheme(x);
     } else {
       // Simple cell - single codepoint
       char = String.fromCodePoint(cell.codepoint || 32); // Default to space if null

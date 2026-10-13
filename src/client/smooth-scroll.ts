@@ -48,7 +48,7 @@ type Cell = NonNullable<ReturnType<Terminal['getScrollbackLine']>>[number];
 
 interface RendererInternals {
   ctx: CanvasRenderingContext2D;
-  renderLine(line: Cell[], row: number, cols: number): void;
+  renderLine(line: Cell[], row: number, cols: number, grapheme: (col: number) => string): void;
 }
 
 export class SmoothScroll {
@@ -138,7 +138,8 @@ export class SmoothScroll {
     cellHeight: number,
   ): void {
     const ctx = this.stripCtx;
-    const cells = this.term.getScrollbackLine(this.term.getScrollbackLength() - line - 1);
+    const sbOffset = this.term.getScrollbackLength() - line - 1;
+    const cells = this.term.getScrollbackLine(sbOffset);
     if (!ctx || !cells) {
       this.strip.style.display = 'none';
       return;
@@ -158,14 +159,16 @@ export class SmoothScroll {
 
     // renderLine draws row `r` at y = r x cellHeight into renderer.ctx. Borrow it with the
     // strip's context, shifted down a row so row -1 lands at y = 0. Row -1 is never in a
-    // selection, so the line draws unselected.
+    // selection, so the line draws unselected. Graphemes come from the same scrollback row.
     ctx.setTransform(dpr, 0, 0, dpr, 0, cellHeight * dpr);
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     const own = renderer.ctx;
     renderer.ctx = ctx;
     try {
-      renderer.renderLine(cells, -1, this.term.cols);
+      renderer.renderLine(cells, -1, this.term.cols, (col) =>
+        this.term.getScrollbackGraphemeString(sbOffset, col),
+      );
     } finally {
       renderer.ctx = own;
     }

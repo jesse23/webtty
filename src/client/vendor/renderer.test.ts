@@ -2,10 +2,19 @@ import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ghostty } from './ghostty-web/ghostty';
-import { frameLines, watchDevicePixelRatio, wholeDevicePixelRatio } from './ghostty-web/renderer';
+import {
+  CanvasRenderer,
+  frameLines,
+  watchDevicePixelRatio,
+  wholeDevicePixelRatio,
+} from './ghostty-web/renderer';
 import type { GhosttyCell } from './ghostty-web/types';
 
 const WASM = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ghostty-web/ghostty-vt.wasm');
+const OFFICIAL_WASM = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'ghostty-vt/ghostty-vt-small.wasm',
+);
 
 describe('wholeDevicePixelRatio', () => {
   test('keeps a whole ratio', () => {
@@ -162,4 +171,62 @@ describe('frameLines', () => {
     }
     term.free();
   });
+});
+
+/** A 2D context that records the text drawn on each canvas row. */
+function recordingCanvas(cellHeight: number) {
+  const drawn = new Map<number, string[]>();
+  const ctx = new Proxy(
+    {
+      fillText: (text: string, _x: number, y: number) => {
+        const row = Math.floor(y / cellHeight);
+        drawn.set(row, [...(drawn.get(row) ?? []), text]);
+      },
+      measureText: () => ({ width: 8, actualBoundingBoxAscent: 10, actualBoundingBoxDescent: 3 }),
+    } as Record<string | symbol, unknown>,
+    { get: (t, k) => (k in t ? t[k] : () => undefined), set: () => true },
+  );
+  const canvas = { getContext: () => ctx, style: {}, width: 0, height: 0 };
+  return { canvas: canvas as unknown as HTMLCanvasElement, drawn };
+}
+
+describe('graphemes while scrolled', () => {
+  for (const [engine, wasm] of [
+    ['coder', WASM],
+    ['official', OFFICIAL_WASM],
+  ] as const) {
+    test(`draws scrollback graphemes from their own row (${engine})`, async () => {
+      const doc = globalThis.document;
+      const { canvas, drawn } = recordingCanvas(15);
+      globalThis.document = { createElement: () => canvas } as unknown as Document;
+      try {
+        const ghostty = await Ghostty.load(wasm, engine);
+        const term = ghostty.createTerminal(30, 6, { scrollbackLimit: 10000 });
+        // A grapheme at a different column on every line, so a lookup on the wrong
+        // row finds something else.
+        for (let i = 0; i < 20; i++) term.write(`${'x'.repeat(i % 7)}e\u0301 ${i}\r\n`);
+        term.write('$ abcdefghijklmnop');
+        const sb = term.getScrollbackLength();
+        const provider = {
+          getScrollbackLine: (o: number) => term.getScrollbackLine(o),
+          getScrollbackLength: () => sb,
+          getScrollbackGraphemeString: (o: number, c: number) =>
+            term.getScrollbackGraphemeString(o, c),
+        };
+        const renderer = new CanvasRenderer(canvas, { devicePixelRatio: 1 });
+        renderer.resize(30, 6);
+        renderer.render(term, true, 3, provider);
+        // Canvas rows 0-2 show the last three scrollback lines (line i is the i-th
+        // written); rows 3-5 the top of the screen.
+        for (let row = 0; row < 3; row++) {
+          expect(drawn.get(row)).toContain('e\u0301');
+          expect(drawn.get(row)?.join('')).toContain(` ${sb - 3 + row} `);
+        }
+        expect(drawn.get(3)).toContain('e\u0301');
+        term.free();
+      } finally {
+        globalThis.document = doc;
+      }
+    });
+  }
 });

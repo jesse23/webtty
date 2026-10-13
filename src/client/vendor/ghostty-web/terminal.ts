@@ -1491,6 +1491,15 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
+   * Get the full grapheme string for a scrollback cell
+   * Implements IScrollbackProvider
+   */
+  public getScrollbackGraphemeString(offset: number, col: number): string {
+    if (!this.wasmTerm) return ' ';
+    return this.wasmTerm.getScrollbackGraphemeString(offset, col);
+  }
+
+  /**
    * Clean up components (called on dispose or error)
    */
   private cleanupComponents(): void {
