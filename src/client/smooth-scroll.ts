@@ -57,6 +57,13 @@ export const WHEEL_GLIDE_MS = 125;
  */
 export const SPARSE_GAP_MS = 25;
 
+/**
+ * A wheel notch this soon after one in the same direction continues the scroll at
+ * a steady speed instead of easing out, so a spinning wheel or a slow TrackPoint
+ * (4 px every 150 ms) does not pulse.
+ */
+export const STREAM_MS = 200;
+
 /** One frame at 60 Hz. */
 const FRAME_MS = 1000 / 60;
 
@@ -125,6 +132,12 @@ function linear(t: number): number {
   return t;
 }
 
+/** How a wheel event scrolls: over `duration` ms with `ease`, or at once when 0. */
+interface Motion {
+  duration: number;
+  ease: (t: number) => number;
+}
+
 interface Glide {
   from: number;
   to: number;
@@ -139,17 +152,22 @@ export class SmoothScroll {
   private readonly classifier = new WheelClassifier();
   /** A glide in progress toward a wheel or sparse delta's target. */
   private glide: Glide | null = null;
-  private frame = 0;
   /** Timestamp of the glide's latest frame, whose position a new glide starts from. */
   private lastFrame: number | null = null;
-  /** `timeStamp` of the previous wheel event. */
+  /** `timeStamp` and direction of the previous wheel event. */
   private lastWheel: number | null = null;
+  private lastDir = 0;
+  /** In a sparse stream, and how many short gaps in a row it has had. */
+  private sparse = false;
+  private shortGaps = 0;
+  /** Set while `apply` moves ghostty-web's viewport, whose onScroll is then our own. */
+  private applying = false;
 
   constructor(private readonly term: Terminal) {
     // ghostty-web moves the viewport itself on new output (to the bottom), keyboard
     // scrolling and scrollbar drags. Follow it whenever it lands on a different line.
     term.onScroll((y: number) => {
-      if (y !== Math.floor(this.position)) this.jump(y);
+      if (!this.applying && y !== Math.floor(this.position)) this.jump(y);
     });
     term.onResize(() => this.jump(term.viewportY));
   }
@@ -160,26 +178,36 @@ export class SmoothScroll {
     const metrics = this.term.renderer?.getMetrics();
     if (!metrics) return false;
     const lines = wheelLines(e, metrics.height, this.term.rows);
-    const { wheel, gap } = this.classify(e);
+    const motion = this.classify(e);
     // A delta during a glide adds to where the glide is heading.
     const to = this.clamp((this.glide?.to ?? this.position) - lines);
-    if (reducedMotion()) {
-      this.stopGlide();
-      this.position = to;
-      this.apply();
-    } else if (wheel) {
-      this.glideTo(to, WHEEL_GLIDE_MS, easeOutCubic);
-    } else if (gap >= SPARSE_GAP_MS) {
-      // Spread the delta over the time it took to arrive, so a steady stream scrolls
-      // at a steady speed, the speed of the input. One frame more keeps the glide
-      // going until the next delta when the stream slows down a little.
-      this.glideTo(to, Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS), linear);
+    if (motion.duration > 0) {
+      this.glideTo(to, motion.duration, motion.ease);
     } else {
       this.stopGlide();
       this.position = to;
       this.apply();
     }
     return true;
+  }
+
+  /**
+   * Advances a glide. ghostty-web's render loop calls this just before it renders,
+   * so the frame shows the glide's position for that frame, not the one before.
+   */
+  frame(now: number): void {
+    const glide = this.glide;
+    if (!glide) return;
+    // A frame's timestamp can precede the glide's start by part of a frame.
+    const t = Math.min(1, Math.max(0, (now - glide.start) / glide.duration));
+    this.position = this.clamp(glide.from + (glide.to - glide.from) * glide.ease(t));
+    if (t < 1) {
+      this.lastFrame = now;
+    } else {
+      this.glide = null;
+      this.lastFrame = null;
+    }
+    this.apply();
   }
 
   /**
@@ -190,18 +218,43 @@ export class SmoothScroll {
    * Trackpad deltas, and everything with reduced motion, go at once (0). See ADR 045.
    */
   tickSpread(e: WheelEvent): number {
-    const { wheel, gap } = this.classify(e);
-    if (reducedMotion()) return 0;
-    if (wheel) return WHEEL_GLIDE_MS;
-    return gap >= SPARSE_GAP_MS ? Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS) : 0;
+    return this.classify(e).duration;
   }
 
-  /** Classifies a wheel event, once per event: a wheel notch or not, and the time since the previous one. */
-  private classify(e: WheelEvent): { wheel: boolean; gap: number } {
+  /**
+   * How a wheel event scrolls; call once per event, as it tracks the stream.
+   * - A wheel notch eases out over the wheel glide time, or, soon after one in the
+   *   same direction, continues linearly over its gap plus a frame.
+   * - A sparse delta, 25 ms or more after the previous one, glides linearly over
+   *   that gap plus a frame, so a stream scrolls at the speed it is sent at; the
+   *   extra frame keeps the glide going when the next delta is a little late. A
+   *   stream stays sparse until two short gaps in a row, so one delta that comes
+   *   a little early does not snap or flush.
+   * - Trackpad deltas, a frame apart, and everything with reduced motion: at once.
+   */
+  private classify(e: WheelEvent): Motion {
     const gap = this.lastWheel === null ? 0 : e.timeStamp - this.lastWheel;
     this.lastWheel = e.timeStamp;
+    const dir = Math.sign(e.deltaY);
+    const sameDir = dir === this.lastDir;
+    this.lastDir = dir;
     if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
-    return { wheel: e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel(), gap };
+    const wheel = e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel();
+    if (gap >= SPARSE_GAP_MS) {
+      this.sparse = true;
+      this.shortGaps = 0;
+    } else if (this.sparse && ++this.shortGaps >= 2) {
+      this.sparse = false;
+    }
+    let motion: Motion = { duration: 0, ease: linear };
+    if (wheel && gap > 0 && gap <= STREAM_MS && sameDir) {
+      motion = { duration: Math.min(gap + FRAME_MS, STREAM_MS), ease: linear };
+    } else if (wheel) {
+      motion = { duration: WHEEL_GLIDE_MS, ease: easeOutCubic };
+    } else if (this.sparse) {
+      motion = { duration: Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS), ease: linear };
+    }
+    return reducedMotion() ? { duration: 0, ease: linear } : motion;
   }
 
   /** New output arrived. ghostty-web only snaps to the bottom when viewportY > 0, so clear a sub-line offset here. */
@@ -233,32 +286,12 @@ export class SmoothScroll {
     // stream of deltas would stall every other frame.
     const start = this.lastFrame ?? performance.now() - FRAME_MS;
     this.glide = { from: this.position, to, start, duration, ease };
-    if (!this.frame) this.frame = window.requestAnimationFrame(this.step);
   }
 
   private stopGlide(): void {
     this.glide = null;
     this.lastFrame = null;
-    if (this.frame) window.cancelAnimationFrame(this.frame);
-    this.frame = 0;
   }
-
-  private readonly step = (now: number): void => {
-    this.frame = 0;
-    const glide = this.glide;
-    if (!glide) return;
-    // A frame's timestamp can precede the glide's start by part of a frame.
-    const t = Math.min(1, Math.max(0, (now - glide.start) / glide.duration));
-    this.position = this.clamp(glide.from + (glide.to - glide.from) * glide.ease(t));
-    if (t < 1) {
-      this.lastFrame = now;
-      this.frame = window.requestAnimationFrame(this.step);
-    } else {
-      this.glide = null;
-      this.lastFrame = null;
-    }
-    this.apply();
-  };
 
   private apply(): void {
     const renderer = this.term.renderer;
@@ -271,7 +304,16 @@ export class SmoothScroll {
     );
     // Changes ghostty-web's viewportY synchronously. Its render loop draws the rows that
     // came into view and shows the offset on the next frame.
-    if (line !== this.term.viewportY) this.term.scrollToLine(line);
+    // Rounding the offset can land on the next line while the position is still just
+    // below it; that is our own move, not one to follow.
+    if (line !== this.term.viewportY) {
+      this.applying = true;
+      try {
+        this.term.scrollToLine(line);
+      } finally {
+        this.applying = false;
+      }
+    }
     renderer.setScrollOffset(offset);
   }
 }

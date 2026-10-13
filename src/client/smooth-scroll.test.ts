@@ -44,6 +44,9 @@ describe('wheelLines', () => {
   });
 });
 
+/** Scrolls made by `fake`, whose `frame` the render loop stand-in calls. */
+const live: SmoothScroll[] = [];
+
 describe('SmoothScroll', () => {
   function fake(cellHeight: number) {
     const metrics = { height: cellHeight };
@@ -63,7 +66,9 @@ describe('SmoothScroll', () => {
         term.viewportY = line;
       },
     };
-    return { term, metrics, offsets, scroll: new SmoothScroll(term as unknown as Terminal) };
+    const scroll = new SmoothScroll(term as unknown as Terminal);
+    live.push(scroll);
+    return { term, metrics, offsets, scroll };
   }
   const wheel = (deltaY: number) => ({ deltaY, deltaMode: 0 }) as WheelEvent;
 
@@ -112,24 +117,14 @@ describe('SmoothScroll', () => {
       const g = globalThis as { window?: unknown; performance?: unknown };
       const [savedWindow, savedPerformance] = [g.window, g.performance];
       let now = 0;
-      let pending: ((t: number) => void) | null = null;
-      g.window = {
-        devicePixelRatio: 1,
-        requestAnimationFrame: (cb: (t: number) => void) => {
-          pending = cb;
-          return 1;
-        },
-        cancelAnimationFrame: () => {
-          pending = null;
-        },
-      };
+      g.window = { devicePixelRatio: 1 };
       g.performance = { now: () => now };
+      live.length = 0;
       try {
+        // One frame of the render loop, `ms` after the last.
         run((ms) => {
           now += ms;
-          const cb = pending;
-          pending = null;
-          cb?.(now);
+          for (const scroll of live) scroll.frame(now);
         });
       } finally {
         g.window = savedWindow;
@@ -179,6 +174,33 @@ describe('SmoothScroll', () => {
         } finally {
           g.matchMedia = saved;
         }
+      });
+    });
+
+    test('a glide is not stopped by its own move onto the next line', () => {
+      withFrames((tick) => {
+        const { term, offsets, scroll } = fake(10);
+        // ghostty-web fires onScroll synchronously from scrollToLine.
+        let onScroll = (_y: number) => {};
+        const t = term as unknown as { onScroll: unknown; scrollToLine: (l: number) => void };
+        const real = t.scrollToLine;
+        t.scrollToLine = (l: number) => {
+          real(l);
+          onScroll(l);
+        };
+        const s = new SmoothScroll({
+          ...term,
+          onScroll: (cb: (y: number) => void) => {
+            onScroll = cb;
+          },
+        } as unknown as Terminal);
+        live.push(s);
+        void scroll;
+        // Frames 0.5 ms apart are sure to land within 0.05 lines below a line, where the
+        // offset rounds up to the next line.
+        s.handleWheel(notch(-40));
+        for (let i = 0; i < 300; i++) tick(0.5);
+        expect([term.viewportY, offsets.at(-1)]).toEqual([4, 0]);
       });
     });
 
@@ -281,10 +303,30 @@ describe('SmoothScroll.tickSpread', () => {
     expect(scroll().tickSpread(at(-3, 1000, 1))).toBe(WHEEL_GLIDE_MS);
   });
 
+  test('a sparse stream stays paced through one short gap', () => {
+    const s = scroll();
+    s.tickSpread(at(-23.5, 1000));
+    expect(s.tickSpread(at(-63.25, 1040))).toBeCloseTo(40 + 1000 / 60);
+    // The capture's 25 ms gap replays as 24.9 ms.
+    expect(s.tickSpread(at(-95.5, 1064.9))).toBeCloseTo(24.9 + 1000 / 60);
+    expect(s.tickSpread(at(-120.75, 1100))).toBeCloseTo(35.1 + 1000 / 60);
+  });
+
+  test('a wheel notch soon after one in the same direction continues linearly', () => {
+    const s = scroll();
+    expect(s.tickSpread(at(-3, 1000, 1))).toBe(WHEEL_GLIDE_MS);
+    expect(s.tickSpread(at(-3, 1150, 1))).toBeCloseTo(150 + 1000 / 60);
+    // Reversing, or after a pause, a notch eases out again.
+    expect(s.tickSpread(at(3, 1200, 1))).toBe(WHEEL_GLIDE_MS);
+    expect(s.tickSpread(at(3, 1500, 1))).toBe(WHEEL_GLIDE_MS);
+  });
+
   test('sends trackpad deltas at once', () => {
     const s = scroll();
     s.tickSpread(at(-20.5, 1200));
-    expect(s.tickSpread(at(-21.25, 1208))).toBe(0);
+    s.tickSpread(at(-21.25, 1208));
+    // Two short gaps in a row end the sparse stream a gesture starts as.
+    expect(s.tickSpread(at(-22.75, 1216))).toBe(0);
   });
 });
 

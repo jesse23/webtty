@@ -360,6 +360,7 @@ export class Terminal implements ITerminalCore {
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private arrowAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private customWheelTickSpread?: (event: WheelEvent) => number;
+  private beforeRender?: (now: number) => void;
   private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
   // DECSCUSR state: the app's cursor shape (undefined = options) and the
@@ -1218,6 +1219,14 @@ export class Terminal implements ITerminalCore {
     this.customWheelTickSpread = spread;
   }
 
+  /**
+   * Runs `callback` in every frame of the render loop, just before it renders, so
+   * an animation that moves the viewport shows in the same frame. (webtty, ADR 045)
+   */
+  public attachBeforeRender(callback?: (now: number) => void): void {
+    this.beforeRender = callback;
+  }
+
   // ==========================================================================
   // Link Detection Methods
   // ==========================================================================
@@ -1556,8 +1565,10 @@ export class Terminal implements ITerminalCore {
    */
   private startRenderLoop(): void {
     if (this.animationFrameId) return; // already running
-    const loop = () => {
+    const loop = (now?: number) => {
       if (!this.isDisposed && this.isOpen) {
+        this.beforeRender?.(now ?? performance.now());
+
         // Render using WASM's native dirty tracking
         // The render() method:
         // 1. Calls update() once to sync state and check dirty flags
@@ -2021,7 +2032,10 @@ export class Terminal implements ITerminalCore {
       );
       const dir = Math.sign(lines);
       if (lines !== 0) {
-        this.tickPacer.push(dir < 0 ? '\x1B[A' : '\x1B[B', dir, Math.abs(lines), spread);
+        // Application cursor keys (DECCKM), as less sets: ESC O A/B, else ESC [ A/B
+        const app = this.wasmTerm?.getMode(1, false) ?? false;
+        const seq = (app ? '\x1BO' : '\x1B[') + (dir < 0 ? 'A' : 'B');
+        this.tickPacer.push(seq, dir, Math.abs(lines), spread);
       }
     } else {
       // Normal screen: scroll viewport through history with smooth scrolling

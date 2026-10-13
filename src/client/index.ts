@@ -248,6 +248,7 @@ term.attachCustomWheelEventHandler(
   (e: WheelEvent): boolean => !term.hasMouseTracking() && smoothScroll.handleWheel(e),
 );
 term.attachWheelTickSpread((e: WheelEvent) => smoothScroll.tickSpread(e));
+term.attachBeforeRender((now: number) => smoothScroll.frame(now));
 
 // Shared by the configured-binding listener below and the Ctrl+V paste
 // listener further down, so the latter can tell whether a user has already
