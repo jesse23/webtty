@@ -1,6 +1,6 @@
 # SPEC: Config
 
-**Last Updated:** 2026-03-27
+**Last Updated:** 2026-10-12
 
 ---
 
@@ -122,6 +122,8 @@ All keys are optional — omit any key to use the default value.
 | `theme` | object | Campbell | Terminal color palette — see theme keys below |
 | `keyboardBindings` | array | `[]` | Custom key-to-sequence bindings sent to the PTY. See [key-bindings spec](key-bindings.md) for schema and examples. |
 
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)): a client key `scrollbackLines` (number, default `10000`; `0` = unlimited lines) sets the terminal's history in lines, under a 32 MiB byte ceiling. `scrollback` keeps its meaning as the server's replay buffer, and the client stops deriving its history limit from it (today it passes `Math.ceil(scrollback / 80)`, which the terminal reads as bytes).
+
 ### Theme keys
 
 All theme keys are optional; omitted keys fall back to the Campbell (Windows Terminal default) palette.
@@ -213,5 +215,6 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
 | Padding | `padding` (px, default `0`) around the terminal canvas, coloured by `theme.padding` or `theme.background` | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |
 | Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
+| Scrollback in lines | `scrollbackLines` (default `10000`, `0` = unlimited) sets terminal history in lines under a 32 MiB ceiling; `scrollback` stays the server replay buffer, so existing configs keep their meaning | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Keyboard bindings | `keyboardBindings` — configurable key-to-sequence mappings sent to PTY; defaults to `[]` | [ADR 018](../adrs/018.key-bindings.config-support.md), [key-bindings spec](key-bindings.md) | ✅ |
 | Env injection | `env` — flat `Record<string,string>` merged over `process.env` and injected into PTY shells and execute commands; same contract as `~/.claude/settings.json` | [ADR 030](../adrs/030.config.env-inject.md) | ✅ |

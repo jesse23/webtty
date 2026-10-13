@@ -25,6 +25,8 @@ dist/
   ghostty-vt.wasm      ← ghostty-web package
 ```
 
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)): once ghostty-web is vendored and bundled into `client-browser.js`, `ghostty-web.js` goes away and `client.html` loads only `client-browser.js`. `ghostty-vt.wasm` is then copied by `scripts/build.ts` from the vendored path instead of the npm package, and the server resolves it from `dist/` or the vendored path instead of `node_modules`. It stays the Coder-patched build (vendored with its provenance) until the official libghostty-vt wasm, committed under `src/client/vendor/ghostty-vt/`, becomes the default and the Coder engine is removed.
+
 ## Source layout
 
 ```
@@ -32,6 +34,15 @@ src/client/
   index.ts             ← browser TypeScript entry point
   index.html           ← HTML shell (no inline script)
   index.css            ← terminal styles
+```
+
+Planned ([ADR 041](../adrs/041.client.libghostty-vt.md)):
+
+```
+src/client/vendor/
+  ghostty-web/         ← ghostty-web TS (MIT LICENSE + upstream commit note); all wasm calls in ghostty.ts;
+                          Coder ghostty-vt.wasm + sidecar (npm version, Ghostty commit + patch, sha256) until the Coder engine is removed
+  ghostty-vt/          ← official ghostty-vt-small.wasm + .minisig + provenance sidecar (commit, URL, sha256)
 ```
 
 ## Page
@@ -167,6 +178,10 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | IME / dictation at cursor | Focus stays on the input textarea, which follows the cursor cell; the composition shows at the cursor in the theme's font and colours instead of as a stray line under the canvas | [ADR 038](../adrs/038.client.ime-composition-at-cursor.md) | ✅ |
 | Device pixel ratio changes | Moving to a monitor with a different scale, or changing zoom, updates the renderer's pixel ratio and repaints instead of staying blurry until reload; fractional ratios render at the next whole ratio so the canvas doesn't resize every frame | [ADR 039](../adrs/039.client.device-pixel-ratio-change.md) | ✅ |
 | Pixel-smooth scrollback | Trackpad scrolling through scrollback moves by pixels (canvas offset plus a one-row strip for the incoming line); in mouse-tracking apps, pixel deltas send one scroll tick per cell height of travel | [ADR 040](../adrs/040.client.pixel-smooth-scroll.md) | ✅ |
+| Vendored terminal layer | The terminal (renderer, input, selection) is webtty's own code with no npm `ghostty-web` dependency; ghostty-web bugs are fixed at source instead of patched from outside, and terminal behaviour is otherwise unchanged | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
+| Official libghostty-vt wasm | The terminal runs on Ghostty's official, unpatched libghostty-vt wasm (pinned, sha256- and signature-checked) with current Ghostty parsing and query replies; `?engine=coder` falls back to the old engine until it is removed | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
+| Scrollback in lines | Terminal history keeps the configured number of lines (`scrollbackLines`, default 10,000) up to a 32 MiB ceiling, instead of a few hundred rows | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
+| Smooth scroll via `OVERSCAN` | Pixel-smooth scrollback draws the rows Ghostty's render state provides above and below the viewport, replacing ADR 040's strip canvas | [ADR 041](../adrs/041.client.libghostty-vt.md) | ⬜ |
 | Mouse scroll | When the PTY app enables mouse tracking (e.g. vim `set mouse=a`), wheel events are forwarded as SGR mouse sequences (`\x1b[<64/65;col;rowM`) instead of arrow keys, so apps scroll their buffer rather than move the cursor | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
 | Keyboard bindings | Capture-phase `keydown` handler intercepts configured `key`+`mods` combos and sends `chars` to PTY; defaults to `[]` (no built-in bindings) | [ADR 018](../adrs/018.key-bindings.config-support.md) | ✅ |
 | Canvas gap fill | After each fit, distribute the gap between the container and canvas as symmetric padding so the canvas is centred at the new size | [ADR 022](../adrs/022.client.canvas-fill.md) | ✅ |
