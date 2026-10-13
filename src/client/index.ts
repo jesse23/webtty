@@ -174,6 +174,43 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
+// ghostty-web's CanvasRenderer reads window.devicePixelRatio once, in its constructor,
+// and sizes the canvas backing store from that value forever after. Moving the window
+// to a monitor with a different scale (Retina <-> external) or changing browser zoom
+// leaves the canvas at the old ratio: blurry or mis-scaled until reload. The CSS size
+// does not change, so neither ResizeObserver nor fit() notices. Watch the resolution
+// media query instead and push the new ratio into the renderer; the forced render
+// sees the backing-store mismatch and resizes and repaints itself.
+//
+// The ratio is rounded up: at a fractional ratio (zoom other than 100%, Windows 125%)
+// ghostty-web compares the integer canvas width against an unrounded cols x width x dpr,
+// so it resizes and clears the canvas on every frame, and cell edges land between
+// device pixels and leave seams. Rendering at the next whole ratio and letting the
+// browser scale the canvas down avoids both (coder/ghostty-web#198). See ADR 039.
+function syncDevicePixelRatio(): void {
+  const renderer = term.renderer as unknown as { devicePixelRatio: number } | undefined;
+  if (!renderer) return;
+  renderer.devicePixelRatio = Math.ceil(window.devicePixelRatio || 1);
+  if (term.renderer && term.wasmTerm) {
+    term.renderer.render(term.wasmTerm, true, term.viewportY);
+  }
+}
+
+function watchDevicePixelRatio(): void {
+  const dpr = window.devicePixelRatio || 1;
+  window.matchMedia(`(resolution: ${dpr}dppx)`).addEventListener(
+    'change',
+    () => {
+      syncDevicePixelRatio();
+      scheduleFit();
+      watchDevicePixelRatio();
+    },
+    { once: true },
+  );
+}
+syncDevicePixelRatio();
+watchDevicePixelRatio();
+
 // ghostty-web sets the mouse cursor to 'text' (I-beam) whenever the pointer
 // isn't over a detected hyperlink — it only ever writes 'text' or 'pointer'
 // (see the hover-link logic in ghostty-web's dist bundle). The I-beam reads
