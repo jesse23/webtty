@@ -21,7 +21,6 @@ import type { ITerminalAddon, ITerminalCore } from '../interfaces';
 
 const MINIMUM_COLS = 2;
 const MINIMUM_ROWS = 1;
-const DEFAULT_SCROLLBAR_WIDTH = 15; // Reserve space for future scrollback scrollbar
 const RESIZE_DEBOUNCE_MS = 100; // Debounce time for ResizeObserver
 
 // ============================================================================
@@ -31,6 +30,33 @@ const RESIZE_DEBOUNCE_MS = 100; // Debounce time for ResizeObserver
 export interface ITerminalDimensions {
   cols: number;
   rows: number;
+}
+
+export interface IFitPadding {
+  top: number;
+  right: number;
+  bottom: number;
+  left: number;
+}
+
+/**
+ * Cols and rows that fit in a `width` x `height` element (clientWidth/Height, which
+ * include padding) after its padding, with the given cell size. No space is
+ * reserved for a scrollbar: the scrollbar is an overlay drawn inside the canvas.
+ */
+export function fitDimensions(
+  width: number,
+  height: number,
+  padding: IFitPadding,
+  cellWidth: number,
+  cellHeight: number
+): ITerminalDimensions {
+  const availableWidth = width - padding.left - padding.right;
+  const availableHeight = height - padding.top - padding.bottom;
+  return {
+    cols: Math.max(MINIMUM_COLS, Math.floor(availableWidth / cellWidth)),
+    rows: Math.max(MINIMUM_ROWS, Math.floor(availableHeight / cellHeight)),
+  };
 }
 
 // ============================================================================
@@ -133,7 +159,6 @@ export class FitAddon implements ITerminalAddon {
    * - Terminal container element dimensions (clientWidth/Height)
    * - Terminal element padding
    * - Font metrics (character cell size)
-   * - Scrollbar width reservation
    *
    * @returns Proposed dimensions or undefined if cannot calculate
    */
@@ -184,15 +209,14 @@ export class FitAddon implements ITerminalAddon {
       return undefined;
     }
 
-    // Calculate available space (subtract padding since clientWidth includes padding)
-    const availableWidth = containerWidth - paddingLeft - paddingRight - DEFAULT_SCROLLBAR_WIDTH;
-    const availableHeight = containerHeight - paddingTop - paddingBottom;
-
-    // Calculate dimensions (enforce minimums)
-    const cols = Math.max(MINIMUM_COLS, Math.floor(availableWidth / metrics.width));
-    const rows = Math.max(MINIMUM_ROWS, Math.floor(availableHeight / metrics.height));
-
-    return { cols, rows };
+    // Subtract padding (clientWidth includes it) and enforce minimums
+    return fitDimensions(
+      containerWidth,
+      containerHeight,
+      { top: paddingTop, right: paddingRight, bottom: paddingBottom, left: paddingLeft },
+      metrics.width,
+      metrics.height
+    );
   }
 
   /**

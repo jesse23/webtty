@@ -1,11 +1,11 @@
 import { Composer } from './compose';
 import { EdgeExtender } from './edge';
-import { computeGrid, computeInsets } from './fit';
+import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { encodePaste } from './paste';
 import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
-import { Ghostty, Terminal } from './vendor/ghostty-web';
+import { FitAddon, Ghostty, Terminal } from './vendor/ghostty-web';
 import { watchDevicePixelRatio } from './vendor/ghostty-web/renderer';
 
 interface KeyboardBinding {
@@ -100,23 +100,17 @@ new Composer(term, container, terminalTheme);
 // Pixel-smooth scrollback scrolling for trackpads. See ADR 040.
 const smoothScroll = new SmoothScroll(term, container);
 
-// ghostty-web's FitAddon subtracts a fixed 15px scrollbar reserve, which leaves a
-// strip at the edges even though the scrollbar is an overlay drawn inside the canvas.
-// Size the grid from the full container instead (computeGrid), then distribute what is
-// left, plus config.padding on each side, as padding: top and left are exactly
-// config.padding, and the leftover goes to the right and bottom. Padding is cleared
-// first so clientWidth/Height measure the whole container. See ADR 033.
+// FitAddon sizes the grid from the full container less its CSS padding, so the
+// padding is set to config.padding on every side first (#terminal is border-box, so
+// clientWidth/Height do not change). What is left over, plus config.padding on each
+// side, is then distributed as padding: top and left are exactly config.padding, and
+// the leftover goes to the right and bottom. proposeDimensions rather than
+// FitAddon.fit(), which ignores calls for 50 ms after each resize. See ADR 033.
+const fitAddon = new FitAddon();
+term.loadAddon(fitAddon);
 function fit(): void {
-  container.style.padding = '0';
-  const metrics = term.renderer?.getMetrics();
-  if (!metrics) return;
-  const grid = computeGrid(
-    container.clientWidth,
-    container.clientHeight,
-    metrics.width,
-    metrics.height,
-    config.padding,
-  );
+  container.style.padding = `${config.padding}px`;
+  const grid = fitAddon.proposeDimensions();
   if (!grid) return;
   if (grid.cols !== term.cols || grid.rows !== term.rows) {
     term.resize(grid.cols, grid.rows);
