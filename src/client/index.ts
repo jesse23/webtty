@@ -6,6 +6,7 @@ import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
 import { encodePaste } from './paste';
+import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
 
 interface KeyboardBinding {
@@ -92,6 +93,8 @@ const edges = new EdgeExtender(container, config.padding);
 // IME / dictation composition shows at the cursor in the theme's colours, not as a
 // stray line under the canvas. See ADR 038.
 new Composer(term, container, terminalTheme);
+// Pixel-smooth scrollback scrolling for trackpads. See ADR 040.
+const smoothScroll = new SmoothScroll(term, container);
 
 // ghostty-web's FitAddon subtracts a fixed 15px scrollbar reserve, which leaves a
 // strip at the edges even though the scrollbar is an overlay drawn inside the canvas.
@@ -126,6 +129,7 @@ function fit(): void {
   container.style.paddingTop = `${insets.top}px`;
   container.style.paddingBottom = `${insets.bottom}px`;
   edges.update();
+  smoothScroll.update();
 }
 
 // Both ResizeObserver and window 'resize' can fire for the same physical event.
@@ -253,6 +257,7 @@ function connect(): void {
   ws.onmessage = (event: MessageEvent<string>) => {
     applyDecscusr(term, event.data);
     graphics.feed(event.data);
+    smoothScroll.onOutput();
   };
 
   ws.onclose = (event: CloseEvent) => {
@@ -290,7 +295,7 @@ connect();
 let scrollAccum = 0;
 let scrollDir = 0;
 term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
-  if (!term.hasMouseTracking()) return false;
+  if (!term.hasMouseTracking()) return smoothScroll.handleWheel(e);
   const metrics = term.renderer?.getMetrics();
   if (!metrics) return false;
   const dir = e.deltaY < 0 ? -1 : 1;
