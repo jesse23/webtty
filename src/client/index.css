@@ -15,6 +15,9 @@ body,
 
 #terminal {
   position: relative;
+  /* The overscan canvas (ADR 043) extends below the box; clip, unlike hidden, cannot be
+     scrolled, so focusing the textarea or scrollIntoView cannot shift the view. */
+  overflow: clip;
 }
 
 #terminal canvas {
