@@ -78,7 +78,6 @@ export interface GhosttyTerminal {
   markClean(): void;
   getViewport(): GhosttyCell[];
   getLine(y: number): GhosttyCell[] | null;
-  isDirty(): boolean;
   needsFullRedraw(): boolean;
   clearDirty(): void;
   getDimensions(): { cols: number; rows: number };
@@ -96,9 +95,7 @@ export interface GhosttyTerminal {
   isRowWrapped(row: number): boolean;
   getHyperlinkUri(row: number, col: number): string | null;
   getScrollbackHyperlinkUri(offset: number, col: number): string | null;
-  getGrapheme(row: number, col: number): number[] | null;
   getGraphemeString(row: number, col: number): string;
-  getScrollbackGrapheme(offset: number, col: number): number[] | null;
   getScrollbackGraphemeString(offset: number, col: number): string;
 
   // Replies and effects
@@ -578,8 +575,6 @@ export class Ghostty {
   readonly keyActions: Map<number, number>;
   /** @internal */
   readonly unidentifiedKey: number;
-  /** The library's manifest header: library version and build commit. */
-  readonly libraryVersion: string;
 
   constructor(exports: OfficialWasmExports) {
     this.ex = exports;
@@ -588,12 +583,10 @@ export class Ghostty {
     let end = p;
     while (u8[end] !== 0) end++;
     const manifest = JSON.parse(new TextDecoder().decode(u8.subarray(p, end))) as {
-      library_version?: string;
       types: Record<string, ManifestType>;
     };
     const layout = new VtLayout(manifest.types);
     this.L = resolveOfficialLayout(layout);
-    this.libraryVersion = manifest.library_version ?? '';
     this.fnTable = new FnTable(exports.__indirect_function_table);
     this.keys = translateEnum(Key, layout, 'GhosttyKey', OFFICIAL_KEY_NAMES);
     this.encoderOptions = translateEnum(
@@ -1162,10 +1155,6 @@ export class OfficialTerminal implements GhosttyTerminal {
     return this.copyRow(this.rowAt(this.sbRows + y));
   }
 
-  isDirty(): boolean {
-    return this.update() !== DirtyState.NONE;
-  }
-
   needsFullRedraw(): boolean {
     return this.update() === DirtyState.FULL;
   }
@@ -1248,21 +1237,10 @@ export class OfficialTerminal implements GhosttyTerminal {
     return this.hyperlinkAt(this.L.point.HISTORY, col, offset);
   }
 
-  getGrapheme(row: number, col: number): number[] | null {
-    if (row < 0 || row >= this._rows) return null;
-    return this.codepointsOf(this.getGraphemeString(row, col));
-  }
-
   getGraphemeString(row: number, col: number): string {
     if (row < 0 || row >= this._rows || col < 0 || col >= this._cols) return ' ';
     this.refresh();
     return this.graphemeOf(this.rowAt(this.sbRows + row), col);
-  }
-
-  getScrollbackGrapheme(offset: number, col: number): number[] | null {
-    this.refresh();
-    if (offset < 0 || offset >= this.sbRows) return null;
-    return this.codepointsOf(this.getScrollbackGraphemeString(offset, col));
   }
 
   getScrollbackGraphemeString(offset: number, col: number): string {
@@ -1906,12 +1884,6 @@ export class OfficialTerminal implements GhosttyTerminal {
     if (g !== undefined) return g;
     const cp = ref.cells[ref.base + col].codepoint;
     return cp ? String.fromCodePoint(cp) : ' ';
-  }
-
-  private codepointsOf(s: string): number[] {
-    const cps: number[] = [];
-    for (const ch of s) cps.push(ch.codePointAt(0) ?? 0);
-    return cps;
   }
 
   // ==========================================================================

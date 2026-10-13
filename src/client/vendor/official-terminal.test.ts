@@ -136,7 +136,7 @@ describe('official engine: cells', () => {
     expect(t.getGraphemeString(0, 8)).toBe('❤️');
     expect(line[11].grapheme_len).toBe(1);
     expect(t.getGraphemeString(0, 11)).toBe('é');
-    expect(t.getGrapheme(0, 11)).toEqual([0x65, 0x301]);
+    expect([...t.getGraphemeString(0, 11)].map((c) => c.codePointAt(0))).toEqual([0x65, 0x301]);
     expect(t.getGraphemeString(0, 13)).toBe('👨‍👩‍👧');
     expect(line[13].width).toBe(2);
     expect(rowText(t, 0)).toBe('你好|😀|❤️|é|👨‍👩‍👧');

@@ -323,32 +323,27 @@ export function axisScale(cssCell: number, dpr: number): number {
   return cssCell > 0 ? deviceCellSize(cssCell, dpr) / cssCell : dpr;
 }
 
-/** What a stretch of terminal text asks of the client. */
-export interface ControlScan {
-  /** A sequence that invalidates placed images was completed. */
-  clears: boolean;
-}
-
 // A sequence cut off at the end of a chunk: ESC, or ESC [ followed by parameter
 // bytes but no final byte yet.
 const INCOMPLETE = new RegExp(`${ESC}(?:\\[[0-9;?]{0,16})?$`);
 
 /**
- * Finds clear sequences in text that arrives in arbitrary pieces. PTY output and WebSocket frames can end anywhere, so `ESC [` in one
- * piece and `2 J` in the next are one sequence; the terminal reassembles them
- * in its own parser, and this keeps the unfinished tail between calls so the
- * client sees them too.
+ * Finds clear sequences in text that arrives in arbitrary pieces. PTY output and
+ * WebSocket frames can end anywhere, so `ESC [` in one piece and `2 J` in the next
+ * are one sequence; the terminal reassembles them in its own parser, and this
+ * keeps the unfinished tail between calls so the client sees them too.
  */
 export class ControlScanner {
   private carry = '';
 
-  scan(text: string): ControlScan {
+  /** Whether a sequence that invalidates placed images was completed. */
+  scan(text: string): boolean {
     const s = this.carry + text;
     const tail = INCOMPLETE.exec(s);
     // Anything before the tail is complete, so it is scanned now; the tail
     // itself cannot match yet and is scanned again once it is finished.
     this.carry = tail ? tail[0] : '';
-    return { clears: clearsPlacements(s) };
+    return clearsPlacements(s);
   }
 }
 

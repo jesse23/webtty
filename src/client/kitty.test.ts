@@ -292,8 +292,8 @@ describe('ChunkAssembler size cap', () => {
 describe('ControlScanner', () => {
   test('a clear split across chunks is seen once it completes', () => {
     const s = new ControlScanner();
-    expect(s.scan('text\x1b[')).toEqual({ clears: false });
-    expect(s.scan('2Jmore')).toEqual({ clears: true });
+    expect(s.scan('text\x1b[')).toBe(false);
+    expect(s.scan('2Jmore')).toBe(true);
   });
 
   test('split at every position', () => {
@@ -302,27 +302,27 @@ describe('ControlScanner', () => {
       const s = new ControlScanner();
       const a = s.scan(full.slice(0, cut));
       const b = s.scan(full.slice(cut));
-      expect(a.clears || b.clears).toBe(true);
+      expect(a || b).toBe(true);
     }
   });
 
   test('a lone trailing ESC is carried, so ESC c split in two is a reset', () => {
     const s = new ControlScanner();
-    expect(s.scan('x\x1b').clears).toBe(false);
-    expect(s.scan('cy').clears).toBe(true);
+    expect(s.scan('x\x1b')).toBe(false);
+    expect(s.scan('cy')).toBe(true);
   });
 
   test('a completed sequence is not counted again with the next chunk', () => {
     const s = new ControlScanner();
-    expect(s.scan('\x1b[2J').clears).toBe(true);
-    expect(s.scan('plain')).toEqual({ clears: false });
+    expect(s.scan('\x1b[2J')).toBe(true);
+    expect(s.scan('plain')).toBe(false);
   });
 
   test('an unrelated unfinished sequence is dropped once it turns into something else', () => {
     const s = new ControlScanner();
     s.scan('\x1b[3');
-    expect(s.scan('1m text').clears).toBe(false);
-    expect(s.scan('plain').clears).toBe(false);
+    expect(s.scan('1m text')).toBe(false);
+    expect(s.scan('plain')).toBe(false);
   });
 });
 

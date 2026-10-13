@@ -249,7 +249,7 @@ export class KittyGraphics {
     this.term.write(text);
     // Size queries (CSI 14/16/18 t) are answered by Ghostty (OPT_SIZE). See ADR 042
     // and ADR 047.
-    if (this.scanner.scan(text).clears) this.clear();
+    if (this.scanner.scan(text)) this.clear();
   }
 
   private handleApc(body: string, overflow = false): void {
