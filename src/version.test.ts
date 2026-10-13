@@ -51,11 +51,7 @@ describe('getVersion — bundled dist', () => {
       external: ['@lydell/node-pty', 'ws'],
     });
     if (!result.success) throw new Error(`bundle failed: ${result.logs.join('\n')}`);
-    // The server needs both wasm files at startup; the published package ships them in dist/.
-    fs.copyFileSync(
-      path.join(REPO_ROOT, 'src/client/vendor/ghostty-web/ghostty-vt.wasm'),
-      path.join(pkgRoot, 'dist/ghostty-vt.wasm'),
-    );
+    // The server needs the wasm at startup; the published package ships it in dist/.
     fs.copyFileSync(
       path.join(REPO_ROOT, 'src/client/vendor/ghostty-vt/ghostty-vt-small.wasm'),
       path.join(pkgRoot, 'dist/ghostty-vt-small.wasm'),

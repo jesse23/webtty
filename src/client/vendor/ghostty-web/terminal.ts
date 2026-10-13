@@ -74,8 +74,9 @@ const DECSCUSR_PREFIX = /\x1b(?:\[\d{0,3} ?)?$/;
 /**
  * Scans output for DECSCUSR and returns the last Ps from 0 to 6 (undefined if
  * none), plus the unfinished sequence at the end of the chunk to pass back in as
- * `carry` with the next one. (webtty: the Coder wasm applies DECSCUSR but does not
- * export the cursor style, so it is read from the output here.)
+ * `carry` with the next one. (webtty: the renderer draws the cursor from these
+ * options, not from Ghostty's render-state cursor style, so the style is read from
+ * the output here; ADR 013, ADR 047.)
  */
 export function scanDecscusr(
   data: string,
@@ -103,7 +104,7 @@ export function decscusrShape(ps: number): CursorShape | undefined {
 }
 
 /**
- * A cell's size in whole device pixels, for the official engine's size reports
+ * A cell's size in whole device pixels, for Ghostty's size reports
  * (XTWINOPS 14/16/18/19 t, mode 2048). Computed as kitty.ts's `deviceCellSize`
  * does for its own replies: the CSS cell times `devicePixelRatio`, rounded, at
  * least 1. (webtty, ADR 042)
@@ -557,7 +558,7 @@ export class Terminal implements ITerminalCore {
       // Size canvas to terminal dimensions (use renderer.resize for proper DPI scaling)
       this.renderer.resize(this.cols, this.rows);
 
-      // Cell pixels for the official engine's size reports, before the first write,
+      // Cell pixels for Ghostty's size reports, before the first write,
       // so a reply never says 0 px. Mode 2048 cannot be on yet. (webtty, ADR 042)
       this.syncCellPixelSize();
 
@@ -699,19 +700,10 @@ export class Terminal implements ITerminalCore {
     // These need to be sent back to the PTY via onData
     this.processTerminalResponses();
 
-    // Check for bell character (BEL, \x07)
-    // The Coder wasm doesn't expose bell events, so we detect it in the data stream.
-    // The official engine reports bell and title itself. (webtty, ADR 042)
-    const scanStream = this.ghostty?.engine !== 'official';
-    if (!scanStream) {
-      const effects = this.wasmTerm!.readEffects();
-      if (effects.bell) this.bellEmitter.fire();
-      if (effects.title !== null) this.setTitle(effects.title);
-    } else if (typeof data === 'string' && data.includes('\x07')) {
-      this.bellEmitter.fire();
-    } else if (data instanceof Uint8Array && data.includes(0x07)) {
-      this.bellEmitter.fire();
-    }
+    // Bell and title (OSC 0/2) as Ghostty reported them (webtty, ADR 042)
+    const effects = this.wasmTerm!.readEffects();
+    if (effects.bell) this.bellEmitter.fire();
+    if (effects.title !== null) this.setTitle(effects.title);
 
     // DECSCUSR: the app's cursor shape (webtty)
     const decscusr = scanDecscusr(
@@ -730,12 +722,6 @@ export class Terminal implements ITerminalCore {
     // Phase 2: Auto-scroll to bottom on new output (xterm.js behavior)
     if (this.viewportY !== 0) {
       this.scrollToBottom();
-    }
-
-    // Check for title changes (OSC 0, 1, 2 sequences)
-    // This is a simplified implementation - Ghostty WASM may provide this
-    if (scanStream && typeof data === 'string' && data.includes('\x1b]')) {
-      this.checkForTitleChange(data);
     }
 
     // Call callback if provided
@@ -839,8 +825,8 @@ export class Terminal implements ITerminalCore {
       this.rows = rows;
 
       // Resize WASM terminal (may reallocate buffers, invalidating TypedArray views).
-      // The official engine takes the device-pixel cell size in the same call, so a
-      // change of grid and pixels is one size report. (webtty, ADR 042)
+      // The device-pixel cell size goes in the same call, so a change of grid and
+      // pixels is one size report. (webtty, ADR 042)
       const px = this.cellPixelSize();
       this.wasmTerm!.resize(cols, rows, px?.width, px?.height);
 
@@ -875,8 +861,7 @@ export class Terminal implements ITerminalCore {
    * Sends the current device-pixel cell size to the engine for its size reports.
    * Called at the end of every fit: if the grid changed, resize() has already sent
    * it and this does nothing; if only the pixels changed (font zoom or load, DPR),
-   * the official engine makes one size update. A no-op on the Coder engine.
-   * (webtty, ADR 042)
+   * Ghostty makes one size update. (webtty, ADR 042)
    */
   syncCellPixelSize(): void {
     const px = this.cellPixelSize();
@@ -2031,28 +2016,6 @@ export class Terminal implements ITerminalCore {
       // Send response back to the PTY via onData
       // This is the same path as user keyboard input
       this.dataEmitter.fire(response);
-    }
-  }
-
-  /**
-   * Check for title changes in written data (OSC sequences)
-   * Simplified implementation - looks for OSC 0, 1, 2
-   */
-  private checkForTitleChange(data: string): void {
-    // OSC sequences: ESC ] Ps ; Pt BEL or ESC ] Ps ; Pt ST
-    // OSC 0 = icon + title, OSC 1 = icon, OSC 2 = title
-    const oscRegex = /\x1b\]([012]);([^\x07\x1b]*?)(?:\x07|\x1b\\)/g;
-    let match: RegExpExecArray | null = null;
-
-    // biome-ignore lint/suspicious/noAssignInExpressions: Standard regex pattern
-    while ((match = oscRegex.exec(data)) !== null) {
-      const ps = match[1];
-      const pt = match[2];
-
-      // OSC 0 and OSC 2 set the title
-      if (ps === '0' || ps === '2') {
-        this.setTitle(pt);
-      }
     }
   }
 

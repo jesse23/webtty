@@ -72,7 +72,7 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
  *
  * @param req - The incoming HTTP request.
  * @param res - The HTTP response object.
- * @param wasmPaths - Served wasm files: URL path (`/ghostty-vt.wasm`) → file path.
+ * @param wasmPaths - Served wasm files: URL path (`/ghostty-vt-small.wasm`) → file path.
  * @param clientDistPath - Path to the client dist directory.
  * @param onStop - Callback invoked when `POST /api/server/stop` is received.
  */

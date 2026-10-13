@@ -32,11 +32,10 @@ export function mimeType(filePath: string): string {
 
 /**
  * The wasm files the server serves at `GET /<file>`, each with the directory under
- * `src/client/vendor/` it is vendored in: the Coder engine's `ghostty-vt.wasm` (ADR 041)
- * and the official libghostty-vt `ghostty-vt-small.wasm` (ADR 042).
+ * `src/client/vendor/` it is vendored in: the official libghostty-vt `ghostty-vt-small.wasm`
+ * (ADR 042), the only engine since ADR 047.
  */
 export const GHOSTTY_WASM_FILES = {
-  'ghostty-vt.wasm': 'ghostty-web',
   'ghostty-vt-small.wasm': 'ghostty-vt',
 } as const;
 
@@ -46,11 +45,11 @@ export type GhosttyWasmFile = keyof typeof GHOSTTY_WASM_FILES;
  * Locates a served wasm file, preferring the copy the build puts in `dist/` (npm install)
  * over the vendored source copy (local dev). Exits the process if neither exists.
  *
- * @param file - The wasm file name; defaults to the Coder engine's `ghostty-vt.wasm`.
+ * @param file - The wasm file name; defaults to `ghostty-vt-small.wasm`.
  * @returns The absolute path to the wasm file.
  * @throws Exits the process with code 1 if the wasm cannot be found.
  */
-export function findGhosttyWasm(file: GhosttyWasmFile = 'ghostty-vt.wasm'): string {
+export function findGhosttyWasm(file: GhosttyWasmFile = 'ghostty-vt-small.wasm'): string {
   const projectRoot = path.join(__dirname, '..', '..');
   const candidates = [
     path.join(projectRoot, 'dist', file),

@@ -25,8 +25,8 @@ export interface IRenderable {
   getViewport?(): GhosttyCell[];
   /**
    * The view's `viewportY` (lines scrolled up from the bottom). `render` calls it
-   * first, so every render path syncs the engine's viewport in one place. Only the
-   * official engine implements it. (webtty, ADR 042)
+   * first, so every render path syncs the terminal's view offset in one place.
+   * Optional for buffers that cannot scroll. (webtty, ADR 042)
    */
   setViewportOffset?(linesFromBottom: number): void;
   getCursor(): { x: number; y: number; visible: boolean };
@@ -488,7 +488,7 @@ export class CanvasRenderer {
     scrollbackProvider?: IScrollbackProvider,
     scrollbarOpacity: number = 1
   ): void {
-    // Move the engine's viewport to the view before any read (webtty, ADR 042)
+    // Record the view's offset before any read (webtty, ADR 042)
     buffer.setViewportOffset?.(viewportY);
 
     // Store buffer reference for grapheme lookups in renderCell

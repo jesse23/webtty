@@ -169,3 +169,36 @@ describe('Terminal scrollback options', () => {
     expect(wasmConfig({ scrollback: 3277 })?.scrollbackLines).toBeUndefined();
   });
 });
+
+describe('Terminal bell and title', () => {
+  // Bell and title come from the engine's readEffects, not from scanning the output
+  // (ADR 047).
+  test('a bell and a title reported by readEffects reach onBell and onTitleChange', () => {
+    const term = new Terminal({ ghostty: {} as never });
+    let effects: { bell: boolean; title: string | null } = { bell: true, title: 'vim' };
+    (term as unknown as { wasmTerm: object }).wasmTerm = {
+      write: () => {},
+      hasResponse: () => false,
+      readResponse: () => null,
+      readEffects: () => {
+        const e = effects;
+        effects = { bell: false, title: null };
+        return e;
+      },
+    };
+    const write = (data: string) =>
+      (term as unknown as { writeInternal(data: string): void }).writeInternal(data);
+    let bells = 0;
+    const titles: string[] = [];
+    term.onBell(() => bells++);
+    term.onTitleChange((title) => titles.push(title));
+
+    write('\x1b]2;vim\x07\x07');
+    expect(bells).toBe(1);
+    expect(titles).toEqual(['vim']);
+    // A BEL or OSC 2 the engine did not report fires nothing.
+    write('\x07\x1b]2;other\x07');
+    expect(bells).toBe(1);
+    expect(titles).toEqual(['vim']);
+  });
+});

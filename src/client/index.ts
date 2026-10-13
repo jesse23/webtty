@@ -1,6 +1,5 @@
 import { Composer } from './compose';
 import { EdgeExtender } from './edge';
-import { engineWasmPath, selectEngine } from './engine';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { encodePaste } from './paste';
@@ -66,11 +65,9 @@ document.title = `${sessionId} | webtty`;
 
 // The vendored ghostty-web is bundled into /dist/client-browser.js, so its default
 // wasm lookup (relative to its own module URL) would depend on where the bundle sits.
-// Load the wasm from the path the server serves it at instead (ADR 041). The engine
-// is the build-time default or ?engine=coder|official, and only its wasm is fetched
-// (ADR 042).
-const engine = selectEngine(window.location.search);
-const ghostty = await Ghostty.load(engineWasmPath(engine), engine);
+// Load the wasm from the path the server serves it at instead (ADR 041). It is
+// Ghostty's official libghostty-vt wasm, the only engine (ADR 042, ADR 047).
+const ghostty = await Ghostty.load('/ghostty-vt-small.wasm');
 
 // Translate webtty's theme keys to ghostty-web's names and keep `padding`, a webtty
 // setting and not a terminal colour, out of the theme it receives (ADR 036).

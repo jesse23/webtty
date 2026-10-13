@@ -36,15 +36,10 @@ if (!clientResult.success) {
 fs.copyFileSync(path.resolve('./src/client/client.html'), path.resolve('./dist/client.html'));
 fs.copyFileSync(path.resolve('./src/client/index.css'), path.resolve('./dist/client.css'));
 
-// The vendored ghostty-web TypeScript is bundled into client-browser.js; its wasm
-// ships next to it in dist/ so the published package needs nothing outside dist/.
-fs.copyFileSync(
-  path.resolve('./src/client/vendor/ghostty-web/ghostty-vt.wasm'),
-  path.resolve('./dist/ghostty-vt.wasm'),
-);
-
-// The official libghostty-vt wasm (ADR 042) ships the same way. Nothing is fetched: the
-// committed wasm is copied only if it matches its sidecar's size and sha256.
+// The vendored ghostty-web TypeScript is bundled into client-browser.js; the official
+// libghostty-vt wasm it runs (ADR 042, ADR 047) ships next to it in dist/ so the
+// published package needs nothing outside dist/. Nothing is fetched: the committed
+// wasm is copied only if it matches its sidecar's size and sha256.
 const officialDir = './src/client/vendor/ghostty-vt';
 const officialSidecar = JSON.parse(
   fs.readFileSync(path.resolve(officialDir, 'ghostty-vt-small.wasm.json'), 'utf8'),
@@ -62,22 +57,15 @@ if (officialWasm.byteLength !== officialSidecar.size || officialSha256 !== offic
 fs.writeFileSync(path.resolve('./dist', officialSidecar.file), officialWasm);
 
 // The vendored TS has no licence headers, so nothing survives minification; the
-// MIT notices for the code in client-browser.js and both wasm files ship here instead.
+// MIT notices for the code in client-browser.js and the wasm ship here instead.
 const vendorDir = './src/client/vendor/ghostty-web';
 fs.writeFileSync(
   path.resolve('./dist/THIRD_PARTY_LICENSES'),
   [
-    'ghostty-web (bundled in client-browser.js; ghostty-vt.wasm build and patch)',
+    'ghostty-web (TypeScript bundled in client-browser.js)',
     'https://github.com/coder/ghostty-web',
     '',
     fs.readFileSync(path.resolve(vendorDir, 'LICENSE'), 'utf8').trim(),
-    '',
-    '---',
-    '',
-    'Ghostty (compiled into ghostty-vt.wasm)',
-    'https://github.com/ghostty-org/ghostty',
-    '',
-    fs.readFileSync(path.resolve(vendorDir, 'LICENSE.ghostty'), 'utf8').trim(),
     '',
     '---',
     '',
@@ -96,5 +84,5 @@ fs.writeFileSync(
   ].join('\n'),
 );
 
-const totalFiles = serverResult.outputs.length + clientResult.outputs.length + 5;
+const totalFiles = serverResult.outputs.length + clientResult.outputs.length + 4;
 console.log(`✓ Build complete (${totalFiles} files)`);

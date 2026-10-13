@@ -5,7 +5,6 @@ import {
   DirtyState,
   Ghostty,
   type GhosttyTerminal,
-  OfficialGhostty,
   type OfficialTerminal,
 } from './ghostty-web/ghostty';
 import {
@@ -38,7 +37,7 @@ const THEME = {
 let vt: Ghostty;
 
 beforeAll(async () => {
-  vt = await Ghostty.load(OFFICIAL_WASM, 'official');
+  vt = await Ghostty.load(OFFICIAL_WASM);
 });
 
 function term(cols = 40, rows = 10, config: object = THEME): OfficialTerminal {
@@ -365,10 +364,8 @@ describe('official engine: scrollback, resize and the viewport', () => {
       ghostty_render_state_row_get_multi: counted('ghostty_render_state_row_get_multi', 'rows'),
       ghostty_terminal_scroll_viewport: counted('ghostty_terminal_scroll_viewport', 'scroll'),
     };
-    const engine = new OfficialGhostty(
-      spy as unknown as ConstructorParameters<typeof OfficialGhostty>[0],
-    );
-    const t = engine.createTerminal(20, 5, { scrollbackLimit: 0 });
+    const spied = new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]);
+    const t = spied.createTerminal(20, 5, { scrollbackLimit: 0 });
     t.write(lines(50));
     const sb = t.getScrollbackLength();
     expect(sb).toBe(45);
@@ -443,7 +440,7 @@ describe('official engine: scrollback, resize and the viewport', () => {
     t.write('abcdefghijklmnopqrstuvwxyz0123');
     expect(rowText(t, 0)).toBe('abcdefghijklmnopqrst');
     expect(rowText(t, 1)).toBe('uvwxyz0123');
-    // Coder semantics: a row is wrapped when it continues the row above.
+    // A row is wrapped when it continues the row above (ghostty-web's semantics).
     expect(t.isRowWrapped(0)).toBe(false);
     expect(t.isRowWrapped(1)).toBe(true);
     t.resize(30, 5);
@@ -637,10 +634,8 @@ describe('official engine: effects and replies', () => {
         return resize(...args);
       },
     };
-    const engine = new OfficialGhostty(
-      spy as unknown as ConstructorParameters<typeof OfficialGhostty>[0],
-    );
-    const t = engine.createTerminal(80, 24);
+    const spied = new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]);
+    const t = spied.createTerminal(80, 24);
     // open(): the initial cell size.
     t.setCellPixelSize(9, 18);
     expect(resizes).toBe(1);
@@ -663,7 +658,7 @@ describe('official engine: effects and replies', () => {
 describe('official engine: memory growth', () => {
   test('reads correct cells and replies after the wasm memory has grown', () => {
     const t = term(120, 40, { scrollbackLimit: 0 });
-    const memory = (vt as OfficialGhostty).ex.memory;
+    const memory = vt.ex.memory;
     const before = memory.buffer.byteLength;
     let i = 0;
     while (memory.buffer.byteLength === before && i < 200000) {

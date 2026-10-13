@@ -47,21 +47,6 @@ describe('server — routes', () => {
     expect(res.status).toBe(404);
   });
 
-  test('GET /ghostty-vt.wasm serves the vendored wasm byte for byte', async () => {
-    const sidecar = JSON.parse(
-      fs.readFileSync(
-        path.resolve(__dirname, '../client/vendor/ghostty-web/ghostty-vt.wasm.json'),
-        'utf8',
-      ),
-    ) as { size: number; sha256: string };
-    const res = await fetch(`${baseUrl}/ghostty-vt.wasm`);
-    expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('application/wasm');
-    const body = new Uint8Array(await res.arrayBuffer());
-    expect(body.byteLength).toBe(sidecar.size);
-    expect(createHash('sha256').update(body).digest('hex')).toBe(sidecar.sha256);
-  });
-
   test('GET /ghostty-vt-small.wasm serves the official wasm byte for byte', async () => {
     const sidecar = JSON.parse(
       fs.readFileSync(
@@ -78,7 +63,12 @@ describe('server — routes', () => {
   });
 
   test('wasm routes serve only the listed files', async () => {
-    for (const p of ['/ghostty-vt.wasm.json', '/ghostty-vt-small.wasm.minisig']) {
+    // /ghostty-vt.wasm was the Coder engine's wasm, removed in ADR 047.
+    for (const p of [
+      '/ghostty-vt.wasm',
+      '/ghostty-vt-small.wasm.json',
+      '/ghostty-vt-small.wasm.minisig',
+    ]) {
       const res = await fetch(`${baseUrl}${p}`);
       expect(res.status).toBe(404);
     }

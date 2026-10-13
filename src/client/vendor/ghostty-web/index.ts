@@ -73,16 +73,14 @@ export type {
 // Ghostty WASM components (for advanced usage)
 export {
   Ghostty,
-  CoderTerminal,
-  OfficialGhostty,
   OfficialTerminal,
   CellFlags,
   DirtyState,
   KeyEncoderOption,
 } from './ghostty';
-export type { EngineName, GhosttyTerminal, KeyEncoder, TerminalEffects } from './ghostty';
+export type { GhosttyTerminal, KeyEncoder, TerminalEffects } from './ghostty';
 export { Key, KeyAction, Mods } from './types';
-export type { KeyEvent, GhosttyCell, RGB, Cursor, TerminalHandle } from './types';
+export type { KeyEvent, GhosttyCell, RGB, Cursor } from './types';
 
 // Low-level components (for custom integrations)
 export { CanvasRenderer } from './renderer';
