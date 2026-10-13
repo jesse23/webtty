@@ -51,6 +51,48 @@ export function mouseCursorFor(link: ILink | undefined): 'pointer' | 'default' {
   return link ? 'pointer' : 'default';
 }
 
+/** Cursor shape set by an app through DECSCUSR. */
+export interface CursorShape {
+  style: 'block' | 'underline' | 'bar';
+  blink: boolean;
+}
+
+// DECSCUSR is CSI Ps SP q. A sequence split across writes leaves a prefix at the
+// end of a chunk, which is carried into the next scan.
+const DECSCUSR = /\x1b\[(\d*) q/g;
+const DECSCUSR_PREFIX = /\x1b(?:\[\d{0,3} ?)?$/;
+
+/**
+ * Scans output for DECSCUSR and returns the last Ps from 0 to 6 (undefined if
+ * none), plus the unfinished sequence at the end of the chunk to pass back in as
+ * `carry` with the next one. (webtty: the Coder wasm applies DECSCUSR but does not
+ * export the cursor style, so it is read from the output here.)
+ */
+export function scanDecscusr(
+  data: string,
+  carry: string = ''
+): { ps: number | undefined; carry: string } {
+  const text = carry + data;
+  let ps: number | undefined;
+  for (const match of text.matchAll(DECSCUSR)) {
+    const value = match[1] === '' ? 0 : Number(match[1]);
+    if (value <= 6) ps = value;
+  }
+  return { ps, carry: DECSCUSR_PREFIX.exec(text)?.[0] ?? '' };
+}
+
+/**
+ * Applies DECSCUSR Ps to the app's cursor shape: 1-6 set it, 0 clears it so the
+ * configured `cursorStyle` / `cursorBlink` show again.
+ */
+export function decscusrShape(ps: number): CursorShape | undefined {
+  if (ps === 0) return undefined;
+  return {
+    style: ps <= 2 ? 'block' : ps <= 4 ? 'underline' : 'bar',
+    blink: ps % 2 === 1,
+  };
+}
+
 export class Terminal implements ITerminalCore {
   // Public properties (xterm.js compatibility)
   public cols: number;
@@ -130,6 +172,11 @@ export class Terminal implements ITerminalCore {
   private scrollAnimationFrame?: number;
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private lastCursorY: number = 0; // Track cursor position for onCursorMove
+  // DECSCUSR state: the app's cursor shape (undefined = options) and the
+  // unfinished sequence at the end of the last write
+  private appCursorShape?: CursorShape;
+  private decscusrCarry: string = '';
+  private readonly decoder = new TextDecoder();
 
   // Scrollbar interaction state
   private isDraggingScrollbar: boolean = false;
@@ -204,10 +251,7 @@ export class Terminal implements ITerminalCore {
 
       case 'cursorBlink':
       case 'cursorStyle':
-        if (this.renderer) {
-          this.renderer.setCursorStyle(this.options.cursorStyle);
-          this.renderer.setCursorBlink(this.options.cursorBlink);
-        }
+        this.applyCursorShape();
         break;
 
       case 'theme':
@@ -583,6 +627,17 @@ export class Terminal implements ITerminalCore {
       this.bellEmitter.fire();
     }
 
+    // DECSCUSR: the app's cursor shape (webtty)
+    const decscusr = scanDecscusr(
+      typeof data === 'string' ? data : this.decoder.decode(data, { stream: true }),
+      this.decscusrCarry
+    );
+    this.decscusrCarry = decscusr.carry;
+    if (decscusr.ps !== undefined) {
+      this.appCursorShape = decscusrShape(decscusr.ps);
+      this.applyCursorShape();
+    }
+
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();
 
@@ -751,6 +806,22 @@ export class Terminal implements ITerminalCore {
 
     // Reset title
     this.currentTitle = '';
+
+    // Back to the configured cursor shape (webtty)
+    this.appCursorShape = undefined;
+    this.decscusrCarry = '';
+    this.applyCursorShape();
+  }
+
+  /**
+   * Shows the app's DECSCUSR cursor shape, or the configured one when the app has
+   * not set one. The renderer repaints the cursor cell when the shape changes.
+   * (webtty)
+   */
+  private applyCursorShape(): void {
+    if (!this.renderer) return;
+    this.renderer.setCursorStyle(this.appCursorShape?.style ?? this.options.cursorStyle);
+    this.renderer.setCursorBlink(this.appCursorShape?.blink ?? this.options.cursorBlink);
   }
 
   /**

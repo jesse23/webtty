@@ -1,5 +1,4 @@
 import { Composer } from './compose';
-import { applyDecscusr } from './cursor';
 import { EdgeExtender } from './edge';
 import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
@@ -173,8 +172,7 @@ document.fonts.ready.then(() => {
 // memory; Firefox does not. ghostty-web's render loop only repaints
 // WASM-dirty rows, so a cleared canvas can stay blank/partial after switching
 // back to the tab until content happens to change. Force a full repaint on
-// visibility restore. See ADR 031 and ADR 015 for the same forced-repaint
-// pattern used for the DECSCUSR ghost-cursor fix.
+// visibility restore. See ADR 031.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   if (term.renderer && term.wasmTerm) {
@@ -213,7 +211,6 @@ function connect(): void {
   };
 
   ws.onmessage = (event: MessageEvent<string>) => {
-    applyDecscusr(term, event.data);
     graphics.feed(event.data);
     smoothScroll.onOutput();
   };

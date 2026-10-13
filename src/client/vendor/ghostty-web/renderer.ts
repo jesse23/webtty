@@ -169,6 +169,9 @@ export class CanvasRenderer {
   private cursorVisible: boolean = true;
   private cursorBlinkInterval?: number;
   private lastCursorPosition: { x: number; y: number } = { x: 0, y: 0 };
+  // Cursor style or blink changed since the last frame: repaint the cursor cell so
+  // the old shape does not stay under the new one (webtty)
+  private cursorShapeChanged: boolean = false;
 
   // Viewport tracking (for scrolling)
   private lastViewportY: number = 0;
@@ -381,10 +384,12 @@ export class CanvasRenderer {
       this.lastViewportY = viewportY;
     }
 
-    // Check if cursor position changed or if blinking (need to redraw cursor line)
+    // Check if cursor position changed, blinking or changed shape (need to redraw cursor line)
     const cursorMoved =
       cursor.x !== this.lastCursorPosition.x || cursor.y !== this.lastCursorPosition.y;
-    if (cursorMoved || this.cursorBlink) {
+    const cursorShapeChanged = this.cursorShapeChanged && viewportY === 0;
+    this.cursorShapeChanged = false;
+    if (cursorMoved || this.cursorBlink || cursorShapeChanged) {
       // Mark cursor lines as needing redraw
       if (!forceAll && !buffer.isRowDirty(cursor.y)) {
         // Need to redraw cursor line
@@ -910,6 +915,7 @@ export class CanvasRenderer {
    * Update cursor style
    */
   public setCursorStyle(style: 'block' | 'underline' | 'bar'): void {
+    if (style !== this.cursorStyle) this.cursorShapeChanged = true;
     this.cursorStyle = style;
   }
 
@@ -917,6 +923,7 @@ export class CanvasRenderer {
    * Enable/disable cursor blinking
    */
   public setCursorBlink(enabled: boolean): void {
+    if (enabled !== this.cursorBlink) this.cursorShapeChanged = true;
     if (enabled && !this.cursorBlink) {
       this.cursorBlink = true;
       this.startCursorBlink();
