@@ -106,8 +106,8 @@ export function decscusrShape(ps: number): CursorShape | undefined {
 /**
  * A cell's size in whole device pixels, for Ghostty's size reports
  * (XTWINOPS 14/16/18/19 t, mode 2048). Computed as kitty.ts's `deviceCellSize`
- * does for its own replies: the CSS cell times `devicePixelRatio`, rounded, at
- * least 1. (webtty, ADR 042)
+ * sizes image frames: the CSS cell times `devicePixelRatio`, rounded, at least 1.
+ * (webtty, ADR 042)
  */
 export function deviceCellPixels(cssCell: number, dpr: number): number {
   return Math.max(1, Math.round(cssCell * dpr));

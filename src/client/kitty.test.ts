@@ -11,8 +11,6 @@ import {
   parseKittyApc,
   pngSize,
   pngSizeFromBytes,
-  sizeQueries,
-  sizeReply,
 } from './kitty';
 
 const ESC = '\x1b';
@@ -187,19 +185,6 @@ describe('placement clearing', () => {
   });
 });
 
-describe('size queries', () => {
-  test('finds queries in order', () => {
-    expect(sizeQueries('\x1b[14tabc\x1b[16t\x1b[18t\x1b[15t')).toEqual([14, 16, 18]);
-  });
-
-  test('replies', () => {
-    const size = { cols: 100, rows: 30, cellWidth: 8, cellHeight: 16 };
-    expect(sizeReply(14, size)).toBe('\x1b[4;480;800t');
-    expect(sizeReply(16, size)).toBe('\x1b[6;16;8t');
-    expect(sizeReply(18, size)).toBe('\x1b[8;30;100t');
-  });
-});
-
 describe('cellSpan', () => {
   const img = { width: 100, height: 50 };
 
@@ -307,14 +292,8 @@ describe('ChunkAssembler size cap', () => {
 describe('ControlScanner', () => {
   test('a clear split across chunks is seen once it completes', () => {
     const s = new ControlScanner();
-    expect(s.scan('text\x1b[')).toEqual({ clears: false, queries: [] });
-    expect(s.scan('2Jmore')).toEqual({ clears: true, queries: [] });
-  });
-
-  test('a size query split across chunks gets its reply', () => {
-    const s = new ControlScanner();
-    expect(s.scan('\x1b[1').queries).toEqual([]);
-    expect(s.scan('4t').queries).toEqual([14]);
+    expect(s.scan('text\x1b[')).toEqual({ clears: false });
+    expect(s.scan('2Jmore')).toEqual({ clears: true });
   });
 
   test('split at every position', () => {
@@ -324,7 +303,6 @@ describe('ControlScanner', () => {
       const a = s.scan(full.slice(0, cut));
       const b = s.scan(full.slice(cut));
       expect(a.clears || b.clears).toBe(true);
-      expect([...a.queries, ...b.queries]).toEqual([16]);
     }
   });
 
@@ -336,15 +314,15 @@ describe('ControlScanner', () => {
 
   test('a completed sequence is not counted again with the next chunk', () => {
     const s = new ControlScanner();
-    expect(s.scan('\x1b[2J\x1b[14t').queries).toEqual([14]);
-    expect(s.scan('plain')).toEqual({ clears: false, queries: [] });
+    expect(s.scan('\x1b[2J').clears).toBe(true);
+    expect(s.scan('plain')).toEqual({ clears: false });
   });
 
   test('an unrelated unfinished sequence is dropped once it turns into something else', () => {
     const s = new ControlScanner();
     s.scan('\x1b[3');
     expect(s.scan('1m text').clears).toBe(false);
-    expect(s.scan('plain').queries).toEqual([]);
+    expect(s.scan('plain').clears).toBe(false);
   });
 });
 

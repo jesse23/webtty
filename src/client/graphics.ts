@@ -4,7 +4,6 @@ import {
   ChunkAssembler,
   ControlScanner,
   cellSpan,
-  deviceCellSize,
   type KittyKeys,
   kittyReply,
   MAX_TRANSMISSION_BYTES,
@@ -12,13 +11,12 @@ import {
   parseKittyApc,
   pngSize,
   pngSizeFromBytes,
-  sizeReply,
   type Transmission,
 } from './kitty';
 import type { Terminal } from './vendor/ghostty-web';
 
-// Sizes reported to programs (CSI 14t/16t) are device pixels, as in kitty and
-// Ghostty: programs such as terminal-browser divide them by the display's
+// Sizes Ghostty reports to programs (CSI 14t/16t) are device pixels, as in kitty:
+// programs such as terminal-browser divide them by the display's
 // scale factor to get CSS pixels, so reporting CSS pixels makes their content
 // render at the wrong size. On a 2x display this means 4x the pixels per
 // full-window frame. Cell sizes are whole device pixels (see kitty.ts), so the
@@ -249,12 +247,9 @@ export class KittyGraphics {
 
   private writeText(text: string): void {
     this.term.write(text);
-    const { clears, queries } = this.scanner.scan(text);
-    if (clears) this.clear();
-    // The official engine answers size queries itself (OPT_SIZE), so apps get one
-    // reply per query. See ADR 042.
-    if (this.term.wasmTerm?.answersSizeQueries) return;
-    for (const q of queries) this.send(sizeReply(q, this.terminalSize()));
+    // Size queries (CSI 14/16/18 t) are answered by Ghostty (OPT_SIZE). See ADR 042
+    // and ADR 047.
+    if (this.scanner.scan(text).clears) this.clear();
   }
 
   private handleApc(body: string, overflow = false): void {
@@ -561,17 +556,6 @@ export class KittyGraphics {
   private cell(): { width: number; height: number } {
     const m = this.term.renderer?.getMetrics();
     return { width: m?.width ?? 8, height: m?.height ?? 16 };
-  }
-
-  private terminalSize() {
-    const cell = this.cell();
-    const dpr = window.devicePixelRatio || 1;
-    return {
-      cols: this.term.cols,
-      rows: this.term.rows,
-      cellWidth: deviceCellSize(cell.width, dpr),
-      cellHeight: deviceCellSize(cell.height, dpr),
-    };
   }
 
   /** The alternate screen has no scrollback, so rows there are viewport rows. */

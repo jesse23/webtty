@@ -56,8 +56,6 @@ export interface TerminalEffects {
 export interface GhosttyTerminal {
   readonly cols: number;
   readonly rows: number;
-  /** True when the engine answers XTWINOPS size queries and mode 2048 itself. */
-  readonly answersSizeQueries: boolean;
 
   // Lifecycle
   write(data: string | Uint8Array): void;
@@ -844,8 +842,6 @@ function isKittyKeyboardReply(reply: Uint8Array): boolean {
  * offset and serves rows from the copy and the cache.
  */
 export class OfficialTerminal implements GhosttyTerminal {
-  readonly answersSizeQueries = true;
-
   private readonly vt: Ghostty;
   private readonly ex: OfficialWasmExports;
   private readonly L: OfficialLayout;

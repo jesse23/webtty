@@ -121,7 +121,7 @@ function fit(): void {
   }
   // Every font zoom, font load and DPR change reaches fit(). A grid change has
   // already sent the new cell pixels with resize; this sends them when only the
-  // pixels changed, for the official engine's size reports (ADR 042).
+  // pixels changed, for Ghostty's size reports (ADR 042).
   term.syncCellPixelSize();
   const canvas = container.querySelector('canvas:not([data-edge])') as HTMLElement | null;
   if (!canvas) return;
@@ -191,8 +191,9 @@ watchDevicePixelRatio(window, scheduleFit);
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 let ws: WebSocket;
 
-// Kitty graphics: ghostty-web's WASM discards the protocol's APC sequences, so
-// PTY output goes through this instead of term.write(). See ADR 032.
+// Kitty graphics: the wasm32 libghostty-vt build leaves kitty graphics out and
+// discards the protocol's APC sequences, so PTY output goes through this instead of
+// term.write(). See ADR 032 and ADR 041.
 const graphics = new KittyGraphics(term, container, (data: string) => {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
 });

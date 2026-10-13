@@ -125,7 +125,6 @@ interface Harness {
 function harness(
   limits: Partial<Limits> = {},
   cell: { width: number; height: number } = { width: 10, height: 20 },
-  answersSizeQueries = false,
 ): Harness {
   const written: string[] = [];
   const sent: string[] = [];
@@ -145,7 +144,7 @@ function harness(
         },
       },
     },
-    wasmTerm: { isAlternateScreen: () => false, getScrollbackLength: () => 0, answersSizeQueries },
+    wasmTerm: { isAlternateScreen: () => false, getScrollbackLength: () => 0 },
     renderer: { getMetrics: () => cell },
   };
   const container = { appendChild: () => {}, querySelector: () => null };
@@ -464,15 +463,6 @@ describe('sequences split across chunks', () => {
     expect(h.placements().size).toBe(0);
   });
 
-  test('a size query split over two feeds is answered', () => {
-    const h = harness();
-    h.g.feed(`${ESC}[1`);
-    expect(h.sent).toEqual([]);
-    h.g.feed('4t');
-    // 80x24 cells of 10x20 px
-    expect(h.sent).toEqual([`${ESC}[4;480;800t`]);
-  });
-
   test('the text is still written to the terminal in the same pieces', () => {
     const h = harness();
     h.g.feed(`a${ESC}[`);
@@ -482,14 +472,8 @@ describe('sequences split across chunks', () => {
 });
 
 describe('size queries', () => {
-  test('are answered from the cell size on the Coder engine', () => {
+  test('are left to Ghostty, which answers them (ADR 042, ADR 047)', () => {
     const h = harness();
-    h.g.feed(`${ESC}[16t${ESC}[18t`);
-    expect(h.sent).toEqual([`${ESC}[6;20;10t`, `${ESC}[8;24;80t`]);
-  });
-
-  test('are left to an engine that answers them itself (ADR 042)', () => {
-    const h = harness({}, undefined, true);
     h.g.feed(`${ESC}[14t${ESC}[16t${ESC}[18t`);
     expect(h.sent).toEqual([]);
     expect(h.written.join('')).toBe(`${ESC}[14t${ESC}[16t${ESC}[18t`);
