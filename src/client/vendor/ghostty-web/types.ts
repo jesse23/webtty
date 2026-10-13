@@ -537,6 +537,17 @@ export interface GhosttyTerminalConfig {
   bgColor?: number;
   cursorColor?: number;
   palette?: number[];
+  /**
+   * webtty (ADR 042): which colours above were given, so the official engine can
+   * set `#000000` (0) as black instead of reading it as "use default". Without it,
+   * a non-zero value counts as given. The Coder engine ignores it.
+   */
+  colorsSet?: {
+    foreground?: boolean;
+    background?: boolean;
+    cursor?: boolean;
+    palette?: boolean[];
+  };
 }
 
 /**

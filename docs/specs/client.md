@@ -44,7 +44,10 @@ src/client/
   vendor/
     ghostty-web/       ← coder/ghostty-web lib/ at 1858a59 (non-test TS, unchanged), MIT LICENSE, PROVENANCE.md;
                           Ghostty's LICENSE.ghostty; Coder ghostty-vt.wasm + ghostty-vt.wasm.json sidecar (npm version, Ghostty commit + patch,
-                          licence, size, sha256), checked by vendor/ghostty-web.test.ts
+                          licence, size, sha256), checked by vendor/ghostty-web.test.ts;
+                          ghostty.ts holds every wasm call for both engines (Coder and official, ADR 042);
+                          fn-table.ts is the function-table trampoline borrowed from ghostty-vt-js (LICENSE.ghostty-vt-js)
+    fixtures/          ← PTY captures replayed into both engines by vendor/engine-parity.test.ts
     ghostty-vt/        ← official ghostty-vt-small.wasm (Ghostty 05dcf887, ReleaseSmall) + .minisig + sidecar
                           (commit, URL, size, sha256, signature, key, licence), Ghostty LICENSE, PROVENANCE.md;
                           checked offline by vendor/ghostty-vt.test.ts (size, sha256, minisign signature)
@@ -58,10 +61,9 @@ Planned ([ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.c
 ```
 src/client/
   engine.ts            ← DEFAULT_ENGINE and the ?engine=coder|official override
-  vendor/
-    ghostty-web/       ← all wasm calls for both engines in ghostty.ts; fn-table.ts (borrowed trampoline);
-                          Coder wasm + sidecar until the Coder engine is removed
 ```
+
+The official engine (`OfficialTerminal`) is built and tested but not yet selectable; the Coder wasm and sidecar stay until the Coder engine is removed.
 
 ## Page
 

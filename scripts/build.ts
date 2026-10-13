@@ -86,6 +86,13 @@ fs.writeFileSync(
     '',
     fs.readFileSync(path.resolve(officialDir, 'LICENSE'), 'utf8').trim(),
     '',
+    '---',
+    '',
+    'ghostty-vt-js (fn-table.ts, bundled in client-browser.js)',
+    'https://github.com/gkoreli/ghostty-vt-js',
+    '',
+    fs.readFileSync(path.resolve(vendorDir, 'LICENSE.ghostty-vt-js'), 'utf8').trim(),
+    '',
   ].join('\n'),
 );
 
