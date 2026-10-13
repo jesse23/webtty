@@ -93,6 +93,16 @@ export function decscusrShape(ps: number): CursorShape | undefined {
   };
 }
 
+/**
+ * A cell's size in whole device pixels, for the official engine's size reports
+ * (XTWINOPS 14/16/18/19 t, mode 2048). Computed as kitty.ts's `deviceCellSize`
+ * does for its own replies: the CSS cell times `devicePixelRatio`, rounded, at
+ * least 1. (webtty, ADR 042)
+ */
+export function deviceCellPixels(cssCell: number, dpr: number): number {
+  return Math.max(1, Math.round(cssCell * dpr));
+}
+
 /** Wheel travel not yet sent to a mouse-tracking app, and its direction. */
 export interface WheelAccumulator {
   accum: number;
@@ -384,11 +394,12 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Parse a CSS color string to 0xRRGGBB format.
-   * Returns 0 if the color is undefined or invalid.
+   * Parse a CSS color string to 0xRRGGBB format, or undefined if the color is
+   * undefined or invalid. (webtty: replaces `parseColorToHex`, which returned 0
+   * for both; tells `#000000` apart from "not given", ADR 042)
    */
-  private parseColorToHex(color?: string): number {
-    if (!color) return 0;
+  private parseColor(color?: string): number | undefined {
+    if (!color) return undefined;
 
     // Handle hex colors (#RGB, #RRGGBB)
     if (color.startsWith('#')) {
@@ -397,7 +408,7 @@ export class Terminal implements ITerminalCore {
         hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
       }
       const value = Number.parseInt(hex, 16);
-      return Number.isNaN(value) ? 0 : value;
+      return Number.isNaN(value) ? undefined : value;
     }
 
     // Handle rgb(r, g, b) format
@@ -409,7 +420,7 @@ export class Terminal implements ITerminalCore {
       return (r << 16) | (g << 8) | b;
     }
 
-    return 0;
+    return undefined;
   }
 
   /**
@@ -427,31 +438,42 @@ export class Terminal implements ITerminalCore {
     // Build palette array from theme colors
     // Order: black, red, green, yellow, blue, magenta, cyan, white,
     //        brightBlack, brightRed, brightGreen, brightYellow, brightBlue, brightMagenta, brightCyan, brightWhite
-    const palette: number[] = [
-      this.parseColorToHex(theme?.black),
-      this.parseColorToHex(theme?.red),
-      this.parseColorToHex(theme?.green),
-      this.parseColorToHex(theme?.yellow),
-      this.parseColorToHex(theme?.blue),
-      this.parseColorToHex(theme?.magenta),
-      this.parseColorToHex(theme?.cyan),
-      this.parseColorToHex(theme?.white),
-      this.parseColorToHex(theme?.brightBlack),
-      this.parseColorToHex(theme?.brightRed),
-      this.parseColorToHex(theme?.brightGreen),
-      this.parseColorToHex(theme?.brightYellow),
-      this.parseColorToHex(theme?.brightBlue),
-      this.parseColorToHex(theme?.brightMagenta),
-      this.parseColorToHex(theme?.brightCyan),
-      this.parseColorToHex(theme?.brightWhite),
-    ];
+    const paletteColors = [
+      theme?.black,
+      theme?.red,
+      theme?.green,
+      theme?.yellow,
+      theme?.blue,
+      theme?.magenta,
+      theme?.cyan,
+      theme?.white,
+      theme?.brightBlack,
+      theme?.brightRed,
+      theme?.brightGreen,
+      theme?.brightYellow,
+      theme?.brightBlue,
+      theme?.brightMagenta,
+      theme?.brightCyan,
+      theme?.brightWhite,
+    ].map((color) => this.parseColor(color));
+    const fg = this.parseColor(theme?.foreground);
+    const bg = this.parseColor(theme?.background);
+    const cursor = this.parseColor(theme?.cursor);
 
     return {
       scrollbackLimit: scrollback,
-      fgColor: this.parseColorToHex(theme?.foreground),
-      bgColor: this.parseColorToHex(theme?.background),
-      cursorColor: this.parseColorToHex(theme?.cursor),
-      palette,
+      fgColor: fg ?? 0,
+      bgColor: bg ?? 0,
+      cursorColor: cursor ?? 0,
+      palette: paletteColors.map((color) => color ?? 0),
+      // Which colours parsed, so the official engine sets #000000 as black instead
+      // of reading 0 as "use default". The Coder engine ignores it. (webtty, ADR 042)
+      colorsSet: {
+        foreground: fg !== undefined,
+        background: bg !== undefined,
+        cursor: cursor !== undefined,
+        palette: paletteColors.map((color) => color !== undefined),
+      },
     };
   }
 
@@ -563,6 +585,10 @@ export class Terminal implements ITerminalCore {
 
       // Size canvas to terminal dimensions (use renderer.resize for proper DPI scaling)
       this.renderer.resize(this.cols, this.rows);
+
+      // Cell pixels for the official engine's size reports, before the first write,
+      // so a reply never says 0 px. Mode 2048 cannot be on yet. (webtty, ADR 042)
+      this.syncCellPixelSize();
 
       // Create mouse tracking configuration
       const canvas = this.canvas;
@@ -702,8 +728,14 @@ export class Terminal implements ITerminalCore {
     this.processTerminalResponses();
 
     // Check for bell character (BEL, \x07)
-    // WASM doesn't expose bell events, so we detect it in the data stream
-    if (typeof data === 'string' && data.includes('\x07')) {
+    // The Coder wasm doesn't expose bell events, so we detect it in the data stream.
+    // The official engine reports bell and title itself. (webtty, ADR 042)
+    const scanStream = this.ghostty?.engine !== 'official';
+    if (!scanStream) {
+      const effects = this.wasmTerm!.readEffects();
+      if (effects.bell) this.bellEmitter.fire();
+      if (effects.title !== null) this.setTitle(effects.title);
+    } else if (typeof data === 'string' && data.includes('\x07')) {
       this.bellEmitter.fire();
     } else if (data instanceof Uint8Array && data.includes(0x07)) {
       this.bellEmitter.fire();
@@ -730,7 +762,7 @@ export class Terminal implements ITerminalCore {
 
     // Check for title changes (OSC 0, 1, 2 sequences)
     // This is a simplified implementation - Ghostty WASM may provide this
-    if (typeof data === 'string' && data.includes('\x1b]')) {
+    if (scanStream && typeof data === 'string' && data.includes('\x1b]')) {
       this.checkForTitleChange(data);
     }
 
@@ -834,8 +866,11 @@ export class Terminal implements ITerminalCore {
       this.cols = cols;
       this.rows = rows;
 
-      // Resize WASM terminal (may reallocate buffers, invalidating TypedArray views)
-      this.wasmTerm!.resize(cols, rows);
+      // Resize WASM terminal (may reallocate buffers, invalidating TypedArray views).
+      // The official engine takes the device-pixel cell size in the same call, so a
+      // change of grid and pixels is one size report. (webtty, ADR 042)
+      const px = this.cellPixelSize();
+      this.wasmTerm!.resize(cols, rows, px?.width, px?.height);
 
       // Resize renderer
       this.renderer!.resize(cols, rows);
@@ -850,6 +885,10 @@ export class Terminal implements ITerminalCore {
       // Fire resize event
       this.resizeEmitter.fire({ cols, rows });
 
+      // A mode 2048 size report from the resize, sent after the PTY resize message
+      // (webtty, ADR 042)
+      this.processTerminalResponses();
+
       // Force full render
       this.renderer!.render(this.wasmTerm!, true, this.viewportY, this);
     } catch (e) {
@@ -859,6 +898,31 @@ export class Terminal implements ITerminalCore {
     // Flush any writes that were queued during resize, then restart render loop
     this.flushWriteQueue();
     this.startRenderLoop();
+  }
+
+  /**
+   * Sends the current device-pixel cell size to the engine for its size reports.
+   * Called at the end of every fit: if the grid changed, resize() has already sent
+   * it and this does nothing; if only the pixels changed (font zoom or load, DPR),
+   * the official engine makes one size update. A no-op on the Coder engine.
+   * (webtty, ADR 042)
+   */
+  syncCellPixelSize(): void {
+    const px = this.cellPixelSize();
+    if (!this.wasmTerm || !px) return;
+    this.wasmTerm.setCellPixelSize(px.width, px.height);
+    this.processTerminalResponses();
+  }
+
+  /** The renderer's cell in whole device pixels, or null before open(). (webtty) */
+  private cellPixelSize(): { width: number; height: number } | null {
+    if (!this.renderer) return null;
+    const metrics = this.renderer.getMetrics();
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    return {
+      width: deviceCellPixels(metrics.width, dpr),
+      height: deviceCellPixels(metrics.height, dpr),
+    };
   }
 
   /**
@@ -882,6 +946,7 @@ export class Terminal implements ITerminalCore {
     }
     const config = this.buildWasmConfig();
     this.wasmTerm = this.ghostty!.createTerminal(this.cols, this.rows, config);
+    this.syncCellPixelSize();
 
     // Clear renderer
     this.renderer!.clear();
@@ -1382,6 +1447,9 @@ export class Terminal implements ITerminalCore {
         // 2. Only redraws dirty rows when forceAll=false
         // 3. Always calls clearDirty() at the end
         this.renderer!.render(this.wasmTerm!, false, this.viewportY, this, this.scrollbarOpacity);
+
+        // Replies that arose outside write() reach the PTY within a frame (webtty, ADR 042)
+        if (this.wasmTerm!.hasResponse()) this.processTerminalResponses();
 
         // Check for cursor movement (Phase 2: onCursorMove event)
         // Note: getCursor() reads from already-updated render state (from render() above)
@@ -2098,12 +2166,16 @@ export class Terminal implements ITerminalCore {
 
       // OSC 0 and OSC 2 set the title
       if (ps === '0' || ps === '2') {
-        if (pt !== this.currentTitle) {
-          this.currentTitle = pt;
-          this.titleChangeEmitter.fire(pt);
-        }
+        this.setTitle(pt);
       }
     }
+  }
+
+  /** Fires onTitleChange when the title differs from the current one. */
+  private setTitle(title: string): void {
+    if (title === this.currentTitle) return;
+    this.currentTitle = title;
+    this.titleChangeEmitter.fire(title);
   }
 
   // ============================================================================

@@ -1,5 +1,6 @@
 import { Composer } from './compose';
 import { EdgeExtender } from './edge';
+import { engineWasmPath, selectEngine } from './engine';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { encodePaste } from './paste';
@@ -63,8 +64,11 @@ document.title = `${sessionId} | webtty`;
 
 // The vendored ghostty-web is bundled into /dist/client-browser.js, so its default
 // wasm lookup (relative to its own module URL) would depend on where the bundle sits.
-// Load the wasm from the path the server serves it at instead (ADR 041).
-const ghostty = await Ghostty.load('/ghostty-vt.wasm');
+// Load the wasm from the path the server serves it at instead (ADR 041). The engine
+// is the build-time default or ?engine=coder|official, and only its wasm is fetched
+// (ADR 042).
+const engine = selectEngine(window.location.search);
+const ghostty = await Ghostty.load(engineWasmPath(engine), engine);
 
 // Translate webtty's theme keys to ghostty-web's names and keep `padding`, a webtty
 // setting and not a terminal colour, out of the theme it receives (ADR 036).
@@ -115,6 +119,10 @@ function fit(): void {
   if (grid.cols !== term.cols || grid.rows !== term.rows) {
     term.resize(grid.cols, grid.rows);
   }
+  // Every font zoom, font load and DPR change reaches fit(). A grid change has
+  // already sent the new cell pixels with resize; this sends them when only the
+  // pixels changed, for the official engine's size reports (ADR 042).
+  term.syncCellPixelSize();
   const canvas = container.querySelector('canvas') as HTMLElement | null;
   if (!canvas) return;
   const insets = computeInsets(

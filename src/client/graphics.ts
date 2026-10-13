@@ -251,6 +251,9 @@ export class KittyGraphics {
     this.term.write(text);
     const { clears, queries } = this.scanner.scan(text);
     if (clears) this.clear();
+    // The official engine answers size queries itself (OPT_SIZE), so apps get one
+    // reply per query. See ADR 042.
+    if (this.term.wasmTerm?.answersSizeQueries) return;
     for (const q of queries) this.send(sizeReply(q, this.terminalSize()));
   }
 

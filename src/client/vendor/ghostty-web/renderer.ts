@@ -23,6 +23,12 @@ export interface IRenderable {
    * the next call, so rows taken from it are only valid until then.
    */
   getViewport?(): GhosttyCell[];
+  /**
+   * The view's `viewportY` (lines scrolled up from the bottom). `render` calls it
+   * first, so every render path syncs the engine's viewport in one place. Only the
+   * official engine implements it. (webtty, ADR 042)
+   */
+  setViewportOffset?(linesFromBottom: number): void;
   getCursor(): { x: number; y: number; visible: boolean };
   getDimensions(): { cols: number; rows: number };
   isRowDirty(y: number): boolean;
@@ -352,6 +358,9 @@ export class CanvasRenderer {
     scrollbackProvider?: IScrollbackProvider,
     scrollbarOpacity: number = 1
   ): void {
+    // Move the engine's viewport to the view before any read (webtty, ADR 042)
+    buffer.setViewportOffset?.(viewportY);
+
     // Store buffer reference for grapheme lookups in renderCell
     this.currentBuffer = buffer;
 

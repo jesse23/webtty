@@ -125,6 +125,7 @@ interface Harness {
 function harness(
   limits: Partial<Limits> = {},
   cell: { width: number; height: number } = { width: 10, height: 20 },
+  answersSizeQueries = false,
 ): Harness {
   const written: string[] = [];
   const sent: string[] = [];
@@ -144,7 +145,7 @@ function harness(
         },
       },
     },
-    wasmTerm: { isAlternateScreen: () => false, getScrollbackLength: () => 0 },
+    wasmTerm: { isAlternateScreen: () => false, getScrollbackLength: () => 0, answersSizeQueries },
     renderer: { getMetrics: () => cell },
   };
   const container = { appendChild: () => {}, querySelector: () => null };
@@ -477,6 +478,21 @@ describe('sequences split across chunks', () => {
     h.g.feed(`a${ESC}[`);
     h.g.feed('2Jb');
     expect(h.written.join('')).toBe(`a${ESC}[2Jb`);
+  });
+});
+
+describe('size queries', () => {
+  test('are answered from the cell size on the Coder engine', () => {
+    const h = harness();
+    h.g.feed(`${ESC}[16t${ESC}[18t`);
+    expect(h.sent).toEqual([`${ESC}[6;20;10t`, `${ESC}[8;24;80t`]);
+  });
+
+  test('are left to an engine that answers them itself (ADR 042)', () => {
+    const h = harness({}, undefined, true);
+    h.g.feed(`${ESC}[14t${ESC}[16t${ESC}[18t`);
+    expect(h.sent).toEqual([]);
+    expect(h.written.join('')).toBe(`${ESC}[14t${ESC}[16t${ESC}[18t`);
   });
 });
 

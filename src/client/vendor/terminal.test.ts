@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   cursorCellOffset,
   decscusrShape,
+  deviceCellPixels,
   mouseCursorFor,
   scanDecscusr,
   type WheelAccumulator,
@@ -189,5 +190,18 @@ describe('cursorCellOffset', () => {
 
   test('clamps a pending-wrap cursor to the last column', () => {
     expect(cursorCellOffset({ x: 80, y: 0 }, 0, grid, cell, canvas).left).toBe(79 * 9);
+  });
+});
+
+describe('deviceCellPixels', () => {
+  test('is the CSS cell at the device pixel ratio, in whole pixels', () => {
+    expect(deviceCellPixels(9, 2)).toBe(18);
+    expect(deviceCellPixels(8.4, 1.25)).toBe(11);
+    expect(deviceCellPixels(19.2, 1.5)).toBe(29);
+  });
+
+  test('never reports less than one pixel', () => {
+    expect(deviceCellPixels(0, 2)).toBe(1);
+    expect(deviceCellPixels(0.2, 1)).toBe(1);
   });
 });

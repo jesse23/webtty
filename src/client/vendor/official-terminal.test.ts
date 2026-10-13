@@ -474,6 +474,19 @@ describe('official engine: effects and replies', () => {
     t.free();
   });
 
+  test('does not answer the kitty keyboard query', () => {
+    // Keys are never encoded with the kitty flags, so the protocol must not look on.
+    const t = term();
+    t.write('\x1b[?u');
+    expect(t.readResponse()).toBeNull();
+    t.write('\x1b[>31u\x1b[?u');
+    expect(t.readResponse()).toBeNull();
+    // Replies around it still arrive, in order.
+    t.write('\x1b[c\x1b[?u\x1b[5n');
+    expect(t.readResponse()).toBe('\x1b[?62;22c\x1b[0n');
+    t.free();
+  });
+
   test('sends one mode 2048 report per real size change', () => {
     const t = term(80, 24);
     t.setCellPixelSize(9, 18);
