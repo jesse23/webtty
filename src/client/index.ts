@@ -3,7 +3,6 @@ import { applyDecscusr } from './cursor';
 import { EdgeExtender } from './edge';
 import { computeGrid, computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
-import { isDuplicateDrag, rewriteHoverMotion } from './mouse';
 import { encodePaste } from './paste';
 import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
@@ -384,27 +383,7 @@ window.addEventListener(
 );
 
 // Forward terminal keystrokes and input to the PTY over WebSocket.
-// See src/client/mouse.ts for the ghostty-web SGR bug and the two fixes
-// (hover rewrite + drag dedup) applied below.
-let isHoverMove = false;
-let lastDragSeq = '';
-container.addEventListener(
-  'mousemove',
-  (e: MouseEvent) => {
-    isHoverMove = term.hasMouseTracking() && e.buttons === 0;
-    if (isHoverMove) lastDragSeq = ''; // reset dedup on button release
-  },
-  { capture: true },
-);
 term.onData((data: string) => {
-  const seq = rewriteHoverMotion(data, isHoverMove);
-  if (seq !== data) {
-    // Hover: forwarded with corrected Cb=35 (no-button motion per SGR spec)
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(seq);
-    return;
-  }
-  if (isDuplicateDrag(data, lastDragSeq)) return; // drop same-cell drag repeat
-  lastDragSeq = data.startsWith('\x1b[<32;') ? data : ''; // track or reset
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(data);
   }

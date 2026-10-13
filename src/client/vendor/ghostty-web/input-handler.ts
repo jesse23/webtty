@@ -172,6 +172,32 @@ export interface MouseTrackingConfig {
   getCanvasOffset: () => { left: number; top: number };
 }
 
+/**
+ * Button code for a mouse motion report, from the pressed-button bitmask
+ * (bit 0 left, bit 1 middle, bit 2 right). Motion adds 32 to the button, and
+ * no button is button 3, so hover is 35. (webtty: upstream sent 32 for hover,
+ * the same code as a left-button drag.)
+ */
+export function mouseMotionButton(pressed: number): number {
+  if (pressed & 1) return 32; // Left
+  if (pressed & 2) return 33; // Middle
+  if (pressed & 4) return 34; // Right
+  return 35; // No button
+}
+
+/**
+ * Whether a motion event lands in a different cell from the last mouse report.
+ * Like native terminals, motion is reported once per cell, not per pixel.
+ * (webtty: upstream reported every mousemove, so a drag within one cell sent
+ * repeats that vim reads as a visual-mode toggle.)
+ */
+export function isNewMouseCell(
+  last: { col: number; row: number } | null,
+  cell: { col: number; row: number }
+): boolean {
+  return !last || last.col !== cell.col || last.row !== cell.row;
+}
+
 export class InputHandler {
   private encoder: KeyEncoder;
   private container: HTMLElement;
@@ -197,6 +223,7 @@ export class InputHandler {
   private isComposing = false;
   private isDisposed = false;
   private mouseButtonsPressed = 0; // Track which buttons are pressed for motion reporting
+  private lastMouseCell: { col: number; row: number } | null = null; // Cell of the last mouse report
   private lastKeyDownData: string | null = null;
   private lastKeyDownTime = 0;
   private lastPasteData: string | null = null;
@@ -796,6 +823,7 @@ export class InputHandler {
     event: MouseEvent
   ): void {
     const modifiers = this.getMouseModifiers(event);
+    this.lastMouseCell = { col, row };
 
     // Check if SGR extended mode is enabled (mode 1006)
     const useSGR = this.mouseConfig?.hasSgrMouseMode?.() ?? true;
@@ -870,19 +898,17 @@ export class InputHandler {
 
     if (!hasButtonMotion && !hasAnyMotion) return;
 
+    // No button held: a release outside the container never cleared the bitmask
+    if (event.buttons === 0) this.mouseButtonsPressed = 0;
+
     // In button motion mode, only report if a button is pressed
     if (hasButtonMotion && !hasAnyMotion && this.mouseButtonsPressed === 0) return;
 
     const cell = this.pixelToCell(event);
     if (!cell) return;
+    if (!isNewMouseCell(this.lastMouseCell, cell)) return;
 
-    // Determine which button to report (or 32 for motion with no button)
-    let button = 32; // Motion flag
-    if (this.mouseButtonsPressed & 1)
-      button += 0; // Left
-    else if (this.mouseButtonsPressed & 2)
-      button += 1; // Middle
-    else if (this.mouseButtonsPressed & 4) button += 2; // Right
+    const button = mouseMotionButton(this.mouseButtonsPressed);
 
     this.sendMouseEvent(button, cell.col, cell.row, false, event);
   }

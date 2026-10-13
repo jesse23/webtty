@@ -13,3 +13,4 @@ webtty edits to these files are tracked in git from the commit that added them; 
 ## Local changes
 
 - `terminal.ts`: the mouse cursor is the default arrow instead of the `text` I-beam when not over a link (`mouseCursorFor`); `pointer` over links is unchanged.
+- `input-handler.ts`: mouse motion with no button held is reported as button 35 instead of 32, the left-drag code (`mouseMotionButton`), a release outside the terminal no longer leaves a button held, and motion is reported once per cell instead of per `mousemove` (`isNewMouseCell`).
