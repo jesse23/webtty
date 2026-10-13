@@ -330,6 +330,69 @@ describe('engine parity on scrolled views', () => {
     official.free();
   });
 
+  // Graphemes in scrollback and on screen: VS16 emoji, a skin-tone modifier and a
+  // combining mark, so the scrolled rows' grapheme lookups are compared too.
+  const graphemeLines = (from: number, to: number) => {
+    let s = '';
+    for (let i = from; i <= to; i++) {
+      s +=
+        i % 3 === 0
+          ? `\x1b[38;2;200;120;80m⏺️\x1b[0m ${i} café 👍🏽 ✔︎\r\n`
+          : `\x1b[48;5;${i % 256}mrow ${i}\x1b[0m ${'─'.repeat(i % 40)}\r\n`;
+    }
+    return s;
+  };
+
+  test('a scroll walk past the screen and back matches rows, graphemes and cursor', async () => {
+    const { coder, official } = await engines(80, 24, config);
+    for (const t of [coder, official]) t.write(`${graphemeLines(1, 200)}\x1b[3;7H`);
+    const sb = coder.getScrollbackLength();
+    expect(official.getScrollbackLength()).toBe(sb);
+    const ks = [
+      ...Array.from({ length: 60 }, (_, k) => k),
+      sb - 1,
+      sb,
+      sb + 5,
+      ...Array.from({ length: 60 }, (_, k) => 59 - k),
+    ];
+    for (const k of ks) {
+      expect(diffRows(shownRows(coder, k), shownRows(official, k))).toEqual([]);
+      expect(official.getCursor()).toMatchObject({
+        x: coder.getCursor().x,
+        y: coder.getCursor().y,
+      });
+      expect(diffRows(screen(coder).grid, screen(official).grid)).toEqual([]);
+    }
+    official.free();
+  });
+
+  test('output while scrolled shows the new rows at the bottom and in later scrolls', async () => {
+    const { coder, official } = await engines(80, 24, config);
+    for (const t of [coder, official]) t.write(graphemeLines(1, 120));
+    for (const k of [5, 30]) shownRows(official, k);
+    for (const t of [coder, official]) t.write(graphemeLines(121, 130));
+    expect(official.needsFullRedraw()).toBe(true);
+    expect(official.getScrollbackLength()).toBe(coder.getScrollbackLength());
+    for (const k of [0, 3, 24, 30, 0]) {
+      expect(diffRows(shownRows(coder, k), shownRows(official, k))).toEqual([]);
+    }
+    official.free();
+  });
+
+  test('a resize while scrolled keeps the walk matching', async () => {
+    const { coder, official } = await engines(80, 24, config);
+    for (const t of [coder, official]) t.write(graphemeLines(1, 150));
+    for (const k of [10, 40]) shownRows(official, k);
+    coder.resize(70, 20);
+    official.resize(70, 20);
+    expect(official.getScrollbackLength()).toBe(coder.getScrollbackLength());
+    for (const k of [40, 39, 20, 19, 1, 0, 25]) {
+      expect(diffRows(shownRows(coder, k), shownRows(official, k))).toEqual([]);
+      expect(diffRows(screen(coder).grid, screen(official).grid)).toEqual([]);
+    }
+    official.free();
+  });
+
   test('a page read after an in-place write does not return stale cells', async () => {
     const { coder, official } = await engines(80, 24, config);
     coder.write(lines(1, 100));

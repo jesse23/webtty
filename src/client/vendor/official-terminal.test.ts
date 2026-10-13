@@ -349,6 +349,95 @@ describe('official engine: scrollback, resize and the viewport', () => {
     t.free();
   });
 
+  test('a scroll step decodes nothing and moves no viewport once its page is cached', async () => {
+    const wasm = await WebAssembly.instantiate(await Bun.file(OFFICIAL_WASM).arrayBuffer(), {});
+    const real = wasm.instance.exports as Record<string, (...args: number[]) => number>;
+    const calls = { update: 0, rows: 0, scroll: 0 };
+    const counted =
+      (name: string, key: keyof typeof calls) =>
+      (...args: number[]) => {
+        calls[key]++;
+        return real[name](...args);
+      };
+    const spy = {
+      ...real,
+      ghostty_render_state_update: counted('ghostty_render_state_update', 'update'),
+      ghostty_render_state_row_get_multi: counted('ghostty_render_state_row_get_multi', 'rows'),
+      ghostty_terminal_scroll_viewport: counted('ghostty_terminal_scroll_viewport', 'scroll'),
+    };
+    const engine = new OfficialGhostty(
+      spy as unknown as ConstructorParameters<typeof OfficialGhostty>[0],
+    );
+    const t = engine.createTerminal(20, 5, { scrollbackLimit: 0 });
+    t.write(lines(50));
+    const sb = t.getScrollbackLength();
+    expect(sb).toBe(45);
+    // One frame as the renderer reads it at viewportY = k.
+    const frame = (k: number) => {
+      t.setViewportOffset(k);
+      t.getCursor();
+      t.needsFullRedraw();
+      const view = t.getViewport();
+      const shown: string[] = [];
+      for (let y = 0; y < t.rows; y++) {
+        if (y < k) {
+          const line = t.getScrollbackLine(sb - k + y) ?? [];
+          for (let x = 0; x < line.length; x++) t.getScrollbackGraphemeString(sb - k + y, x);
+          shown.push(
+            line
+              .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ' '))
+              .join('')
+              .trimEnd(),
+          );
+        } else {
+          const row = view.slice((y - k) * t.cols, (y - k + 1) * t.cols);
+          shown.push(
+            row
+              .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ' '))
+              .join('')
+              .trimEnd(),
+          );
+        }
+        t.isRowDirty(y);
+      }
+      t.markClean();
+      return shown;
+    };
+    const expected = (k: number) =>
+      Array.from({ length: 5 }, (_, y) => `line ${50 - 5 - k + y + 1}`);
+    frame(0);
+    // The first walk reads each scrollback page once: 45 rows in pages of 5.
+    const first = { ...calls };
+    for (let k = 1; k <= sb; k++) expect(frame(k)).toEqual(expected(k));
+    expect(calls.update - first.update).toBe(9);
+    expect(calls.rows - first.rows).toBe(9 * 5);
+    // Each page read moves the viewport there and back; nothing else moves it.
+    expect(calls.scroll - first.scroll).toBe(9 * 2);
+    // Every page is cached now: a walk back down and up again costs no export call.
+    const warm = { ...calls };
+    for (let k = sb; k >= 0; k--) expect(frame(k)).toEqual(k ? expected(k) : expected(0));
+    for (let k = 0; k <= sb + 10; k++) frame(k);
+    expect(calls).toEqual(warm);
+    // Output while scrolled: one refresh of the active rows, no viewport move, and
+    // the first frame at the bottom repaints every row.
+    t.setViewportOffset(12);
+    t.write('\r\nline 51');
+    expect(t.needsFullRedraw()).toBe(true);
+    expect(calls.update - warm.update).toBe(1);
+    expect(calls.scroll).toBe(warm.scroll);
+    expect(rowText(t, 4)).toBe('line 51');
+    t.markClean();
+    // Resize while scrolled: no viewport move, and the reflowed rows are read anew.
+    t.setViewportOffset(12);
+    const beforeResize = calls.scroll;
+    t.resize(30, 4);
+    expect(calls.scroll).toBe(beforeResize);
+    expect(t.getScrollbackLength()).toBe(47);
+    expect(scrollbackText(t, 46)).toBe('line 47');
+    expect(rowText(t, 3)).toBe('line 51');
+    t.free();
+  });
+
   test('reflows wrapped lines on resize', () => {
     const t = term(20, 5);
     t.write('abcdefghijklmnopqrstuvwxyz0123');

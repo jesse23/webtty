@@ -1573,7 +1573,7 @@ interface DecodedStyle {
 }
 
 const I32 = WasmValType.I32;
-/** At most this many pages of rows outside the viewport stay cached per content generation. */
+/** At most this many pages of scrollback rows stay cached per generation. */
 const PAGE_CACHE_SIZE = 16;
 /** `scrollback: 0` (unlimited on the Coder wasm) becomes this byte ceiling. */
 const UNLIMITED_SCROLLBACK_BYTES = 32 * 1024 * 1024;
@@ -1634,12 +1634,13 @@ function isKittyKeyboardReply(reply: Uint8Array): boolean {
  *
  * Rows are read through the render state: a refresh runs `render_state_update`,
  * visits the dirty rows with `row_iterator_next_dirty`, and decodes each row's
- * `CELLS_RAW` into JS-owned cells indexed by viewport row. Refreshes happen only
- * when the generation (bumped by writes, resizes, pixel-size changes and viewport
- * moves) has changed, so the many `update()` calls of one frame decode each row
- * once. Rows outside the viewport are read a page at a time through a second
- * render state and cached until the content changes (a write, resize or
- * pixel-size change), so scrolling reuses them.
+ * `CELLS_RAW` into JS-owned cells indexed by active row. Refreshes happen only
+ * when the generation (bumped by writes, resizes and pixel-size changes) has
+ * changed, so the many `update()` calls of one frame decode each row once.
+ * Ghostty's viewport stays at the bottom, so the primary copy is the active
+ * screen. Scrollback rows are read a page at a time through a second render
+ * state and cached until the content changes, so scrolling only records the
+ * offset and serves rows from the copy and the cache.
  */
 export class OfficialTerminal implements GhosttyTerminal {
   readonly answersSizeQueries = true;
@@ -1691,17 +1692,16 @@ export class OfficialTerminal implements GhosttyTerminal {
   private cellWidthPx = 0;
   private cellHeightPx = 0;
 
-  // Generation and refresh state. `contentGen` is bumped with `generation` by
-  // everything except a viewport move, which changes what is shown, not the rows.
+  // Generation and refresh state. The generation is bumped by every content change
+  // (scrolling is not one) and also keys the page cache.
   private generation = 1;
-  private contentGen = 1;
   private refreshedGen = 0;
   private infoGen = 0;
   private decodeAll = true;
   private readonly dirtyRows = new Set<number>();
   private dirtyMax: DirtyState = DirtyState.NONE;
 
-  // The JS copy of the viewport, indexed by viewport row.
+  // The JS copy of the active screen, indexed by active row.
   private viewCells: GhosttyCell[] = [];
   private viewGraphemes: (Map<number, string> | null)[] = [];
   private raw = new Uint32Array(0);
@@ -1722,11 +1722,11 @@ export class OfficialTerminal implements GhosttyTerminal {
   private cursorColor: number | null = null;
   private readonly palette = new Uint8Array(256 * 3);
 
-  // Viewport position: `offset` lines scrolled up, last moved at `movedSb` scrollback rows.
+  // The view's offset: lines scrolled up from the bottom. Ghostty's viewport stays at
+  // the bottom; only page reads move it, and they move it back.
   private offset = 0;
-  private movedSb = 0;
 
-  // Rows outside the viewport, keyed by the absolute row their page starts at.
+  // Scrollback rows, keyed by the absolute row their page starts at.
   private readonly pages = new Map<number, RowRef[]>();
   private pageGen = 0;
 
@@ -1824,11 +1824,10 @@ export class OfficialTerminal implements GhosttyTerminal {
   write(data: string | Uint8Array): void {
     const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
     // Writes never leave the view scrolled (terminal.ts scrolls to the bottom after
-    // writing), so prune and screen switches happen with the viewport at the bottom.
+    // writing); the first frame at the bottom repaints every row.
     if (this.offset !== 0) {
-      this.scrollViewport(this.L.scroll.BOTTOM, 0);
       this.offset = 0;
-      this.decodeAll = true;
+      this.dirtyMax = DirtyState.FULL;
     }
     if (bytes.length > 0) {
       const ex = this.ex;
@@ -1839,7 +1838,6 @@ export class OfficialTerminal implements GhosttyTerminal {
       ex.ghostty_wasm_free(ptr, bytes.length);
     }
     this.generation++;
-    this.contentGen++;
     if (this.titleChanged) this.readTitle();
   }
 
@@ -1866,19 +1864,10 @@ export class OfficialTerminal implements GhosttyTerminal {
     );
     if (rc !== 0) throw new Error(`libghostty-vt terminal_resize failed: ${rc}`);
     this.generation++;
-    this.contentGen++;
     this.decodeAll = true;
     this.allocView();
-    if (this.offset > 0) {
-      // Reflow moves Ghostty's viewport with the rows it shows; put it back k rows
-      // above the bottom so the copy's top stays at S - k.
-      this.info();
-      this.offset = this.altScreen ? 0 : Math.min(this.offset, this.sbRows);
-      this.movedSb = this.sbRows;
-      if (this.offset === 0) this.scrollViewport(this.L.scroll.BOTTOM, 0);
-      else this.scrollViewport(this.L.scroll.ROW, this.sbRows - this.offset);
-      this.generation++;
-    }
+    // Reflow keeps Ghostty's viewport at the bottom; only the offset is clamped.
+    if (this.offset > 0) this.setViewportOffset(this.offset);
   }
 
   setCellPixelSize(cellWidthPx: number, cellHeightPx: number): void {
@@ -1890,21 +1879,22 @@ export class OfficialTerminal implements GhosttyTerminal {
     const rc = this.ex.ghostty_terminal_resize(this.term, this._cols, this._rows, w, h);
     if (rc !== 0) throw new Error(`libghostty-vt terminal_resize failed: ${rc}`);
     this.generation++;
-    this.contentGen++;
   }
 
+  /**
+   * Records the view's offset. Ghostty's viewport is not moved and nothing is
+   * decoded: rows above the active screen come from the page cache, and the active
+   * rows from the primary copy, so a scroll step costs no export call on a page hit.
+   */
   setViewportOffset(linesFromBottom: number): void {
     this.info();
-    const sb = this.sbRows;
-    const k = this.altScreen ? 0 : Math.max(0, Math.min(Math.floor(linesFromBottom) || 0, sb));
-    if (k === this.offset && (k === 0 || sb === this.movedSb)) return;
-    if (k === 0) this.scrollViewport(this.L.scroll.BOTTOM, 0);
-    // ROW counts from the top of scrollback, viewportY from the bottom.
-    else this.scrollViewport(this.L.scroll.ROW, sb - k);
+    const k = this.altScreen
+      ? 0
+      : Math.max(0, Math.min(Math.floor(linesFromBottom) || 0, this.sbRows));
+    if (k === this.offset) return;
+    // Back at the bottom, the next frame repaints every row (no row is redecoded).
+    if (k === 0) this.dirtyMax = DirtyState.FULL;
     this.offset = k;
-    this.movedSb = sb;
-    this.decodeAll = true;
-    this.generation++;
   }
 
   free(): void {
@@ -1968,14 +1958,8 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   getViewport(): GhosttyCell[] {
     this.refresh();
-    if (this.offset === 0) return this.viewCells;
-    // Scrolled: the active screen is partly below the viewport.
-    const out: GhosttyCell[] = [];
-    for (let y = 0; y < this._rows; y++) {
-      const ref = this.rowAt(this.sbRows + y);
-      for (let x = 0; x < this._cols; x++) out.push(ref.cells[ref.base + x]);
-    }
-    return out;
+    // The active screen, scrolled or not.
+    return this.viewCells;
   }
 
   getLine(y: number): GhosttyCell[] | null {
@@ -2046,7 +2030,9 @@ export class OfficialTerminal implements GhosttyTerminal {
   getScrollbackLine(offset: number): GhosttyCell[] | null {
     this.refresh();
     if (offset < 0 || offset >= this.sbRows) return null;
-    return this.copyRow(this.rowAt(offset));
+    // A page's cells are never written after the page is read, so the row's cell
+    // objects are shared, not copied; only the array is new.
+    return this.readPage(offset).cells.slice();
   }
 
   isRowWrapped(row: number): boolean {
@@ -2352,9 +2338,9 @@ export class OfficialTerminal implements GhosttyTerminal {
   }
 
   /**
-   * Brings the viewport copy up to date with the terminal, once per generation. Each
-   * refresh decodes only the rows Ghostty reports dirty (every row after a viewport
-   * move or resize), adds them to the dirty set, and ends with `render_state_clean`,
+   * Brings the active-screen copy up to date with the terminal, once per generation. Each
+   * refresh decodes only the rows Ghostty reports dirty (every row after a resize or
+   * colour change), adds them to the dirty set, and ends with `render_state_clean`,
    * which clears Ghostty's global and per-row dirty state. The JS dirty state
    * accumulates until `markClean()`.
    */
@@ -2639,36 +2625,36 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   /** A row by absolute index; call `refresh()` first. */
   private rowAt(abs: number): RowRef {
-    const top = this.sbRows - this.offset;
-    if (abs >= top && abs < top + this._rows) {
-      const y = abs - top;
+    if (abs >= this.sbRows) {
+      const y = abs - this.sbRows;
       return { cells: this.viewCells, base: y * this._cols, graphemes: this.viewGraphemes[y] };
     }
     return this.readPage(abs);
   }
 
   /**
-   * Reads the page of `rows` rows holding `abs` through a second render state:
-   * moves Ghostty's viewport there, reads every row with CELLS_RAW, and moves it
-   * back. The primary state has already been refreshed at this generation (rowAt's
-   * callers refresh first), so it has captured every pending dirty bit before the
-   * second state's update consumes the terminal's dirty state. The second state
-   * cannot trust dirty bits the primary has cleared, so it is recreated whenever the
-   * content has changed, and every miss rebuilds every row it reads. A viewport move
-   * alone changes no row, so the state and the cached pages are kept across one.
+   * Reads the page of `rows` rows holding scrollback row `abs` through a second
+   * render state: moves Ghostty's viewport there, reads every row with CELLS_RAW,
+   * and moves it back to the bottom. The primary state has already been refreshed
+   * at this generation (callers refresh first), so it has captured every pending
+   * dirty bit before the second state's update consumes the terminal's dirty state.
+   * The second state cannot trust dirty bits the primary has cleared, so it is
+   * recreated whenever the content has changed, and every miss rebuilds every row
+   * it reads. Scrolling changes no row, so the state and the pages are kept.
    */
   private readPage(abs: number): RowRef {
     const rows = this._rows;
-    const sb = this.sbRows;
-    // scroll_viewport ROW n with n >= S snaps to the active screen.
-    const start = Math.min(Math.floor(abs / rows) * rows, sb);
-    if (this.pageGen !== this.contentGen) {
+    // abs < S, so the page starts in scrollback: scroll_viewport ROW n snaps to the
+    // active screen only for n >= S. A page may run on into active rows; rowAt
+    // serves those from the primary copy.
+    const start = Math.floor(abs / rows) * rows;
+    if (this.pageGen !== this.generation) {
       if (this.pageRs) this.ex.ghostty_render_state_free(this.pageRs);
       this.pageRs = this.vt.newHandle('render_state_new', (slot) =>
         this.ex.ghostty_render_state_new(0, slot)
       );
       this.pages.clear();
-      this.pageGen = this.contentGen;
+      this.pageGen = this.generation;
     }
     let page = this.pages.get(start);
     if (page) {
@@ -2697,8 +2683,7 @@ export class OfficialTerminal implements GhosttyTerminal {
         page[y] = { cells, base: 0, graphemes: this.decodeRow(cells, 0, len) };
       }
     } finally {
-      if (this.offset === 0) this.scrollViewport(L.scroll.BOTTOM, 0);
-      else this.scrollViewport(L.scroll.ROW, sb - this.offset);
+      this.scrollViewport(L.scroll.BOTTOM, 0);
     }
     for (let y = 0; y < rows; y++) {
       if (!page[y]) {
