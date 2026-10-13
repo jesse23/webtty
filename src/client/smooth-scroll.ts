@@ -48,7 +48,6 @@ type Cell = NonNullable<ReturnType<Terminal['getScrollbackLine']>>[number];
 
 interface RendererInternals {
   ctx: CanvasRenderingContext2D;
-  devicePixelRatio: number;
   renderLine(line: Cell[], row: number, cols: number): void;
 }
 
@@ -144,7 +143,7 @@ export class SmoothScroll {
       this.strip.style.display = 'none';
       return;
     }
-    const dpr = renderer.devicePixelRatio;
+    const dpr = this.term.renderer?.devicePixelRatio ?? 1;
     const width = canvas.offsetWidth;
     const w = Math.round(width * dpr);
     const h = Math.round(cellHeight * dpr);

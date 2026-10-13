@@ -47,7 +47,44 @@ export interface RendererOptions {
   cursorStyle?: 'block' | 'underline' | 'bar'; // Default: 'block'
   cursorBlink?: boolean; // Default: false
   theme?: ITheme;
-  devicePixelRatio?: number; // Default: window.devicePixelRatio
+  devicePixelRatio?: number; // Default: window.devicePixelRatio, rounded up and followed
+}
+
+/**
+ * The ratio the canvas is drawn at: the device pixel ratio rounded up to a whole
+ * number. A fractional ratio (browser zoom, Windows 125%/150%) would put cell edges
+ * between device pixels and make the backing-store size fractional; the browser
+ * scales the whole-ratio canvas down instead (coder/ghostty-web#198). Browsers
+ * report some whole ratios with float noise (2.0000000298023224), which must not
+ * round up to the next whole ratio.
+ */
+export function wholeDevicePixelRatio(ratio: number | undefined): number {
+  return Math.max(1, Math.ceil((ratio || 1) - 1e-3));
+}
+
+/**
+ * Calls onChange with the new window.devicePixelRatio whenever it changes (moving
+ * to a display with a different scale, browser zoom). A resolution media query
+ * only matches one ratio, so it is re-armed for each new ratio. Returns a function
+ * that stops watching.
+ */
+export function watchDevicePixelRatio(
+  win: Pick<Window, 'devicePixelRatio' | 'matchMedia'>,
+  onChange: (ratio: number) => void
+): () => void {
+  let stop = () => {};
+  const arm = () => {
+    if (typeof win.matchMedia !== 'function') return;
+    const query = win.matchMedia(`(resolution: ${win.devicePixelRatio || 1}dppx)`);
+    const listener = () => {
+      onChange(win.devicePixelRatio || 1);
+      arm();
+    };
+    query.addEventListener('change', listener, { once: true });
+    stop = () => query.removeEventListener('change', listener);
+  };
+  arm();
+  return () => stop();
 }
 
 export interface FontMetrics {
@@ -99,7 +136,8 @@ export class CanvasRenderer {
   private cursorStyle: 'block' | 'underline' | 'bar';
   private cursorBlink: boolean;
   private theme: Required<ITheme>;
-  private devicePixelRatio: number;
+  private _devicePixelRatio: number;
+  private stopWatchingDevicePixelRatio?: () => void;
   private metrics: FontMetrics;
   private palette: string[];
 
@@ -152,7 +190,16 @@ export class CanvasRenderer {
     this.cursorStyle = options.cursorStyle ?? 'block';
     this.cursorBlink = options.cursorBlink ?? false;
     this.theme = { ...DEFAULT_THEME, ...options.theme };
-    this.devicePixelRatio = options.devicePixelRatio ?? window.devicePixelRatio ?? 1;
+    this._devicePixelRatio = wholeDevicePixelRatio(
+      options.devicePixelRatio ?? window.devicePixelRatio
+    );
+    // Follow ratio changes; the next render() sees the backing-store mismatch and
+    // resizes and repaints the canvas.
+    if (options.devicePixelRatio === undefined) {
+      this.stopWatchingDevicePixelRatio = watchDevicePixelRatio(window, (ratio) => {
+        this._devicePixelRatio = wholeDevicePixelRatio(ratio);
+      });
+    }
 
     // Build color palette (16 ANSI colors)
     this.palette = [
@@ -181,6 +228,11 @@ export class CanvasRenderer {
     if (this.cursorBlink) {
       this.startCursorBlink();
     }
+  }
+
+  /** The whole ratio the canvas backing store is drawn at. */
+  public get devicePixelRatio(): number {
+    return this._devicePixelRatio;
   }
 
   // ==========================================================================
@@ -242,8 +294,8 @@ export class CanvasRenderer {
     this.canvas.style.height = `${cssHeight}px`;
 
     // Set actual canvas size (scaled for DPI)
-    this.canvas.width = cssWidth * this.devicePixelRatio;
-    this.canvas.height = cssHeight * this.devicePixelRatio;
+    this.canvas.width = Math.round(cssWidth * this.devicePixelRatio);
+    this.canvas.height = Math.round(cssHeight * this.devicePixelRatio);
 
     // Scale context to match DPI (setting canvas.width/height resets the context)
     this.ctx.scale(this.devicePixelRatio, this.devicePixelRatio);
@@ -287,8 +339,8 @@ export class CanvasRenderer {
 
     // Resize canvas if dimensions changed
     const needsResize =
-      this.canvas.width !== dims.cols * this.metrics.width * this.devicePixelRatio ||
-      this.canvas.height !== dims.rows * this.metrics.height * this.devicePixelRatio;
+      this.canvas.width !== Math.round(dims.cols * this.metrics.width * this.devicePixelRatio) ||
+      this.canvas.height !== Math.round(dims.rows * this.metrics.height * this.devicePixelRatio);
 
     if (needsResize) {
       this.resize(dims.cols, dims.rows);
@@ -997,5 +1049,6 @@ export class CanvasRenderer {
    */
   public dispose(): void {
     this.stopCursorBlink();
+    this.stopWatchingDevicePixelRatio?.();
   }
 }
