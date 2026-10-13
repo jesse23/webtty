@@ -145,9 +145,10 @@ describe('SmoothScroll', () => {
         expect(term.viewportY).toBe(0);
         expect(offsets).toEqual([]);
         tick(WHEEL_GLIDE_MS / 2);
-        // Ease-out cubic at t = 0.5: 0.875 of 4 lines.
+        // The glide starts a frame before the event, so after 62.5 ms t = 79.2 / 125;
+        // ease-out cubic gives 0.95 of 4 lines.
         expect(term.viewportY).toBe(3);
-        expect(offsets.at(-1)).toBe(5);
+        expect(offsets.at(-1)).toBe(8);
         tick(WHEEL_GLIDE_MS);
         expect(term.viewportY).toBe(4);
         expect(offsets.at(-1)).toBe(0);
@@ -175,15 +176,59 @@ describe('SmoothScroll', () => {
       });
     });
 
-    test('a trackpad delta stops the glide where it is', () => {
+    test('a trackpad delta finishes the glide and applies at once', () => {
       withFrames((tick) => {
         const { term, offsets, scroll } = fake(10);
-        scroll.handleWheel(notch(-40));
+        scroll.handleWheel({ ...notch(-40), timeStamp: 1000 } as WheelEvent);
         tick(WHEEL_GLIDE_MS / 2);
-        scroll.handleWheel({ deltaX: 0.5, deltaY: -0.5, deltaMode: 0 } as WheelEvent);
-        const [line, offset] = [term.viewportY, offsets.at(-1)];
+        scroll.handleWheel({
+          deltaX: 0.5,
+          deltaY: -5.5,
+          deltaMode: 0,
+          timeStamp: 1008,
+        } as WheelEvent);
+        expect([term.viewportY, offsets.at(-1)]).toEqual([4, 5]);
         tick(WHEEL_GLIDE_MS);
-        expect([term.viewportY, offsets.at(-1)]).toEqual([line, offset]);
+        expect([term.viewportY, offsets.at(-1)]).toEqual([4, 5]);
+      });
+    });
+
+    // Deltas from the capture of a TrackPoint in Chrome on macOS.
+    const point = (deltaY: number, timeStamp: number) =>
+      ({ deltaX: 0, deltaY, deltaMode: 0, timeStamp }) as WheelEvent;
+
+    test('a sparse stream glides each delta over the time it took to arrive', () => {
+      withFrames((tick) => {
+        const { term, offsets, scroll } = fake(10);
+        scroll.handleWheel(point(-4.000244140625, 1000));
+        scroll.handleWheel(point(-95.0897216796875, 1040));
+        // The slow 4.000244 px steps count as wheel notches and glide to 0.4 lines. The
+        // fast delta, 9.51 lines more, glides linearly from where the first glide is,
+        // before its first frame, over its 40 ms gap plus a frame, starting a frame
+        // early: after 20 ms, t = 36.7 / 56.7, 6.41 lines.
+        tick(20);
+        expect([term.viewportY, offsets.at(-1)]).toEqual([6, 4]);
+        tick(20);
+        expect([term.viewportY, offsets.at(-1)]).toEqual([9, 9]);
+      });
+    });
+
+    test('a slow sparse stream glides for at most the wheel glide time', () => {
+      withFrames((tick) => {
+        const { term, scroll } = fake(10);
+        scroll.handleWheel(point(-4.000244140625, 1000));
+        scroll.handleWheel(point(-40.0001, 1300));
+        tick(WHEEL_GLIDE_MS);
+        expect(term.viewportY).toBe(4);
+      });
+    });
+
+    test('trackpad deltas a frame apart apply at once', () => {
+      withFrames(() => {
+        const { term, scroll } = fake(10);
+        scroll.handleWheel(point(-20.5, 1000));
+        scroll.handleWheel(point(-21.25, 1008));
+        expect(term.viewportY).toBe(4);
       });
     });
 

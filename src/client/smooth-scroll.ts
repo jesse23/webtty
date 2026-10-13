@@ -12,8 +12,9 @@
  * sliding into view. At a whole-line position there is no offset, so a resting
  * terminal renders exactly as before.
  *
- * A mouse wheel notch glides to its target instead of jumping there (ADR 045);
- * trackpad deltas apply at once.
+ * A mouse wheel notch glides to its target instead of jumping there, and so does a
+ * sparse stream of deltas such as a TrackPoint's (ADR 045); trackpad deltas, which
+ * arrive every frame, apply at once.
  *
  * Only the normal screen's scrollback scrolls this way. On the alternate screen, or
  * when the app tracks the mouse, the app moves its own view in whole lines.
@@ -49,6 +50,15 @@ export function wheelLines(
 
 /** How long a mouse wheel notch glides to its target: VS Code's `smoothScrollDuration`. */
 export const WHEEL_GLIDE_MS = 125;
+
+/**
+ * A pixel delta this long after the previous one is part of a sparse stream: a
+ * TrackPoint sends one every 30-200 ms, a trackpad one per frame.
+ */
+export const SPARSE_GAP_MS = 25;
+
+/** One frame at 60 Hz. */
+const FRAME_MS = 1000 / 60;
 
 /**
  * Tells a physical mouse wheel from a trackpad by its recent pixel deltas.
@@ -106,13 +116,29 @@ function easeOutCubic(t: number): number {
   return 1 - (1 - t) ** 3;
 }
 
+function linear(t: number): number {
+  return t;
+}
+
+interface Glide {
+  from: number;
+  to: number;
+  start: number;
+  duration: number;
+  ease: (t: number) => number;
+}
+
 export class SmoothScroll {
   /** Lines scrolled up from the bottom; fractional between rows. */
   private position = 0;
   private readonly classifier = new WheelClassifier();
-  /** A mouse wheel glide in progress: positions and its start time. */
-  private glide: { from: number; to: number; start: number } | null = null;
+  /** A glide in progress toward a wheel or sparse delta's target. */
+  private glide: Glide | null = null;
   private frame = 0;
+  /** Timestamp of the glide's latest frame, whose position a new glide starts from. */
+  private lastFrame: number | null = null;
+  /** `timeStamp` of the previous wheel event. */
+  private lastWheel: number | null = null;
 
   constructor(private readonly term: Terminal) {
     // ghostty-web moves the viewport itself on new output (to the bottom), keyboard
@@ -129,15 +155,23 @@ export class SmoothScroll {
     const metrics = this.term.renderer?.getMetrics();
     if (!metrics) return false;
     const lines = wheelLines(e, metrics.height, this.term.rows);
+    const gap = this.lastWheel === null ? 0 : e.timeStamp - this.lastWheel;
+    this.lastWheel = e.timeStamp;
     if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
+    // A delta during a glide adds to where the glide is heading.
+    const to = this.clamp((this.glide?.to ?? this.position) - lines);
     if (e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel()) {
-      // A notch during a glide adds to where the glide is heading.
-      this.glideTo(this.clamp((this.glide?.to ?? this.position) - lines));
-      return true;
+      this.glideTo(to, WHEEL_GLIDE_MS, easeOutCubic);
+    } else if (gap >= SPARSE_GAP_MS) {
+      // Spread the delta over the time it took to arrive, so a steady stream scrolls
+      // at a steady speed, the speed of the input. One frame more keeps the glide
+      // going until the next delta when the stream slows down a little.
+      this.glideTo(to, Math.min(gap + FRAME_MS, WHEEL_GLIDE_MS), linear);
+    } else {
+      this.stopGlide();
+      this.position = to;
+      this.apply();
     }
-    this.stopGlide();
-    this.position = this.clamp(this.position - lines);
-    this.apply();
     return true;
   }
 
@@ -164,13 +198,18 @@ export class SmoothScroll {
     return Math.max(0, Math.min(this.term.getScrollbackLength(), position));
   }
 
-  private glideTo(to: number): void {
-    this.glide = { from: this.position, to, start: performance.now() };
+  private glideTo(to: number, duration: number, ease: (t: number) => number): void {
+    // Start from the glide's latest frame, or a frame ago: starting at this event would
+    // give the next frame, whose timestamp precedes the event, nothing to move, and a
+    // stream of deltas would stall every other frame.
+    const start = this.lastFrame ?? performance.now() - FRAME_MS;
+    this.glide = { from: this.position, to, start, duration, ease };
     if (!this.frame) this.frame = window.requestAnimationFrame(this.step);
   }
 
   private stopGlide(): void {
     this.glide = null;
+    this.lastFrame = null;
     if (this.frame) window.cancelAnimationFrame(this.frame);
     this.frame = 0;
   }
@@ -180,10 +219,15 @@ export class SmoothScroll {
     const glide = this.glide;
     if (!glide) return;
     // A frame's timestamp can precede the glide's start by part of a frame.
-    const t = Math.min(1, Math.max(0, (now - glide.start) / WHEEL_GLIDE_MS));
-    this.position = this.clamp(glide.from + (glide.to - glide.from) * easeOutCubic(t));
-    if (t < 1) this.frame = window.requestAnimationFrame(this.step);
-    else this.glide = null;
+    const t = Math.min(1, Math.max(0, (now - glide.start) / glide.duration));
+    this.position = this.clamp(glide.from + (glide.to - glide.from) * glide.ease(t));
+    if (t < 1) {
+      this.lastFrame = now;
+      this.frame = window.requestAnimationFrame(this.step);
+    } else {
+      this.glide = null;
+      this.lastFrame = null;
+    }
     this.apply();
   };
 
