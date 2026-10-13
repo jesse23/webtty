@@ -292,6 +292,11 @@ connect();
 // config.mouseScrollSpeed scales SGR events per wheel tick (default 1).
 // Values < 1 reduce rate via accumulation; values > 1 send multiple SGRs.
 // The accumulator resets on direction change to prevent cross-direction bleed.
+//
+// Pixel deltas (trackpads, and mouse wheels in Chromium/Safari on macOS) count by
+// distance: one tick per cell height scrolled. A trackpad fires many small events per
+// swipe, plus momentum, and counting each as a whole tick made apps scroll far ahead
+// of the fingers. Line and page deltas still count one tick per event. See ADR 040.
 let scrollAccum = 0;
 let scrollDir = 0;
 term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
@@ -303,7 +308,8 @@ term.attachCustomWheelEventHandler((e: WheelEvent): boolean => {
     scrollAccum = 0;
     scrollDir = dir;
   }
-  scrollAccum += config.mouseScrollSpeed;
+  const step = e.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? Math.abs(e.deltaY) / metrics.height : 1;
+  scrollAccum += step * config.mouseScrollSpeed;
   const ticks = Math.trunc(scrollAccum);
   if (ticks === 0) return true;
   scrollAccum -= ticks;
