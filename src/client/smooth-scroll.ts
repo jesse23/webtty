@@ -20,7 +20,7 @@
  * when the app tracks the mouse, the app moves its own view in whole lines.
  */
 import type { Terminal } from './vendor/ghostty-web';
-import { springStep, type WheelPace } from './vendor/ghostty-web/terminal';
+import { springOmega, springStep, type WheelPace } from './vendor/ghostty-web/terminal';
 
 export interface ScrollSplit {
   /** Whole lines scrolled up from the bottom: ghostty-web's viewportY. */
@@ -180,6 +180,8 @@ export class SmoothScroll {
   private sparse = false;
   private shortGaps = 0;
   private averageGap = 0;
+  /** Following the spring: until the stream pauses, every delta keeps doing so. */
+  private springing = false;
   /** Scroll velocity in lines per second, kept across glides so a spring takes over smoothly. */
   private velocity = 0;
   /** Set while `apply` moves ghostty-web's viewport, whose onScroll is then our own. */
@@ -228,9 +230,13 @@ export class SmoothScroll {
     const dt = Math.min(Math.max(now - (this.lastFrame ?? now - FRAME_MS), 0), 50) / 1000;
     let done: boolean;
     if (glide.kind === 'spring') {
-      const [x, v] = springStep(this.position, this.velocity, glide.to, glide.omega, dt);
+      const omega = springOmega(glide.omega, now - (this.lastWheel ?? now));
+      const [x, v] = springStep(this.position, this.velocity, glide.to, omega, dt);
       this.velocity = v;
-      done = Math.abs(glide.to - x) < 1e-3 && Math.abs(v) < 0.05;
+      // Settled once within half a device pixel and moving less than that per frame.
+      const height = this.term.renderer?.getMetrics()?.height ?? 15;
+      const half = 0.5 / (height * (window.devicePixelRatio || 1));
+      done = Math.abs(glide.to - x) < half && Math.abs(v) * (FRAME_MS / 1000) < half;
       this.position = this.clamp(done ? glide.to : x);
     } else {
       // A frame's timestamp can precede the glide's start by part of a frame.
@@ -292,11 +298,19 @@ export class SmoothScroll {
     } else if (this.sparse && ++this.shortGaps >= 2) {
       this.sparse = false;
     }
+    // A fast stream stays on the spring until it pauses: leaving it on a short gap
+    // applied all the spring's pending distance at once (654 px in one frame), and
+    // leaving it as the gaps grew at the end of a push sped up, then stopped hard.
+    if (!wheel && this.springing && gap < WHEEL_GLIDE_MS && sameDir) {
+      return { duration: WHEEL_GLIDE_MS, omega: STREAM_OMEGA, ease: linear, wheel };
+    }
+    this.springing = false;
     if (wheel && gap > 0 && gap <= STREAM_MS && sameDir) {
       return { duration: Math.min(gap + FRAME_MS, STREAM_MS), ease: linear, wheel };
     }
     if (wheel) return { duration: WHEEL_GLIDE_MS, ease: easeOutCubic, wheel };
     if (this.sparse && this.averageGap < FAST_STREAM_MS) {
+      this.springing = true;
       return { duration: WHEEL_GLIDE_MS, omega: STREAM_OMEGA, ease: linear, wheel };
     }
     if (this.sparse) {

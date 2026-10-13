@@ -178,6 +178,18 @@ export interface WheelPace {
 }
 
 /**
+ * A spring's stiffness doubles once no wheel event has come for this long: the
+ * stream has stopped, so the view should stop soon rather than coast for many
+ * lines, while a running stream keeps the softer, steadier spring. (webtty, ADR 045)
+ */
+export const SPRING_RELEASE_MS = 60;
+
+/** The stiffness of a spring with stiffness `omega` `sinceEvent` ms after the latest wheel event. */
+export function springOmega(omega: number, sinceEvent: number): number {
+  return sinceEvent > SPRING_RELEASE_MS ? omega * 2 : omega;
+}
+
+/**
  * Advances a critically damped spring at `x` with velocity `v` (per second)
  * toward a fixed `target` by `dt` seconds. Exact for a fixed target, so it is
  * stable at any frame time, and it never overshoots a target it approaches from
@@ -216,6 +228,7 @@ export class TickPacer {
   private omega = 0;
   private x = 0;
   private v = 0;
+  private lastPush = 0;
   private lastFrame: number | null = null;
   private frame = 0;
 
@@ -227,6 +240,7 @@ export class TickPacer {
     this.dir = dir;
     // The latest event's sequence: its cell is where the pointer is now.
     this.seq = seq;
+    this.lastPush = performance.now();
     const pending = this.total - this.sent;
     if (pace.omega) {
       if (!this.omega) {
@@ -275,7 +289,8 @@ export class TickPacer {
     let progress: number;
     if (this.omega) {
       const dt = Math.min(now - (this.lastFrame ?? now - FRAME_MS), 50) / 1000;
-      [this.x, this.v] = springStep(this.x, this.v, this.total, this.omega, dt);
+      const omega = springOmega(this.omega, now - this.lastPush);
+      [this.x, this.v] = springStep(this.x, this.v, this.total, omega, dt);
       progress = Math.min(this.total, this.x);
     } else {
       const t = Math.min(1, Math.max(0, (now - this.start) / this.duration));
