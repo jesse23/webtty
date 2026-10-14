@@ -257,6 +257,23 @@ describe('loadConfig — reads and merges', () => {
     }
   });
 
+  test('defaults bellTitle to true', () => {
+    writeConfig(JSON.stringify({}));
+    expect(loadConfig().bellTitle).toBe(true);
+  });
+
+  test('overrides bellTitle when set to false', () => {
+    writeConfig(JSON.stringify({ bellTitle: false }));
+    expect(loadConfig().bellTitle).toBe(false);
+  });
+
+  test('ignores a bellTitle that is not a boolean', () => {
+    for (const value of ['false', 0, null]) {
+      writeConfig(JSON.stringify({ bellTitle: value }));
+      expect(loadConfig().bellTitle).toBe(true);
+    }
+  });
+
   test('overrides rightClickBehavior when set to copyPaste', () => {
     writeConfig(JSON.stringify({ rightClickBehavior: 'copyPaste' }));
     expect(loadConfig().rightClickBehavior).toBe('copyPaste');

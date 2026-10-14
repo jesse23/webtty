@@ -109,6 +109,8 @@ export interface Config {
   rightClickBehavior: RightClickBehavior;
   /** Let programs write the clipboard with OSC 52 (write only: reads are never answered). `false` ignores the writes. */
   clipboardWrite: boolean;
+  /** Put a 🔔 in front of the tab title when a program rings the bell (BEL), until the terminal is focused or a key is pressed, as Ghostty's `bell-features = title`. Bells replayed on reconnect are ignored. */
+  bellTitle: boolean;
   /** Mouse wheel scroll speed multiplier for apps with mouse tracking. `1` = one SGR per tick. Values `< 1` reduce rate; values `> 1` send multiple SGRs per tick. Must be `> 0`. */
   mouseScrollSpeed: number;
   /** Padding in px around the terminal canvas, on all four sides. `0` = none. Coloured by `theme.padding`, or `theme.background` if that is unset. */
@@ -188,6 +190,7 @@ export const DEFAULT_CONFIG: Config = {
   copyOnSelect: true,
   rightClickBehavior: 'contextMenu' as RightClickBehavior,
   clipboardWrite: true,
+  bellTitle: true,
   mouseScrollSpeed: 1,
   padding: 0,
   logs: false,
@@ -305,6 +308,7 @@ export function loadConfig(): Config {
       rightClickBehavior: parseRightClickBehavior(p.rightClickBehavior),
     }),
     ...(typeof p.clipboardWrite === 'boolean' && { clipboardWrite: p.clipboardWrite }),
+    ...(typeof p.bellTitle === 'boolean' && { bellTitle: p.bellTitle }),
     ...(typeof p.mouseScrollSpeed === 'number' &&
       p.mouseScrollSpeed > 0 && { mouseScrollSpeed: p.mouseScrollSpeed }),
     ...(typeof p.padding === 'number' &&

@@ -123,6 +123,7 @@ export async function handleRequest(
       copyOnSelect: config.copyOnSelect,
       rightClickBehavior: config.rightClickBehavior,
       clipboardWrite: config.clipboardWrite,
+      bellTitle: config.bellTitle,
       mouseScrollSpeed: config.mouseScrollSpeed,
       padding: config.padding,
       keyboardBindings: config.keyboardBindings,
