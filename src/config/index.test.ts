@@ -9,7 +9,7 @@ import {
   initConfig,
   loadConfig,
   mergeKeyboardBindings,
-} from './config';
+} from '.';
 
 let tmpDir: string;
 let configPath: string;
