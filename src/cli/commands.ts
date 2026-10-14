@@ -3,19 +3,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configDir, loadConfig } from '../config';
 import { LineSplitter } from '../ndjson';
-import { getBaseUrl, getPort, isServerRunning, openBrowser, startServer, stopServer } from './http';
-
-/**
- * Converts a bind host to a browser-navigable host.
- * - Bind-all addresses (`0.0.0.0`, `::`) become `localhost`.
- * - Bare IPv6 addresses are bracketed (`::1` → `[::1]`).
- * - All other values pass through unchanged.
- */
-export function toBrowserHost(host: string): string {
-  if (host === '0.0.0.0' || host === '::') return 'localhost';
-  if (host.includes(':') && !host.startsWith('[')) return `[${host}]`;
-  return host;
-}
+import { openBrowser, toBrowserHost } from './browser-opener';
+import { getBaseUrl, getPort, isServerRunning } from './http';
+import { startServer, stopServer } from './server-process';
 
 /**
  * Opens (or creates) session `id`, starts the server if needed, and opens the URL in the browser.

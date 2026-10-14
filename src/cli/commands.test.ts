@@ -11,8 +11,9 @@ import {
   waitForServerDown,
   waitForServerReady,
 } from '../test-support/server-harness';
-import { bytesToChars, bytesToDisplay, toBrowserHost } from './commands';
+import { bytesToChars, bytesToDisplay } from './commands';
 import * as httpModule from './http';
+import * as serverProcessModule from './server-process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CLI_ENTRY = path.resolve(__dirname, 'index.ts');
@@ -188,32 +189,6 @@ describe('cli — session management', () => {
   });
 });
 
-describe('toBrowserHost', () => {
-  test('localhost passes through unchanged', () => {
-    expect(toBrowserHost('localhost')).toBe('localhost');
-  });
-
-  test('127.0.0.1 passes through unchanged', () => {
-    expect(toBrowserHost('127.0.0.1')).toBe('127.0.0.1');
-  });
-
-  test('0.0.0.0 maps to localhost', () => {
-    expect(toBrowserHost('0.0.0.0')).toBe('localhost');
-  });
-
-  test(':: maps to localhost', () => {
-    expect(toBrowserHost('::')).toBe('localhost');
-  });
-
-  test('bare IPv6 address gets bracketed', () => {
-    expect(toBrowserHost('::1')).toBe('[::1]');
-  });
-
-  test('already-bracketed IPv6 passes through unchanged', () => {
-    expect(toBrowserHost('[::1]')).toBe('[::1]');
-  });
-});
-
 describe('bytesToDisplay', () => {
   test('ESC CR → legacy shift+enter', () => {
     expect(bytesToDisplay(Buffer.from([0x1b, 0x0d]))).toBe('ESC CR');
@@ -357,7 +332,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdStop when running stops server', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
-    const stop = spyOn(httpModule, 'stopServer').mockResolvedValueOnce(true);
+    const stop = spyOn(serverProcessModule, 'stopServer').mockResolvedValueOnce(true);
     const log = spyOn(console, 'log').mockImplementation(() => {});
     await cmds.cmdStop();
     expect(log).toHaveBeenCalledWith('webtty stopped');
@@ -368,7 +343,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdStop when stop fails exits with error', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(true);
-    const stop = spyOn(httpModule, 'stopServer').mockResolvedValueOnce(false);
+    const stop = spyOn(serverProcessModule, 'stopServer').mockResolvedValueOnce(false);
     const err = spyOn(console, 'error').mockImplementation(() => {});
     const exit = spyOn(process, 'exit').mockImplementation(() => {
       throw new Error('exit');
@@ -392,7 +367,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdStart when not running starts server', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(false);
-    const start = spyOn(httpModule, 'startServer').mockResolvedValueOnce(undefined);
+    const start = spyOn(serverProcessModule, 'startServer').mockResolvedValueOnce(undefined);
     const log = spyOn(console, 'log').mockImplementation(() => {});
     await cmds.cmdStart();
     expect(start).toHaveBeenCalled();
@@ -477,7 +452,7 @@ describe('cli — unit (mocked http)', () => {
           headers: { 'x-sessions-remaining': '0' },
         }),
     ) as unknown as typeof fetch;
-    const stop = spyOn(httpModule, 'stopServer').mockResolvedValueOnce(true);
+    const stop = spyOn(serverProcessModule, 'stopServer').mockResolvedValueOnce(true);
     const log = spyOn(console, 'log').mockImplementation(() => {});
     await cmds.cmdRemove('last');
     expect(log).toHaveBeenCalledWith(expect.stringContaining('webtty stopped'));
@@ -554,7 +529,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdGo when server not running starts it', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(false);
-    const start = spyOn(httpModule, 'startServer').mockResolvedValueOnce(undefined);
+    const start = spyOn(serverProcessModule, 'startServer').mockResolvedValueOnce(undefined);
     global.fetch = mock(async (url: string) => {
       if (url.includes('/api/sessions/main')) return new Response(null, { status: 404 });
       return new Response(JSON.stringify({ id: 'main' }), { status: 200 });
@@ -932,7 +907,7 @@ describe('cli — unit (mocked http)', () => {
 
   test('cmdRun warm-up when server not running starts it', async () => {
     const isRunning = spyOn(httpModule, 'isServerRunning').mockResolvedValueOnce(false);
-    const start = spyOn(httpModule, 'startServer').mockResolvedValueOnce(undefined);
+    const start = spyOn(serverProcessModule, 'startServer').mockResolvedValueOnce(undefined);
     global.fetch = mock(async () => new Response(null, { status: 200 })) as unknown as typeof fetch;
     const origWS = global.WebSocket;
     global.WebSocket = makeMockWebSocket('open');
