@@ -1,10 +1,13 @@
+import { type KeyboardBinding, loadClientConfig } from './app/client-config';
+import { detectMac, isTerminalFocused } from './app/platform';
+import { toTerminalOptions } from './app/terminal-options';
 import { toTerminalTheme } from './app/terminal-theme';
 import { OutputAck } from './connection/output-ack';
 import { ReplayWindow } from './connection/replay-window';
 import { ClipboardWriter } from './features/clipboard/clipboard-writer';
 import { Composer } from './features/compose/composer';
 import { FindBar } from './features/find/find-bar';
-import { isMacPlatform, shortcutFor } from './features/keyboard/shortcut-map';
+import { shortcutFor } from './features/keyboard/shortcut-map';
 import { KittyGraphics } from './features/kitty/graphics/kitty-graphics';
 import { activates, browserNotifications } from './features/notifications/browser-notifications';
 import { DesktopNotifier } from './features/notifications/desktop-notifier';
@@ -17,63 +20,9 @@ import { computeInsets } from './layout/fit-insets';
 import { terminalCanvas } from './layout/terminal-canvas';
 import { FitAddon, Ghostty, Terminal, watchDevicePixelRatio } from './vendor/ghostty-web';
 
-interface KeyboardBinding {
-  key: string;
-  mods?: string[];
-  chars: string;
-}
-
-interface Theme {
-  background?: string;
-  foreground?: string;
-  cursor?: string;
-  selection?: string;
-  selectionForeground?: string;
-  searchBackground?: string;
-  searchForeground?: string;
-  searchSelectedBackground?: string;
-  searchSelectedForeground?: string;
-  padding?: string;
-  black?: string;
-  red?: string;
-  green?: string;
-  yellow?: string;
-  blue?: string;
-  purple?: string;
-  cyan?: string;
-  white?: string;
-  brightBlack?: string;
-  brightRed?: string;
-  brightGreen?: string;
-  brightYellow?: string;
-  brightBlue?: string;
-  brightPurple?: string;
-  brightCyan?: string;
-  brightWhite?: string;
-}
-
-interface ClientConfig {
-  cols: number;
-  rows: number;
-  fontSize: number;
-  fontFamily: string;
-  cursorStyle: 'block' | 'bar' | 'underline';
-  cursorStyleBlink: boolean;
-  scrollbackLines: number;
-  theme: Theme;
-  copyOnSelect: boolean;
-  rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none';
-  clipboardWrite: boolean;
-  bellTitle: boolean;
-  desktopNotifications: boolean;
-  mouseScrollSpeed: number;
-  padding: number;
-  keyboardBindings: KeyboardBinding[];
-}
-
 const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
 
-const config: ClientConfig = await fetch('/api/config').then((r) => r.json());
+const config = await loadClientConfig(fetch);
 
 // Whether the output being parsed is the replay sent on connect (ADR 053)
 const replay = new ReplayWindow();
@@ -94,28 +43,7 @@ const ghostty = await Ghostty.load('/ghostty-vt-small.wasm');
 // setting and not a terminal colour, out of the theme it receives (ADR 036).
 const terminalTheme = toTerminalTheme(config.theme ?? {});
 
-const term = new Terminal({
-  ghostty,
-  cols: config.cols,
-  rows: config.rows,
-  cursorStyle: config.cursorStyle,
-  cursorBlink: config.cursorStyleBlink,
-  fontSize: config.fontSize,
-  fontFamily: config.fontFamily,
-  scrollbackLines: config.scrollbackLines,
-  mouseScrollSpeed: config.mouseScrollSpeed,
-  // The terminal copies a mouse selection on mouseup, once, only when this is on (ADR 011).
-  // A drag the app takes, while it tracks the mouse and Shift is up, selects nothing.
-  copyOnSelect: config.copyOnSelect,
-  // What a right-click the app does not take does; the terminal handles every
-  // contextmenu, and asks for a paste through onPasteRequest (ADR 051)
-  rightClickBehavior: config.rightClickBehavior,
-  // Programs may write the clipboard with OSC 52; off, Ghostty ignores it (ADR 052)
-  clipboardWrite: config.clipboardWrite,
-  // Programs may ask for desktop notifications with OSC 9 / OSC 777 (ADR 056)
-  desktopNotifications: config.desktopNotifications,
-  theme: terminalTheme,
-});
+const term = new Terminal(toTerminalOptions(config, terminalTheme, ghostty));
 
 const container = document.getElementById('terminal') as HTMLElement;
 // The canvas paints theme.background; the container shows only in the padding around
@@ -240,11 +168,7 @@ for (const type of ['keydown', 'mousedown', 'paste', 'drop'] as const) {
   window.addEventListener(type, () => clipboardWriter.userInput(), { capture: true });
 }
 
-/** The terminal has focus: its tab is shown, its window focused, and focus is inside it (ADR 053). */
-const terminalFocused = (): boolean =>
-  document.visibilityState === 'visible' &&
-  document.hasFocus() &&
-  container.contains(document.activeElement);
+const terminalFocused = (): boolean => isTerminalFocused(document, container);
 
 // The title and the bell mark (ADR 053). Ghostty clears the mark when the terminal
 // gains focus (a window focus reaches the container as a focusin too; Chrome switching
@@ -490,10 +414,7 @@ term.onPasteRequest(() => {
 // configured-binding listener above, so skip a combo the user has already bound
 // (including an intentionally empty binding meant to consume the key and suppress the
 // default). Both run before the input handler, which listens on the container too.
-const mac = isMacPlatform(
-  (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform ||
-    navigator.platform,
-);
+const mac = detectMac(navigator);
 container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
