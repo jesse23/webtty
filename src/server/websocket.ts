@@ -4,17 +4,9 @@ import { WebSocketServer } from 'ws';
 import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
 import { packageRunner } from '../runtime';
-import { FELL_BEHIND } from './output-pacer';
 import type { Session } from './session';
 import { sessionRegistry, setLastUsedId } from './session';
-
-const WS_CLOSE = {
-  SERVER_STOPPED: 1001 as const, // RFC 6455: server going away
-  BAD_REQUEST: 1008 as const, // RFC 6455: policy violation / bad data
-  SESSION_GONE: 4001 as const, // app-level: session deleted or shell exited
-  PTY_NOT_RUNNING: 4002 as const, // app-level: PTY not running
-  FELL_BEHIND, // app-level: client fell too far behind the output (ADR 048)
-} as const;
+import { WS_CLOSE } from './ws/close-codes';
 
 function closeClients(session: Session, code: number, reason: string): void {
   session.pty?.kill();
