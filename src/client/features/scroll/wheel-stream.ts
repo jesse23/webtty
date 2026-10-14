@@ -17,7 +17,7 @@
  *   reverses.
  * - Trackpad deltas, a frame apart, move at once.
  */
-import { AT_ONCE, easeOutCubic, FRAME_MS, linear, type Pace } from './vendor/ghostty-web';
+import { AT_ONCE, easeOutCubic, FRAME_MS, linear, type Pace } from '../../vendor/ghostty-web';
 
 /** How long a mouse wheel notch glides to its target: VS Code's `smoothScrollDuration`. */
 export const WHEEL_GLIDE_MS = 125;

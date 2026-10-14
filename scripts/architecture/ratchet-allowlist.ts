@@ -20,9 +20,10 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'scripts/update-ghostty-vt.ts': { lines: 360, step: 'scripts/ghostty-vt/ split (ADR 059)' },
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
-    'src/client/graphics.ts': { lines: 662, step: KITTY_SPLIT },
-    'src/client/index.ts': { lines: 565, step: CLIENT_ROOT },
-    'src/client/kitty.ts': { lines: 384, step: KITTY_SPLIT },
+    'src/client/features/kitty/graphics.ts': { lines: 662, step: KITTY_SPLIT },
+    'src/client/features/kitty/kitty.ts': { lines: 384, step: KITTY_SPLIT },
+    // 565 at the checker's commit; the folder moves lengthened its imports by 3 lines.
+    'src/client/index.ts': { lines: 568, step: CLIENT_ROOT },
     'src/client/vendor/ghostty-web/ghostty.ts': { lines: 3061, step: ENGINE_SPLIT },
     'src/client/vendor/ghostty-web/input-handler.ts': {
       lines: 856,
@@ -58,9 +59,7 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     // Upstream's Node fallback in Ghostty.loadFromPath; tests run under Bun, where Bun.file
     // reads the wasm first, so engine/wasm-loader.ts can drop it.
     'client-node src/client/vendor/ghostty-web/ghostty.ts -> fs/promises': ENGINE_SPLIT,
-    'duplicate-basename src/client/fit.ts':
-      'client layout/: fit.ts becomes fit-insets.ts (ADR 060)',
-    'duplicate-basename src/client/vendor/ghostty-web/addons/fit.ts':
-      'client layout/: fit.ts becomes fit-insets.ts (ADR 060)',
+    'feature-feature src/client/features/find/find-bar.ts -> src/client/features/keyboard/shortcut-map.ts':
+      'C4: the find keys move out of find-bar.ts, so features/find no longer imports features/keyboard (ADR 060)',
   },
 };

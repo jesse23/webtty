@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeInsets } from './fit';
+import { computeInsets } from './fit-insets';
 
 describe('computeInsets', () => {
   test('with no padding, top and left are flush and the leftover goes right and bottom', () => {

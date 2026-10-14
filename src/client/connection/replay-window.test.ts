@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_FLOW_LIMITS } from '../server/flow';
-import { REPLAY_PIECE, REPLAY_QUIET_MS, ReplayWindow } from './replay';
+import { DEFAULT_FLOW_LIMITS } from '../../server/flow';
+import { REPLAY_PIECE, REPLAY_QUIET_MS, ReplayWindow } from './replay-window';
 
 describe('ReplayWindow', () => {
   test('is replay from the connect through its last piece', () => {

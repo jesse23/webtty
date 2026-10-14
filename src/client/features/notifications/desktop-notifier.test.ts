@@ -5,7 +5,7 @@ import {
   NOTIFY_INTERVAL_MS,
   NOTIFY_REPEAT_MS,
   type NotificationApi,
-} from './notifications';
+} from './desktop-notifier';
 
 interface Shown {
   title: string;

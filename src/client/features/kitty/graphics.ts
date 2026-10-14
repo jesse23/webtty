@@ -1,3 +1,4 @@
+import type { Terminal } from '../../vendor/ghostty-web';
 import {
   ApcSplitter,
   axisScale,
@@ -13,7 +14,6 @@ import {
   pngSizeFromBytes,
   type Transmission,
 } from './kitty';
-import type { Terminal } from './vendor/ghostty-web';
 
 // Sizes Ghostty reports to programs (CSI 14t/16t) are device pixels, as in kitty:
 // programs such as terminal-browser divide them by the display's

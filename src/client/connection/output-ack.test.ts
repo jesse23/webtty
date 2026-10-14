@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ACK_EVERY, ACK_IDLE_MS, OutputAck } from './ack';
+import { ACK_EVERY, ACK_IDLE_MS, OutputAck } from './output-ack';
 
 function setup() {
   const sent: { type: string; chars: number }[] = [];

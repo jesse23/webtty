@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { isMacPlatform, type Shortcut, shortcutFor } from './shortcuts';
+import { isMacPlatform, type Shortcut, shortcutFor } from './shortcut-map';
 
 type Mod = 'ctrl' | 'shift' | 'alt' | 'meta';
 const key = (code: string, mods: Mod[] = []) => ({

@@ -19,7 +19,7 @@
  * Only the normal screen's scrollback scrolls this way. On the alternate screen, or
  * when the app tracks the mouse, the app moves its own view in whole lines.
  */
-import { Glide, type Terminal } from './vendor/ghostty-web';
+import { Glide, type Terminal } from '../../vendor/ghostty-web';
 import type { WheelStream } from './wheel-stream';
 
 export interface ScrollSplit {

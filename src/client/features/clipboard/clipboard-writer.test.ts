@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ClipboardWriter } from './clipboard-write';
+import { ClipboardWriter } from './clipboard-writer';
 
 function setup(clipboard: 'ok' | 'refuse' | 'none' = 'ok') {
   const written: string[] = [];

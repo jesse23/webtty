@@ -9,7 +9,7 @@
  * previous match, Escape closes. The count is Ghostty's `selected/total`: `0/n` until a
  * match is selected.
  */
-import { shortcutFor } from './shortcuts';
+import { shortcutFor } from '../keyboard/shortcut-map';
 
 /** The match count and the selected match's index (0 the newest), as the terminal reports them. */
 export interface FindState {

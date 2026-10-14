@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { nonTextPaste } from './paste';
+import { nonTextPaste } from './non-text-paste';
 
 describe('nonTextPaste', () => {
   test('forwards Ctrl+V for an image-only clipboard (empty text/plain)', () => {

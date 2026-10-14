@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import type { Terminal } from '../../vendor/ghostty-web';
 import { SmoothScroll, splitScroll, wheelLines } from './smooth-scroll';
-import type { Terminal } from './vendor/ghostty-web';
 import { WHEEL_GLIDE_MS, WheelStream } from './wheel-stream';
 
 describe('splitScroll', () => {

@@ -1,19 +1,23 @@
-import { OutputAck } from './ack';
-import { ClipboardWriter } from './clipboard-write';
-import { Composer } from './compose';
-import { EdgeExtender } from './edge';
-import { FindBar } from './find-bar';
-import { computeInsets } from './fit';
-import { KittyGraphics } from './graphics';
-import { activates, browserNotifications, DesktopNotifier } from './notifications';
-import { nonTextPaste } from './paste';
-import { ReplayWindow } from './replay';
-import { isMacPlatform, shortcutFor } from './shortcuts';
-import { SmoothScroll } from './smooth-scroll';
-import { TabTitle } from './tab-title';
-import { toTerminalTheme } from './theme';
+import { toTerminalTheme } from './app/terminal-theme';
+import { OutputAck } from './connection/output-ack';
+import { ReplayWindow } from './connection/replay-window';
+import { ClipboardWriter } from './features/clipboard/clipboard-writer';
+import { Composer } from './features/compose/composer';
+import { FindBar } from './features/find/find-bar';
+import { isMacPlatform, shortcutFor } from './features/keyboard/shortcut-map';
+import { KittyGraphics } from './features/kitty/graphics';
+import {
+  activates,
+  browserNotifications,
+  DesktopNotifier,
+} from './features/notifications/desktop-notifier';
+import { nonTextPaste } from './features/paste/non-text-paste';
+import { SmoothScroll } from './features/scroll/smooth-scroll';
+import { WheelStream } from './features/scroll/wheel-stream';
+import { TabTitle } from './features/tab-title/tab-title';
+import { EdgeExtender } from './layout/edge-extender';
+import { computeInsets } from './layout/fit-insets';
 import { FitAddon, Ghostty, Terminal, watchDevicePixelRatio } from './vendor/ghostty-web';
-import { WheelStream } from './wheel-stream';
 
 interface KeyboardBinding {
   key: string;

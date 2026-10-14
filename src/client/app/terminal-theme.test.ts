@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { toTerminalTheme } from './theme';
+import { toTerminalTheme } from './terminal-theme';
 
 describe('toTerminalTheme', () => {
   test('maps purple and brightPurple onto ghostty-web magenta names', () => {

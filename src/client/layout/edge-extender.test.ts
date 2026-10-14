@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { computeEdgeRects } from './edge';
+import { computeEdgeRects } from './edge-extender';
 
 const canvas = { left: 0, top: 0, width: 800, height: 400 };
 
