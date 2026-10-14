@@ -191,7 +191,7 @@ Ghostty's default copy, paste and clear-screen keys, for the browser's platform 
 | others | Shift+Insert | paste the clipboard (a page cannot read the primary selection) | |
 | all | Ctrl+V, also with Shift or Alt | paste (ADR 014) | |
 
-Ctrl+C is always the app's. Modifiers match exactly except for Ctrl+V. `shortcuts.ts` maps the `keydown` (`shortcutFor`); one capture listener on the container in `index.ts`, after the `keyboardBindings` listener, performs it and steps aside for any combo `keyboardBindings` has, so a binding (even `"chars": ""`) wins. A paste reads `navigator.clipboard.readText` (a failed read sends Ctrl+V); without the API the key is kept from the app and the browser's own paste may fire the `paste` event.
+Ctrl+C is always the app's. Modifiers match exactly except for Ctrl+V. `features/keyboard/shortcut-map.ts` maps the `keydown` (`shortcutFor`); one capture listener on the container in `index.ts`, after the `keyboardBindings` listener, performs it and steps aside for any combo `keyboardBindings` has, so a binding (even `"chars": ""`) wins. A paste reads `navigator.clipboard.readText` (a failed read sends Ctrl+V); without the API the key is kept from the app and the browser's own paste may fire the `paste` event.
 
 **Cmd+K** is Ghostty's `clear_screen`, done by `Terminal.clearScreen()` with VT sequences written to the terminal, never the PTY:
 
@@ -216,13 +216,13 @@ The canvas is invisible to the browser's own find, so webtty has Ghostty's searc
 | all | Escape | close | the app gets the key (bar closed) |
 | in the field | Enter / Shift+Enter | next / previous match | |
 
-Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `find-bar.ts`).
+Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `features/find/find-bar.ts`).
 
 - **Matching** is Ghostty's: ASCII letters case-insensitively, everything else exactly, soft-wrapped rows joined so a match can span a wrap; scrollback and screen, on the active screen.
 - **Order**: next goes toward older output (up), previous toward newer, both wrapping. Nothing is selected until the first Enter; the count is Ghostty's `selected/total` (`0/n` before then).
 - **Scrolling**: if no row of the selected match is in view, the view jumps so its first row is the top row. While a match is selected and the view is scrolled up, output does not pull the view to the bottom: it stays on its rows, except on the alternate screen. A key or a paste sent to the program scrolls to the bottom, as in Ghostty (`scroll-to-bottom = keystroke, no-output`); mouse reports do not.
 - **Highlights**: every match in `searchBackground` / `searchForeground`, the selected one in `searchSelectedBackground` / `searchSelectedForeground` (Ghostty's defaults); the selection is drawn over both.
-- **The bar** (`find-bar.ts`) is a DOM overlay at the top right, outside `#terminal`, coloured from the theme, with a labelled field, the count in a live region, ↑ (next), ↓ (previous) and × buttons. Typing searches after 150 ms; closing ends the search, clears the highlights and refocuses the terminal, and the field keeps its text for the next open.
+- **The bar** (`features/find/find-bar.ts`) is a DOM overlay at the top right, outside `#terminal`, coloured from the theme, with a labelled field, the count in a live region, ↑ (next), ↓ (previous) and × buttons. Typing searches after 150 ms; closing ends the search, clears the highlights and refocuses the terminal, and the field keeps its text for the next open.
 
 `Terminal` (vendored) keeps the needle (also across `reset`), runs the search for at most 4 ms a frame before each render, and reads the matches again when they changed, at most every ten times the last read took; the renderer finds the matches in view by binary search on the newest-to-oldest list, and repaints a row only when its matches change. Find has no side effects, so the replay on connect needs no special handling.
 
@@ -294,15 +294,15 @@ Programs write the clipboard with OSC 52 (`ESC ] 52 ; c ; <base64> BEL` or ST), 
 | `52;c;?` (query) | no answer, ever |
 | invalid base64, or a sequence over 8 MiB (about 6 MiB of text) | ignored whole; missing padding is accepted |
 
-`readEffects` reports the last write since the previous call, `Terminal.onClipboardWrite` fires with it, and `index.ts` passes it to `ClipboardWriter` (`clipboard-write.ts`), which calls `navigator.clipboard.writeText`. After each (re)connect it ignores writes until a `keydown`, `mousedown`, `paste` or `drop` in the tab, so the replayed history does not overwrite the clipboard on reload. A missing clipboard API (http other than localhost), a refused write (no focus in Chrome, no recent input in Firefox, most writes in Safari) and a write held back for the replay are each logged to the console once; there is no error UI.
+`readEffects` reports the last write since the previous call, `Terminal.onClipboardWrite` fires with it, and `index.ts` passes it to `ClipboardWriter` (`features/clipboard/clipboard-writer.ts`), which calls `navigator.clipboard.writeText`. After each (re)connect it ignores writes until a `keydown`, `mousedown`, `paste` or `drop` in the tab, so the replayed history does not overwrite the clipboard on reload. A missing clipboard API (http other than localhost), a refused write (no focus in Chrome, no recent input in Firefox, most writes in Safari) and a write held back for the replay are each logged to the console once; there is no error UI.
 
 ## Focus Reports, Title and Bell
 
 Programs hear focus changes, name the tab and ring the bell as in Ghostty ([ADR 053](../adrs/053.client.focus-reports-title-and-bell.md)):
 
 - **Focus reports (mode 1004).** The terminal has focus while keyboard focus is inside the container and the window has focus; `Terminal` follows it with `focusin` / `focusout` on the container (a move inside it, the container passing focus to the textarea, is not a change). While the program has mode 1004 on, each change sends `CSI I` or `CSI O`, encoded by `ghostty_focus_encode`, through `onData`; a write that turns the mode on sends the current state, as Ghostty does when the mode is set, so the replay of a program that has it on tells the program this tab's focus. Each socket that opens with the mode still on (a reconnect without a reset) sends the current state too (`resyncFocus`), since reports while it was down were dropped. Nothing is sent with `disableStdin`.
-- **Title.** `TabTitle` (`tab-title.ts`) sets `document.title` to `<title> | webtty` from `Terminal.onTitleChange` (OSC 0 / OSC 2, read from Ghostty after each write), or `<session> | webtty` while the title is empty. Titles in the replay are applied.
-- **Bell.** With `bellTitle` on (default), a BEL puts `🔔 ` in front of the tab title, focused or not, until the terminal gains focus (`focusin` on the container, which a window focus fires too) or a key is pressed, as Ghostty's `bell-features = title`. No sound, flash or notification. Bells in the replay are ignored: from each connect, output is replay through the first WebSocket message shorter than the server's 64 Ki-character replay piece (`REPLAY_PIECE`, the replay's last piece), or until a message arrives 1 s (`REPLAY_QUIET_MS`) after the previous one was parsed; the first message is always replay. `ReplayWindow` (`replay.ts`) keeps that state, fed by `index.ts` around each message, for the bell and for desktop notifications.
+- **Title.** `TabTitle` (`features/tab-title/tab-title.ts`) sets `document.title` to `<title> | webtty` from `Terminal.onTitleChange` (OSC 0 / OSC 2, read from Ghostty after each write), or `<session> | webtty` while the title is empty. Titles in the replay are applied.
+- **Bell.** With `bellTitle` on (default), a BEL puts `🔔 ` in front of the tab title, focused or not, until the terminal gains focus (`focusin` on the container, which a window focus fires too) or a key is pressed, as Ghostty's `bell-features = title`. No sound, flash or notification. Bells in the replay are ignored: from each connect, output is replay through the first WebSocket message shorter than the server's 64 Ki-character replay piece (`REPLAY_PIECE`, the replay's last piece), or until a message arrives 1 s (`REPLAY_QUIET_MS`) after the previous one was parsed; the first message is always replay. `ReplayWindow` (`connection/replay-window.ts`) keeps that state, fed by `index.ts` around each message, for the bell and for desktop notifications.
 
 ## Desktop Notifications
 
@@ -316,7 +316,7 @@ Programs ask for desktop notifications with OSC 9 (`ESC ] 9 ; <body> BEL`, iTerm
 | `9;4`, `9;42 tests passed` (not a full ConEmu form) | a notification, as in Ghostty |
 | `777;<other>;…`, `777;notify;<title>` (no body) | nothing |
 
-`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and `index.ts` passes it to `DesktopNotifier` (`notifications.ts`), which, as Ghostty on macOS:
+`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and `index.ts` passes it to `DesktopNotifier` (`features/notifications/desktop-notifier.ts`), which, as Ghostty on macOS:
 
 - drops it while `ReplayWindow` says the output is replay;
 - shows at most one a second, and the same title and body at most once in five seconds;

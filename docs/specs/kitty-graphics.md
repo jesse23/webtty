@@ -24,7 +24,7 @@ the rejected alternatives.
 ```
 PTY ──► server ──► WebSocket ──► ws.onmessage
                                     │
-                        KittyGraphics.feed(data)   (src/client/kitty.ts splitter)
+                        KittyGraphics.feed(data)   (features/kitty/kitty.ts)
                           │            │
                      text segments   APC commands
                           │            │
@@ -32,7 +32,7 @@ PTY ──► server ──► WebSocket ──► ws.onmessage
                           ▲            │                    │
                           └─ cursor ───┘                    ▼
                           advance / reply                overlay canvas
-                                                       (src/client/graphics.ts)
+                                                       (features/kitty/graphics.ts)
 replies (a=q OK) ──► ws.send ──► PTY
 ```
 
@@ -125,11 +125,12 @@ reuses the same image id.
 
 ```
 src/client/
-  kitty.ts        ← pure: APC splitter, key=value parser, kitty reply builder, clear scanner (unit tested)
-  kitty.test.ts
-  graphics.ts     ← browser: decode, placement table, overlay canvas, scroll tracking
-  graphics.test.ts ← state handling against a stubbed DOM and image decoder
-  index.ts        ← wires ws.onmessage through KittyGraphics
+  features/kitty/
+    kitty.ts         ← pure: APC splitter, key=value parser, kitty reply builder, clear scanner (unit tested)
+    kitty.test.ts
+    graphics.ts      ← browser: decode, placement table, overlay canvas, scroll tracking
+    graphics.test.ts ← state handling against a stubbed DOM and image decoder
+  index.ts           ← wires ws.onmessage through KittyGraphics
 ```
 
 ## Known limitations
