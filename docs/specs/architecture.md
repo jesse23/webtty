@@ -143,7 +143,7 @@ src/
       notifications/            desktop-notifier.ts (object), browser-notifications.ts (adapter + activates), notifications-feature.ts
       clipboard/                clipboard-writer.ts (object, was clipboard-write.ts), clipboard-feature.ts
       paste/                    non-text-paste.ts (util), paste-service.ts (service), paste-feature.ts
-      find/                     find-bar.ts (view), find-format.ts (util), find-keys.ts (util), find-feature.ts
+      find/                     find-bar.ts (view), find-format.ts (util), find-keys.ts (util; takes the shortcut lookup, never imports keyboard/), find-feature.ts
       keyboard/                 key-bindings.ts, shortcut-map.ts (was shortcuts.ts), shortcut-commands.ts, font-zoom.ts, key-dispatcher.ts (feature), font-zoom-feature.ts
       compose/                  composer.ts (view + dispose), composer-geometry.ts (util)
       scroll/                   smooth-scroll.ts, scroll-split.ts, wheel-classifier.ts (VS Code MIT notice), wheel-stream.ts, scroll-feature.ts
