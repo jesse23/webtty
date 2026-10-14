@@ -74,6 +74,7 @@ The vendored TS is excluded from Biome so it stays byte-identical to upstream un
   theme, copyOnSelect, rightClickBehavior,
   clipboardWrite,         // Terminal option: report OSC 52 clipboard writes (ADR 052)
   bellTitle,              // TabTitle: 🔔 in the tab title after a bell (ADR 053)
+  desktopNotifications,   // Terminal option: report OSC 9 / OSC 777 notifications (ADR 056)
   mouseScrollSpeed,       // Terminal option: SGR wheel ticks per line/page event when the app tracks the mouse
   padding,                // px around the canvas, used by fit(); coloured by theme.padding or theme.background
   keyboardBindings        // used by the keydown capture handler, not passed to Terminal constructor
@@ -240,7 +241,29 @@ Programs hear focus changes, name the tab and ring the bell as in Ghostty ([ADR 
 
 - **Focus reports (mode 1004).** The terminal has focus while keyboard focus is inside the container and the window has focus; `Terminal` follows it with `focusin` / `focusout` on the container (a move inside it, the container passing focus to the textarea, is not a change). While the program has mode 1004 on, each change sends `CSI I` or `CSI O`, encoded by `ghostty_focus_encode`, through `onData`; a write that turns the mode on sends the current state, as Ghostty does when the mode is set, so the replay of a program that has it on tells the program this tab's focus. Each socket that opens with the mode still on (a reconnect without a reset) sends the current state too (`resyncFocus`), since reports while it was down were dropped. Nothing is sent with `disableStdin`.
 - **Title.** `TabTitle` (`tab-title.ts`) sets `document.title` to `<title> | webtty` from `Terminal.onTitleChange` (OSC 0 / OSC 2, read from Ghostty after each write), or `<session> | webtty` while the title is empty. Titles in the replay are applied.
-- **Bell.** With `bellTitle` on (default), a BEL puts `🔔 ` in front of the tab title, focused or not, until the terminal gains focus (`focusin` on the container, which a window focus fires too) or a key is pressed, as Ghostty's `bell-features = title`. No sound, flash or notification. Bells in the replay are ignored: from each connect, output is replay through the first WebSocket message shorter than the server's 64 Ki-character replay piece (`REPLAY_PIECE`, the replay's last piece), or until a message arrives 1 s (`REPLAY_QUIET_MS`) after the previous one was parsed; the first message is always replay.
+- **Bell.** With `bellTitle` on (default), a BEL puts `🔔 ` in front of the tab title, focused or not, until the terminal gains focus (`focusin` on the container, which a window focus fires too) or a key is pressed, as Ghostty's `bell-features = title`. No sound, flash or notification. Bells in the replay are ignored: from each connect, output is replay through the first WebSocket message shorter than the server's 64 Ki-character replay piece (`REPLAY_PIECE`, the replay's last piece), or until a message arrives 1 s (`REPLAY_QUIET_MS`) after the previous one was parsed; the first message is always replay. `ReplayWindow` (`replay.ts`) keeps that state, fed by `index.ts` around each message, for the bell and for desktop notifications.
+
+## Desktop Notifications
+
+Programs ask for desktop notifications with OSC 9 (`ESC ] 9 ; <body> BEL`, iTerm2) and OSC 777 (`ESC ] 777 ; notify ; <title> ; <body> BEL`, rxvt), as Ghostty shows them ([ADR 056](../adrs/056.client.desktop-notifications.md)). Ghostty's parser tells them apart from ConEmu's `OSC 9 ; <n>` forms and calls the binding's `DESKTOP_NOTIFICATION` callback, installed only while `desktopNotifications` is on:
+
+| Sequence | Result |
+|---|---|
+| `9;<text>` | a notification with no title, body `<text>` (semicolons included) |
+| `777;notify;<title>;<body>` | title and body; the body may hold `;`, the title may be empty |
+| `9;4;…` (progress), `9;1;…` to `9;12` (ConEmu) | nothing |
+| `9;4`, `9;42 tests passed` (not a full ConEmu form) | a notification, as in Ghostty |
+| `777;<other>;…`, `777;notify;<title>` (no body) | nothing |
+
+`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and `index.ts` passes it to `DesktopNotifier` (`notifications.ts`), which, as Ghostty on macOS:
+
+- drops it while `ReplayWindow` says the output is replay;
+- shows at most one a second, and the same title and body at most once in five seconds;
+- shows nothing while the terminal has focus (window focused, keyboard focus in the container, as for mode 1004);
+- otherwise, with permission granted, shows `new Notification(title, { body, tag })`: an OSC 9 notification takes the tab's name (the program's title, or the session id) as its title; the tag (session, title, body) makes a second tab on the session replace rather than stack it. Text is passed as plain text. A click focuses the window and the terminal; the terminal gaining focus or a key closes every notification it showed;
+- otherwise (permission not granted, no API over http or on iOS Safari, a constructor that throws as on Chrome for Android) puts the bell's `🔔 ` in front of the tab title, which `bellTitle: false` turns off too. Each reason is logged to the console once.
+
+Permission is never asked on load. The first live notification while it is `default` (focused or not) arms the request, and the next `keydown` or `mousedown` in the tab calls `Notification.requestPermission()`, once per page load.
 
 ## Behavior Notes
 
@@ -268,6 +291,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
 | Copy, paste and clear keys | Ghostty's defaults for the browser's platform: Ctrl+Shift+C and Ctrl+Insert copy and Shift+Insert pastes outside macOS (Ctrl+C stays the interrupt; Ctrl+Shift+C with no selection goes to the app), Cmd+K clears the screen and scrollback on macOS (at an OSC 133 prompt with FF for the shell to redraw; the app's key on the alternate screen); `keyboardBindings` win | [ADR 054](../adrs/054.client.copy-paste-clear-keys.md) | ✅ |
 | Find in the scrollback | Cmd+F (macOS) or Ctrl+Shift+F opens a find bar; libghostty-vt's search over scrollback and screen (ASCII case-insensitive, across soft wraps), every match highlighted and the selected one distinct in Ghostty's colours, Enter / Shift+Enter (Cmd+G / Cmd+Shift+G) to the next (older) and previous match with Ghostty's `k/n` count, the view jumping to a match out of view and kept on it while output streams, Escape to close; `keyboardBindings` win | [ADR 055](../adrs/055.client.find-in-scrollback.md) | ✅ |
+| Desktop notifications | OSC 9 and OSC 777 `notify`, parsed by Ghostty (ConEmu's `9;<n>` forms excluded), shown as browser notifications while the terminal is not focused, one a second and the same one once in five seconds; permission asked on the next key or click after the first one; the 🔔 title mark without permission; replayed ones ignored; `desktopNotifications: false` turns them off | [ADR 056](../adrs/056.client.desktop-notifications.md) | ✅ |
 | Focus reports, title and bell | Mode 1004 focus reports encoded by Ghostty, sent on each change and when the mode is set; the tab title is the program's OSC 0/2 title (`<title> \| webtty`, the session id while it has none); a bell puts 🔔 in front of it until the terminal is focused or a key is pressed, and bells replayed on connect are ignored; `bellTitle: false` turns the mark off | [ADR 053](../adrs/053.client.focus-reports-title-and-bell.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` are Ghostty's default cursor; Ghostty applies DECSCUSR from the PTY (Ps 0 and RIS restore the default); mode 12 is ignored, as in Ghostty with `cursor-style-blink` set; and the renderer draws the shape and blink from its state, repainting the cursor cell so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
