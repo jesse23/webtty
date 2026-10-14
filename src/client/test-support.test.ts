@@ -3,13 +3,18 @@
 
 import { describe, expect, test } from 'bun:test';
 import { createDomWindow } from './test-support/dom-window';
+import { fakeClientEnv } from './test-support/fake-client-env';
 import { FAKE_CONFIG, fakeContext } from './test-support/fake-context';
 import { fakeResizeObserver } from './test-support/fake-resize-observer';
 import { fakeWebSocket } from './test-support/fake-socket';
 import { FakeTerminal } from './test-support/fake-terminal';
 import { FakeWindow } from './test-support/fake-window';
 import { ManualClock } from './test-support/manual-clock';
-import { RecordingTarget, recordListeners } from './test-support/recording-target';
+import {
+  type ListenerRecord,
+  RecordingTarget,
+  recordListeners,
+} from './test-support/recording-target';
 import { AT_ONCE } from './vendor/ghostty-web';
 
 describe('ManualClock', () => {
@@ -115,6 +120,22 @@ describe('RecordingTarget', () => {
     target.dispatch({ type: 'focus' });
     expect(log).toEqual(['fn', 'object:focus', 'object:focus']);
     expect(target.active.map((r) => r.type)).toEqual(['focus', 'blur']);
+  });
+
+  test('targets sharing a timeline log their adds into it in order', () => {
+    const timeline: ListenerRecord[] = [];
+    const first = new RecordingTarget('first');
+    const second = new RecordingTarget('second');
+    first.timeline = timeline;
+    second.timeline = timeline;
+    first.addEventListener('keydown', a);
+    second.addEventListener('focus', b);
+    first.addEventListener('mousedown', b);
+    expect(timeline.map((r) => `${r.target} ${r.type}`)).toEqual([
+      'first keydown',
+      'second focus',
+      'first mousedown',
+    ]);
   });
 });
 
@@ -344,6 +365,46 @@ describe('fakeContext', () => {
     expect(changes).toBe(1);
     let loaded = false;
     void fake.ctx.doc.fonts.ready.then(() => {
+      loaded = true;
+    });
+    await fake.fontsLoaded();
+    expect(loaded).toBe(true);
+    await fake.dom.close();
+  });
+});
+
+describe('fakeClientEnv', () => {
+  test('serves the config, loads a stand-in engine and builds the fake terminal', async () => {
+    const fake = fakeClientEnv({ config: { fontSize: 20 }, platform: 'MacIntel' });
+    const { env } = fake;
+    expect(await (await env.fetch('/api/config')).json()).toMatchObject({ fontSize: 20 });
+    const ghostty = await env.loadEngine('/engine.wasm');
+    expect(env.createTerminal({ ghostty }) as object).toBe(fake.term);
+    expect([fake.fetched, fake.engines, fake.terminalOptions]).toEqual([
+      ['/api/config'],
+      ['/engine.wasm'],
+      [{ ghostty }],
+    ]);
+    expect(env.navigator.platform).toBe('MacIntel');
+    expect(env.document.getElementById('terminal')).toBe(fake.container);
+    expect(env.window.location.pathname).toBe('/s/work');
+    await fake.dom.close();
+  });
+
+  test('records the window, document and container listeners into one timeline', async () => {
+    const fake = fakeClientEnv();
+    fake.container.addEventListener('focusin', () => {});
+    fake.env.document.addEventListener('visibilitychange', () => {});
+    fake.env.window.addEventListener('keydown', () => {}, true);
+    expect(fake.timeline.map((r) => `${r.target} ${r.type}`)).toEqual([
+      'container focusin',
+      'document visibilitychange',
+      'window keydown',
+    ]);
+    expect(fake.docListeners.active).toHaveLength(1);
+    expect(fake.containerListeners.active).toHaveLength(1);
+    let loaded = false;
+    void fake.env.document.fonts.ready.then(() => {
       loaded = true;
     });
     await fake.fontsLoaded();

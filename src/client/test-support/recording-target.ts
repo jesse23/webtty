@@ -28,6 +28,8 @@ export class RecordingTarget implements ListenerTarget {
   readonly added: ListenerRecord[] = [];
   /** Every remove that matched a live listener, in order. */
   readonly removed: ListenerRecord[] = [];
+  /** When set, every add is appended here too, so several targets share one ordered log. */
+  timeline?: ListenerRecord[];
   private live: ListenerRecord[] = [];
 
   constructor(readonly name = 'target') {}
@@ -48,6 +50,7 @@ export class RecordingTarget implements ListenerTarget {
       if (options.once !== undefined) record.once = options.once;
     }
     this.added.push(record);
+    this.timeline?.push(record);
     // The DOM adds a listener once per (type, listener, capture).
     if (!this.live.some((other) => sameListener(other, record))) this.live.push(record);
   }
