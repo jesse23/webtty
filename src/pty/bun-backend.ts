@@ -1,4 +1,4 @@
-import type { PtyProcess } from './types';
+import type { PtyProcess } from './pty-process';
 
 /**
  * Spawns a PTY-backed shell using Bun's native `Bun.spawn` terminal API.

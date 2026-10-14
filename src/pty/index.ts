@@ -1,6 +1,6 @@
 import { bunTerminalAvailable } from '../runtime';
 
-export type { PtyProcess } from './types';
+export type { PtyProcess } from './pty-process';
 
 // Bun.Terminal does not implement PTY on Windows (Bun.spawn({ terminal })
 // is a no-op there), so fall back to node-pty on that platform.
@@ -8,7 +8,9 @@ export type { PtyProcess } from './types';
 const useBunTerminal = bunTerminalAvailable();
 console.log(`pty: ${useBunTerminal ? 'Bun.Terminal' : 'node-pty'}`);
 
-const { spawn: _spawn } = await (useBunTerminal ? import('./bun') : import('./node'));
+const { spawn: _spawn } = await (useBunTerminal
+  ? import('./bun-backend')
+  : import('./node-backend'));
 
 export const spawn = _spawn;
 
