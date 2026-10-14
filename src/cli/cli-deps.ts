@@ -1,6 +1,8 @@
 // Everything the CLI dispatcher reaches outside itself: the output streams, the exit call, the
 // version and the command handlers. Types plus a factory over the real globals, so main.ts is
 // tested with fakes instead of subprocesses (ADR 063).
+// Interim shape: the `commands` table goes away in the commands/ split, when CliDeps becomes
+// { client, out, err, exit, spawn, config } and each command takes (args, deps) (ADR 063).
 import { getVersion } from '../version';
 import {
   cmdConfig,
@@ -37,6 +39,7 @@ export interface CliDeps {
   exit(code: number): void;
   /** The package version `webtty -v` prints. */
   version(): string;
+  /** The command handlers; temporary until the commands/ split passes deps to each command. */
   commands: CliCommands;
 }
 
