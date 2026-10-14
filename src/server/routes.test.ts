@@ -11,6 +11,7 @@ import {
   waitForServer,
   waitForServerDown,
 } from '../test-support/server-harness';
+import { DEFAULT_THEME } from '../config';
 import { getVersion } from '../version';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -127,6 +128,32 @@ describe('server — routes', () => {
     expect(body.host).toBeUndefined();
     expect(body.shell).toBeUndefined();
     expect(body.logs).toBeUndefined();
+  });
+
+  test('GET /api/config sends exactly the client keys, in order, with the default values', async () => {
+    // Pinned literal: the whitelist the route built by hand before CLIENT_CONFIG_KEYS existed.
+    const expected = {
+      cols: 80,
+      rows: 24,
+      fontSize: 13,
+      fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'",
+      cursorStyle: 'bar',
+      cursorStyleBlink: true,
+      scrollback: 256 * 1024,
+      scrollbackLines: 10000,
+      theme: DEFAULT_THEME,
+      copyOnSelect: true,
+      rightClickBehavior: 'contextMenu',
+      clipboardWrite: true,
+      bellTitle: true,
+      desktopNotifications: true,
+      mouseScrollSpeed: 1,
+      padding: 0,
+      keyboardBindings: [],
+    };
+    const res = await fetch(`${baseUrl}/api/config`);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(await res.text()).toBe(JSON.stringify(expected));
   });
 
   test('GET /api/sessions returns array', async () => {

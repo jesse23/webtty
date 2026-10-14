@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import type http from 'node:http';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import { loadConfig } from '../config';
+import { loadConfig, toClientConfig } from '../config';
 import { getVersion } from '../version';
 import {
   createSession,
@@ -108,27 +108,8 @@ export async function handleRequest(
   }
 
   if (req.method === 'GET' && pathname === '/api/config') {
-    const config = loadConfig();
-    // Whitelist client-safe keys — avoid exposing server-side config (shell, host, logs, etc.)
-    const clientConfig = {
-      cols: config.cols,
-      rows: config.rows,
-      fontSize: config.fontSize,
-      fontFamily: config.fontFamily,
-      cursorStyle: config.cursorStyle,
-      cursorStyleBlink: config.cursorStyleBlink,
-      scrollback: config.scrollback,
-      scrollbackLines: config.scrollbackLines,
-      theme: config.theme,
-      copyOnSelect: config.copyOnSelect,
-      rightClickBehavior: config.rightClickBehavior,
-      clipboardWrite: config.clipboardWrite,
-      bellTitle: config.bellTitle,
-      desktopNotifications: config.desktopNotifications,
-      mouseScrollSpeed: config.mouseScrollSpeed,
-      padding: config.padding,
-      keyboardBindings: config.keyboardBindings,
-    };
+    // Only the client-safe keys: server-side config (shell, host, logs, env…) stays here.
+    const clientConfig = toClientConfig(loadConfig());
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(clientConfig));
     return;
