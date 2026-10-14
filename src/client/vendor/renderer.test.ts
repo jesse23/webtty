@@ -923,6 +923,63 @@ describe('overscan and copied scrolls (ADR 043)', () => {
     term.free();
   });
 
+  test(`search highlights follow scrolls, output and selection changes (ADR 055)`, async () => {
+    const { term, provider } = await terminal();
+    const sb = () => term.getScrollbackLength();
+    const live = { provider: { ...provider, getScrollbackLength: sb } };
+    term.setSearch('g');
+    while (term.searchStep(50)) {}
+    const read = () => ({ matches: term.searchMatches(), selected: term.searchSelectedMatch() });
+    let highlights = read();
+    expect(highlights.matches.length).toBeGreaterThan(40);
+    for (const overscan of [1, 4]) {
+      const r = renderer(2, { overscan });
+      r.r.setSearchHighlights(highlights);
+      r.r.render(term, true, 0, live.provider, 0);
+      const steps: [number, number, (() => void)?][] = [
+        [0, 0],
+        [3, 0, () => term.searchSelect('next')],
+        [3, 7.5],
+        [9, 0, () => term.searchSelect('next')],
+        [12, 0],
+        [6, 2, () => term.searchSelect('previous')],
+        [0, 0, () => term.write('one more g\r\n')],
+        [2, 0],
+        [2, 0, () => term.setSearch('plain')],
+        [0, 0, () => term.setSearch('')],
+      ];
+      for (const [view, offset, change] of steps) {
+        if (change) {
+          change();
+          while (term.searchStep(50)) {}
+          highlights = read();
+          r.r.setSearchHighlights(highlights.matches.length ? highlights : null);
+        }
+        r.r.setScrollOffset(offset);
+        r.r.render(term, false, view, live.provider, 0);
+        const full = renderer(2, { overscan });
+        full.r.setSearchHighlights(highlights.matches.length ? highlights : null);
+        full.r.setScrollOffset(offset);
+        full.r.render(term, true, view, live.provider, 0);
+        expect(r.shown()).toEqual(full.shown());
+      }
+      term.setSearch('g');
+      while (term.searchStep(50)) {}
+      highlights = read();
+    }
+    // The matches' text in the search colours, the selected one's in its own
+    const r = renderer(1, {
+      theme: { searchForeground: '#111111', searchSelectedForeground: '#222222' },
+    });
+    term.searchSelect('next');
+    r.r.setSearchHighlights(read());
+    r.r.render(term, true, 0, live.provider, 0);
+    const glyphs = (color: string) => r.shown().filter((v) => v.startsWith(`${color} `));
+    expect(glyphs('#111111').length).toBeGreaterThan(0);
+    expect(glyphs('#222222').length).toBeGreaterThan(0);
+    term.free();
+  });
+
   test(`a translucent cursor drawn again is not blended over itself`, async () => {
     const { term, provider } = await terminal();
     const theme = { cursor: 'rgba(255, 0, 0, 0.3)' };

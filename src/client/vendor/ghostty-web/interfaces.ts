@@ -42,6 +42,11 @@ export interface ITheme {
   cursorAccent?: string;
   selectionBackground?: string;
   selectionForeground?: string;
+  // Search matches and the selected match, Ghostty's `search-*` colours (webtty, ADR 055)
+  searchBackground?: string;
+  searchForeground?: string;
+  searchSelectedBackground?: string;
+  searchSelectedForeground?: string;
 
   // ANSI colors (0-15)
   black?: string;

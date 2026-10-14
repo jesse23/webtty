@@ -11,6 +11,13 @@
  */
 
 import type { ITheme } from './interfaces';
+import {
+  type HighlightSpan,
+  highlightAt,
+  highlightRows,
+  type SearchHighlights,
+  spansKey,
+} from './search';
 import type { SelectionManager } from './selection-manager';
 import type { GhosttyCell, ILink } from './types';
 import { CellFlags } from './types';
@@ -210,6 +217,12 @@ export const DEFAULT_THEME: Required<ITheme> = {
   // Using Ghostty's approach: selection bg = default fg, selection fg = default bg
   selectionBackground: '#d4d4d4',
   selectionForeground: '#1e1e1e',
+  // Ghostty's defaults: black on golden yellow, and on soft peach for the selected match
+  // (webtty, ADR 055)
+  searchBackground: '#ffe082',
+  searchForeground: '#000000',
+  searchSelectedBackground: '#f2a57e',
+  searchSelectedForeground: '#000000',
   black: '#000000',
   red: '#cd3131',
   green: '#0dbc79',
@@ -318,6 +331,12 @@ export class CanvasRenderer {
   // in canvas rows (webtty, ADR 043)
   private currentLinkRange: LinkRange | null = null;
   private drawnLinkRange: LinkRange | null = null;
+
+  // Search matches (webtty, ADR 055): the matches, the spans this frame draws per canvas
+  // row, and the spans each canvas row was drawn with (as `spansKey`)
+  private searchHighlights: SearchHighlights | null = null;
+  private searchSpans: (HighlightSpan[] | undefined)[] = [];
+  private drawnSearch: string[] = [];
 
   constructor(canvas: HTMLCanvasElement, options: RendererOptions = {}) {
     this.element = canvas;
@@ -582,6 +601,11 @@ export class CanvasRenderer {
         if (this.scrollbarRow !== null) this.scrollbarRow += shift;
         this.drawnSelection = moveRows(this.drawnSelection, shift);
         this.drawnLinkRange = moveRange(this.drawnLinkRange, shift);
+        const drawnSearch = new Array<string>(total).fill('');
+        for (let k = Math.max(0, -shift); k < Math.min(total, total - shift); k++) {
+          drawnSearch[k + shift] = this.drawnSearch[k] ?? '';
+        }
+        this.drawnSearch = drawnSearch;
       } else {
         forceAll = true;
       }
@@ -625,6 +649,20 @@ export class CanvasRenderer {
       }
     }
     this.drawnSelection = this.currentSelectionCoords;
+
+    // Search matches, in canvas rows; a row whose matches changed is repainted
+    // (webtty, ADR 055)
+    if (this.drawnSearch.length !== total) this.drawnSearch = new Array<string>(total).fill('');
+    this.searchSpans = new Array(total);
+    if (this.searchHighlights) {
+      // Canvas row k shows screen row k - top plus the screen row at the viewport's top
+      const toScreen = scrollbackLength - view - top;
+      const spans = highlightRows(this.searchHighlights, toScreen, toScreen + total - 1, dims.cols);
+      for (const [row, s] of spans) this.searchSpans[row - toScreen] = s;
+    }
+    for (let k = 0; k < total; k++) {
+      if (spansKey(this.searchSpans[k]) !== this.drawnSearch[k]) changed(k);
+    }
 
     const rowAt = (k: number) =>
       this.rowAt(k - this.overscan, band, rows, getLine, buffer, scrollbackProvider, scrollbackLength);
@@ -678,6 +716,9 @@ export class CanvasRenderer {
       this.repaintRows(k, end, wanted(end) === ROW_CUT, dims.cols, rowAt);
       repainted.fill(1, k, end + 1);
       k = end;
+    }
+    for (let k = 0; k < total; k++) {
+      if (repainted[k]) this.drawnSearch[k] = spansKey(this.searchSpans[k]);
     }
 
     // Selection highlighting is now integrated into renderCellBackground/renderCellText
@@ -983,6 +1024,15 @@ export class CanvasRenderer {
       return; // Selection background replaces cell background
     }
 
+    // A search match replaces it too, under the selection as in Ghostty (webtty, ADR 055)
+    const match = highlightAt(this.searchSpans[y], x);
+    if (match) {
+      this.ctx.fillStyle =
+        match === 2 ? this.theme.searchSelectedBackground : this.theme.searchBackground;
+      this.ctx.fillRect(cellX, cellY, cellWidth, this.metrics.height);
+      return;
+    }
+
     // Extract background color and handle inverse
     let bg_r = cell.bg_r,
       bg_g = cell.bg_g,
@@ -1038,6 +1088,11 @@ export class CanvasRenderer {
       this.ctx.fillStyle = colorOverride;
     } else if (isSelected) {
       this.ctx.fillStyle = this.theme.selectionForeground;
+    } else if (highlightAt(this.searchSpans[y], x)) {
+      this.ctx.fillStyle =
+        highlightAt(this.searchSpans[y], x) === 2
+          ? this.theme.searchSelectedForeground
+          : this.theme.searchForeground;
     } else {
       // Extract colors and handle inverse
       let fg_r = cell.fg_r,
@@ -1386,6 +1441,14 @@ export class CanvasRenderer {
     }
 
     return false;
+  }
+
+  /**
+   * The search matches to highlight, or null for none. Rows whose matches change are
+   * repainted on the next frame. (webtty, ADR 055)
+   */
+  public setSearchHighlights(highlights: SearchHighlights | null): void {
+    this.searchHighlights = highlights;
   }
 
   /**
