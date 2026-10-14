@@ -206,6 +206,7 @@ ghostty-web/
     mouse-controller.ts  wheel-controller.ts  scrollbar-controller.ts
   render/               renderable.ts  default-theme.ts  device-pixel-ratio.ts  frame-lines.ts  cell-range.ts  row-band.ts
                         font-metrics.ts  cell-painter.ts  row-repainter.ts  cursor-painter.ts  scrollbar-geometry.ts  scrollbar-painter.ts
+                        scroll-tracker.ts  decoration-tracker.ts  viewport-clip.ts
   input/                key-types.ts  key-map.ts  key-encoding.ts  text-input.ts (EchoGuard)  mouse-report.ts
   selection/            selection-coords.ts  selection-gestures.ts  auto-scroll.ts  context-menu-textarea.ts  clipboard-copy.ts
 ```
