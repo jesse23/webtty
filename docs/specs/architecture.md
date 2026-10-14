@@ -160,7 +160,7 @@ src/
     test-support.test.ts        the fakes' self-tests (a test-support/ folder holds no *.test.ts)
     vendor/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md
-      tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/)
+      tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/, addons/)
         support/                wasm.ts (the one WASM path, a cached loadGhostty(), countedGhostty()), fake-canvas.ts, fake-event-target.ts,
                                 engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours),
                                 selection-fixture.ts (a SelectionManager on a recording canvas and document)

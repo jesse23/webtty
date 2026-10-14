@@ -1,36 +1,21 @@
-/**
- * FitAddon - Proposes the grid that fits the terminal's container
- *
- * Usage:
- * ```typescript
- * const fitAddon = new FitAddon();
- * term.loadAddon(fitAddon);
- * const dims = fitAddon.proposeDimensions();
- * if (dims) term.resize(dims.cols, dims.rows);
- * ```
- *
- * (webtty: upstream's fit() and observeResize() are removed; webtty resizes the
- * terminal itself from proposeDimensions, ADR 033.)
- */
+// Derived from coder/ghostty-web lib/addons/fit.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// FitAddon (object): proposes the grid that fits the terminal's container, from its client
+// size less its CSS padding and the renderer's cell. (webtty: upstream's fit() and
+// observeResize() are removed; webtty resizes the terminal itself from proposeDimensions,
+// ADR 033, ADR 061.)
 
 import type { ITerminalAddon, ITerminalCore } from '../interfaces';
-
-// ============================================================================
-// Constants
-// ============================================================================
 
 const MINIMUM_COLS = 2;
 const MINIMUM_ROWS = 1;
 
-// ============================================================================
-// Types
-// ============================================================================
-
+/** A grid size in cells. */
 export interface ITerminalDimensions {
   cols: number;
   rows: number;
 }
 
+/** An element's CSS padding, in pixels. */
 export interface IFitPadding {
   top: number;
   right: number;
@@ -58,12 +43,19 @@ export function fitDimensions(
   };
 }
 
-// ============================================================================
-// FitAddon Class
-// ============================================================================
+/** Reads an element's computed style; the window's own by default. */
+export type ComputedStyleReader = (
+  element: HTMLElement
+) => Pick<CSSStyleDeclaration, 'getPropertyValue'>;
 
+/** The grid size source webtty's Fitter asks on every fit. */
 export class FitAddon implements ITerminalAddon {
   private _terminal?: ITerminalCore;
+
+  constructor(
+    private readonly computedStyle: ComputedStyleReader = (element) =>
+      window.getComputedStyle(element)
+  ) {}
 
   /**
    * Activate the addon (called by Terminal.loadAddon)
@@ -95,10 +87,7 @@ export class FitAddon implements ITerminalAddon {
       return undefined;
     }
 
-    // Access terminal internals to get renderer
-    const terminal = this._terminal as any;
-    const renderer = terminal.renderer;
-
+    const renderer = this._terminal.renderer;
     if (!renderer || typeof renderer.getMetrics !== 'function') {
       return undefined;
     }
@@ -118,7 +107,7 @@ export class FitAddon implements ITerminalAddon {
       return undefined;
     }
 
-    const elementStyle = window.getComputedStyle(terminalElement);
+    const elementStyle = this.computedStyle(terminalElement);
 
     // Get the actual content area (inside padding)
     const paddingTop = Number.parseInt(elementStyle.getPropertyValue('padding-top')) || 0;

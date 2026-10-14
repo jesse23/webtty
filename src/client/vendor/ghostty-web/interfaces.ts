@@ -83,6 +83,8 @@ export interface ITerminalAddon {
 
 export interface ITerminalCore {
   element?: HTMLElement;
+  /** The cell size, for FitAddon; set while the terminal is open (webtty, ADR 061) */
+  readonly renderer?: { getMetrics(): { width: number; height: number } };
 }
 
 // ============================================================================

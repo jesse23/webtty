@@ -1,28 +1,41 @@
-/**
- * Terminal - Main terminal emulator class
- *
- * Provides an xterm.js-compatible API wrapping Ghostty's WASM terminal emulator.
- *
- * Usage:
- * ```typescript
- * import { Ghostty, Terminal } from 'ghostty-web';
- *
- * const term = new Terminal({ ghostty: await Ghostty.load() });
- * term.open(document.getElementById('container'));
- * term.write('Hello, World!\n');
- * term.onData(data => console.log('User typed:', data));
- * ```
- */
+// Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// Terminal (facade): the xterm.js-compatible terminal over Ghostty's libghostty-vt engine,
+// its emitters and the parts it composes in open(); webtty creates it with
+// `new Terminal({ ghostty: await Ghostty.load(url), ... })` and `open(container)` (ADR 061).
 
 import { BufferNamespace } from './buffer';
+import {
+  APP_CURSOR_KEYS_MODE,
+  FIND_READ_BACKOFF,
+  FIND_STEP_MS,
+  FOCUS_EVENT_MODE,
+  MOUSE_MOVE_THROTTLE_MS,
+  SCROLLBAR_FADE_DURATION_MS,
+  SCROLLBAR_HIDE_DELAY_MS,
+} from './core/terminal-constants';
+import {
+  createOptionsProxy,
+  type TerminalOptionValues,
+  toEngineConfig,
+  withDefaults,
+} from './core/options-proxy';
+import {
+  cursorCellOffset,
+  deviceCellPixels,
+  linkViewportRange,
+  mouseCursorFor,
+  mouseSurface,
+  pointerCell,
+  setStylePx,
+  viewportRowToBufferRow,
+} from './core/terminal-geometry';
+import { Viewport } from './core/viewport';
 import { EventEmitter } from './event-emitter';
 import type {
   DesktopNotification,
   Ghostty,
   GhosttyCell,
   GhosttyTerminal,
-  GhosttyTerminalConfig,
-  MouseGeometry,
   SearchState,
 } from './ghostty';
 import { AT_ONCE, type Pace } from './glide';
@@ -32,9 +45,9 @@ import {
   type MouseTrackingConfig,
   mouseMods,
 } from './input-handler';
+import { mouseReportText } from './input/mouse-report';
 import type {
   IBufferNamespace,
-  IDisposable,
   IEvent,
   ITerminalAddon,
   ITerminalCore,
@@ -63,132 +76,17 @@ import {
   wheelTicks,
 } from './wheel';
 
-// ============================================================================
-// Terminal Class
-// ============================================================================
+// The facade's former contents, re-exported so deep imports keep working (ADR 061)
+export { TERMINAL_DEFAULTS, toEngineConfig } from './core/options-proxy';
+export {
+  cursorCellOffset,
+  deviceCellPixels,
+  mouseCursorFor,
+  mouseSurface,
+} from './core/terminal-geometry';
+export { mouseReportText } from './input/mouse-report';
 
-/**
- * Mouse cursor for the terminal surface: 'pointer' over a link, otherwise the
- * platform default arrow. (webtty: upstream used the 'text' I-beam, which reads
- * as editable text over TUI menus and widgets.)
- */
-export function mouseCursorFor(link: ILink | undefined): 'pointer' | 'default' {
-  return link ? 'pointer' : 'default';
-}
-
-/**
- * The mouse encoder's geometry and a client position in it (ADR 049). Ghostty needs a
- * whole cell size, and webtty's CSS cell is fractional, so the units are device-pixel
- * cells: the cell is `cellPx` (the size Ghostty's size reports give, so SGR-pixels
- * positions agree with them), and CSS lengths are scaled by `cellPx` over the CSS cell.
- * The screen is the container `box`, so the padding around the grid is part of it and
- * Ghostty maps it to the nearest edge cell. The position is measured from the grid's
- * origin and then offset by the rounded padding, so rounding never moves a cell
- * boundary. (webtty)
- */
-export function mouseSurface(
-  clientX: number,
-  clientY: number,
-  grid: {
-    left: number;
-    top: number;
-    cols: number;
-    rows: number;
-    cellWidth: number;
-    cellHeight: number;
-  },
-  box: { left: number; top: number; right: number; bottom: number },
-  cellPx: { width: number; height: number }
-): { geometry: MouseGeometry; x: number; y: number } {
-  const sx = cellPx.width / grid.cellWidth;
-  const sy = cellPx.height / grid.cellHeight;
-  const left = Math.max(0, Math.round((grid.left - box.left) * sx));
-  const top = Math.max(0, Math.round((grid.top - box.top) * sy));
-  const gridRight = grid.left + grid.cols * grid.cellWidth;
-  const gridBottom = grid.top + grid.rows * grid.cellHeight;
-  const right = Math.max(0, Math.round((box.right - gridRight) * sx));
-  const bottom = Math.max(0, Math.round((box.bottom - gridBottom) * sy));
-  return {
-    geometry: {
-      screenWidth: left + grid.cols * cellPx.width + right,
-      screenHeight: top + grid.rows * cellPx.height + bottom,
-      cellWidth: cellPx.width,
-      cellHeight: cellPx.height,
-      paddingTop: top,
-      paddingRight: right,
-      paddingBottom: bottom,
-      paddingLeft: left,
-    },
-    x: (clientX - grid.left) * sx + left,
-    y: (clientY - grid.top) * sy + top,
-  };
-}
-
-const MOUSE_REPORT_DECODER = new TextDecoder('utf-8', { fatal: true });
-
-/** DEC private mode 1004: the app hears `CSI I` / `CSI O` on focus changes. (webtty, ADR 053) */
-const FOCUS_EVENT_MODE = 1004;
-
-/** The time the search may take in a frame (webtty, ADR 055) */
-const FIND_STEP_MS = 4;
-
-/**
- * A mouse report as text for the PTY, or '' when it is not valid UTF-8. Input travels as
- * text frames that the server writes as UTF-8, so a report with raw bytes above 0x7f
- * (X10 format past column or row 95, X10 buttons 8/9) would reach the app as different
- * bytes; it is dropped instead (ADR 049). (webtty)
- */
-export function mouseReportText(bytes: Uint8Array): string {
-  try {
-    return MOUSE_REPORT_DECODER.decode(bytes);
-  } catch {
-    return '';
-  }
-}
-
-/**
- * A cell's size in whole device pixels, for Ghostty's size reports
- * (XTWINOPS 14/16/18/19 t, mode 2048). Computed as the kitty feature's
- * `deviceCellSize` (features/kitty/protocol/cell-geometry.ts) sizes image frames: the CSS cell times `devicePixelRatio`, rounded, at least 1.
- * (webtty, ADR 042)
- */
-export function deviceCellPixels(cssCell: number, dpr: number): number {
-  return Math.max(1, Math.round(cssCell * dpr));
-}
-
-/**
- * The cursor cell's top-left corner, in CSS pixels relative to the container's
- * padding box. `cursor.y` is relative to the bottom screen; when scrolled back by
- * `viewportY` lines the cursor moves down by that many rows, and it is kept on the
- * last visible row once it scrolls out of view. A pending-wrap cursor is kept on
- * the last column. (webtty: the input textarea is anchored here so the OS places
- * IME and dictation panels at the cursor.)
- */
-export function cursorCellOffset(
-  cursor: { x: number; y: number },
-  viewportY: number,
-  grid: { cols: number; rows: number },
-  cell: { width: number; height: number },
-  canvas: { left: number; top: number }
-): { left: number; top: number } {
-  const col = Math.min(Math.max(0, cursor.x), Math.max(0, grid.cols - 1));
-  const row = Math.min(Math.max(0, cursor.y + Math.floor(viewportY)), Math.max(0, grid.rows - 1));
-  return {
-    left: canvas.left + col * cell.width,
-    top: canvas.top + row * cell.height,
-  };
-}
-
-/** Sets a pixel style only when it changed, so a per-frame update writes nothing. */
-function setStylePx(
-  el: HTMLElement,
-  prop: 'left' | 'top' | 'width' | 'height',
-  value: number
-): void {
-  const px = `${value}px`;
-  if (el.style[prop] !== px) el.style[prop] = px;
-}
-
+/** The xterm.js-compatible terminal: webtty's one terminal per page. */
 export class Terminal implements ITerminalCore {
   // Public properties (xterm.js compatibility)
   public cols: number;
@@ -199,8 +97,8 @@ export class Terminal implements ITerminalCore {
   // Buffer API (xterm.js compatibility)
   public readonly buffer: IBufferNamespace;
 
-  // Options (public for xterm.js compatibility)
-  public readonly options!: Required<ITerminalOptions>;
+  // Options (public for xterm.js compatibility); a change after open() is applied
+  public readonly options: TerminalOptionValues;
 
   // Components (created on open())
   private ghostty?: Ghostty;
@@ -263,7 +161,7 @@ export class Terminal implements ITerminalCore {
   // Addons
   private addons: ITerminalAddon[] = [];
 
-  // Phase 1: Title tracking
+  // The title last reported through onTitleChange
   private currentTitle: string = '';
 
   // Focus reports (webtty, ADR 053): keyboard focus inside the container in a focused
@@ -283,8 +181,12 @@ export class Terminal implements ITerminalCore {
   private findAnchor: FindAnchor | null = null;
   private findState: SearchState = { total: 0, selected: null };
 
-  // Phase 2: Viewport and scrolling state
-  public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom)
+  // Where the view is in the scrollback; each move fires onScroll and shows the scrollbar
+  private readonly viewport = new Viewport({
+    getScrollbackLength: () => this.getScrollbackLength(),
+    scrolled: (viewportY) => this.scrollEmitter.fire(viewportY),
+    showScrollbar: () => this.showScrollbar(),
+  });
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   // Whether a contextmenu came from a button or the keyboard (webtty, ADR 051)
@@ -303,45 +205,12 @@ export class Terminal implements ITerminalCore {
   private scrollbarVisible: boolean = false;
   private scrollbarOpacity: number = 0;
   private scrollbarHideTimeout?: number;
-  private readonly SCROLLBAR_HIDE_DELAY_MS = 1500; // Hide after 1.5 seconds
-  private readonly SCROLLBAR_FADE_DURATION_MS = 200; // 200ms fade animation
 
   constructor(options: ITerminalOptions) {
     this.ghostty = options.ghostty;
-
-    // Create base options object with all defaults (excluding ghostty)
-    const baseOptions = {
-      cols: options.cols ?? 80,
-      rows: options.rows ?? 24,
-      cursorBlink: options.cursorBlink ?? false,
-      cursorStyle: options.cursorStyle ?? 'block',
-      theme: options.theme ?? {},
-      scrollbackLines: options.scrollbackLines,
-      fontSize: options.fontSize ?? 15,
-      fontFamily: options.fontFamily ?? 'monospace',
-      allowTransparency: options.allowTransparency ?? false,
-      convertEol: options.convertEol ?? false,
-      disableStdin: options.disableStdin ?? false,
-      mouseScrollSpeed: options.mouseScrollSpeed ?? 1,
-      copyOnSelect: options.copyOnSelect ?? true,
-      rightClickBehavior: options.rightClickBehavior ?? 'contextMenu',
-      clipboardWrite: options.clipboardWrite ?? true,
-      desktopNotifications: options.desktopNotifications ?? true,
-    };
-
-    // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)
-    (this.options as any) = new Proxy(baseOptions, {
-      set: (target: any, prop: string, value: any) => {
-        const oldValue = target[prop];
-        target[prop] = value;
-
-        // Apply runtime changes if terminal is open
-        if (this.isOpen) {
-          this.handleOptionChange(prop, value, oldValue);
-        }
-
-        return true;
-      },
+    // Options set after open() are applied (xterm.js compatibility)
+    this.options = createOptionsProxy(withDefaults(options), (key, value, oldValue) => {
+      if (this.isOpen) this.handleOptionChange(key, value, oldValue);
     });
 
     this.cols = this.options.cols;
@@ -351,15 +220,24 @@ export class Terminal implements ITerminalCore {
     this.buffer = new BufferNamespace(this);
   }
 
-  // ==========================================================================
-  // Option Change Handling (for mutable options)
-  // ==========================================================================
-
   /**
-   * Handle runtime option changes (called when options are modified after terminal is open)
-   * This enables xterm.js compatibility where options can be changed at runtime
+   * Lines scrolled back from the bottom of the scrollback (0 = at the bottom); fractional
+   * while smooth scrolling. Setting it moves the view without firing onScroll.
    */
-  private handleOptionChange(key: string, newValue: any, oldValue: any): void {
+  get viewportY(): number {
+    return this.viewport.y;
+  }
+
+  set viewportY(y: number) {
+    this.viewport.y = y;
+  }
+
+  /** Applies an option set after open(): the cursor, the font, or the grid size. */
+  private handleOptionChange(
+    key: keyof TerminalOptionValues,
+    newValue: unknown,
+    oldValue: unknown
+  ): void {
     if (newValue === oldValue) return;
 
     switch (key) {
@@ -429,85 +307,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Parse a CSS color string to 0xRRGGBB format, or undefined if the color is
-   * undefined or invalid. (webtty: replaces `parseColorToHex`, which returned 0
-   * for both; tells `#000000` apart from "not given", ADR 042)
-   */
-  private parseColor(color?: string): number | undefined {
-    if (!color) return undefined;
-
-    // Handle hex colors (#RGB, #RRGGBB)
-    if (color.startsWith('#')) {
-      let hex = color.slice(1);
-      if (hex.length === 3) {
-        hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
-      }
-      const value = Number.parseInt(hex, 16);
-      return Number.isNaN(value) ? undefined : value;
-    }
-
-    // Handle rgb(r, g, b) format
-    const match = color.match(/rgb\((\d+),\s*(\d+),\s*(\d+)\)/);
-    if (match) {
-      const r = Number.parseInt(match[1], 10);
-      const g = Number.parseInt(match[2], 10);
-      const b = Number.parseInt(match[3], 10);
-      return (r << 16) | (g << 8) | b;
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Convert terminal options to WASM terminal config.
-   */
-  private buildWasmConfig(): GhosttyTerminalConfig {
-    const theme = this.options.theme;
-    const scrollbackLines = this.options.scrollbackLines;
-
-    // Build palette array from theme colors
-    // Order: black, red, green, yellow, blue, magenta, cyan, white,
-    //        brightBlack, brightRed, brightGreen, brightYellow, brightBlue, brightMagenta, brightCyan, brightWhite
-    const paletteColors = [
-      theme?.black,
-      theme?.red,
-      theme?.green,
-      theme?.yellow,
-      theme?.blue,
-      theme?.magenta,
-      theme?.cyan,
-      theme?.white,
-      theme?.brightBlack,
-      theme?.brightRed,
-      theme?.brightGreen,
-      theme?.brightYellow,
-      theme?.brightBlue,
-      theme?.brightMagenta,
-      theme?.brightCyan,
-      theme?.brightWhite,
-    ].map((color) => this.parseColor(color));
-    const fg = this.parseColor(theme?.foreground);
-    const bg = this.parseColor(theme?.background);
-    const cursor = this.parseColor(theme?.cursor);
-
-    return {
-      scrollbackLines,
-      fgColor: fg,
-      bgColor: bg,
-      cursorColor: cursor,
-      palette: paletteColors,
-      cursorStyle: this.options.cursorStyle,
-      cursorBlink: this.options.cursorBlink,
-      clipboardWrite: this.options.clipboardWrite,
-      desktopNotifications: this.options.desktopNotifications,
-    };
-  }
-
-  // ==========================================================================
-  // Lifecycle Methods
-  // ==========================================================================
-
-  /**
    * Open terminal in a parent element
    *
    * Initializes all components and starts rendering.
@@ -561,7 +360,7 @@ export class Terminal implements ITerminalCore {
       parent.setAttribute('aria-multiline', 'true');
 
       // Create WASM terminal with current dimensions and config
-      const config = this.buildWasmConfig();
+      const config = toEngineConfig(this.options);
       this.wasmTerm = this.ghostty!.createTerminal(this.cols, this.rows, config);
 
       // Create canvas element
@@ -677,7 +476,7 @@ export class Terminal implements ITerminalCore {
       // Setup document-level mouseup for scrollbar drag (so drag works even outside canvas)
       document.addEventListener('mouseup', this.handleMouseUp);
 
-      // Setup wheel event handling for scrolling (Phase 2)
+      // Setup wheel event handling for scrolling
       // Use capture phase to ensure we get the event before browser scrolling
       parent.addEventListener('wheel', this.handleWheel, { passive: false, capture: true });
 
@@ -784,7 +583,7 @@ export class Terminal implements ITerminalCore {
     const selected = wasmTerm.searchSelectedMatch();
     this.renderer?.setSearchHighlights({ matches: wasmTerm.searchMatches(), selected });
     this.findStale = false;
-    this.findReadAt = now + (performance.now() - started) * 10;
+    this.findReadAt = now + (performance.now() - started) * FIND_READ_BACKOFF;
     const scrollback = this.getScrollbackLength();
     if (selected && this.findAnchor && this.viewportY > 0) {
       this.scrollToLine(keptViewportY(this.viewportY, this.findAnchor, selected.start.row, scrollback));
@@ -903,7 +702,7 @@ export class Terminal implements ITerminalCore {
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();
 
-    // Phase 2: Auto-scroll to bottom on new output (xterm.js behavior), except while the
+    // Auto-scroll to bottom on new output (xterm.js behavior), except while the
     // view is on a selected match: stepFind keeps it on its rows. The alternate screen
     // has no scrollback to keep a view in, and its matches are its own (webtty, ADR 055)
     if (
@@ -1017,7 +816,7 @@ export class Terminal implements ITerminalCore {
     if (this.wasmTerm) {
       this.wasmTerm.free();
     }
-    const config = this.buildWasmConfig();
+    const config = toEngineConfig(this.options);
     this.wasmTerm = this.ghostty!.createTerminal(this.cols, this.rows, config);
     this.syncCellPixelSize();
 
@@ -1058,10 +857,6 @@ export class Terminal implements ITerminalCore {
     this.addons.push(addon);
   }
 
-  // ==========================================================================
-  // Selection API (xterm.js compatible)
-  // ==========================================================================
-
   /**
    * Get the selected text as a string
    */
@@ -1085,7 +880,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-  /**
    * Get the current viewport Y position.
    *
    * This is the number of lines scrolled back from the bottom of the
@@ -1095,12 +889,8 @@ export class Terminal implements ITerminalCore {
     return this.viewportY;
   }
 
-  // ==========================================================================
-  // Phase 1: Custom Event Handlers
-  // ==========================================================================
-
   /**
-   * Attach a custom wheel event handler (Phase 2)
+   * Attach a custom wheel event handler
    * Returns true to prevent default handling
    */
   public attachCustomWheelEventHandler(
@@ -1126,10 +916,6 @@ export class Terminal implements ITerminalCore {
     this.beforeRender = callback;
   }
 
-  // ==========================================================================
-  // Phase 2: Scrolling Methods
-  // ==========================================================================
-
   /**
    * Scroll viewport by a number of lines
    * @param amount Number of lines to scroll (positive = down, negative = up)
@@ -1138,65 +924,21 @@ export class Terminal implements ITerminalCore {
     if (!this.wasmTerm) {
       throw new Error('Terminal not open');
     }
-
-    const scrollbackLength = this.getScrollbackLength();
-    const maxScroll = scrollbackLength;
-
-    // Calculate new viewport position
-    // viewportY = 0 means at bottom (no scroll)
-    // viewportY > 0 means scrolled up into history
-    // amount < 0 (scroll up) should INCREASE viewportY
-    // amount > 0 (scroll down) should DECREASE viewportY
-    // So we SUBTRACT amount (negative amount becomes positive change)
-    const newViewportY = Math.max(0, Math.min(maxScroll, this.viewportY - amount));
-
-    if (newViewportY !== this.viewportY) {
-      this.viewportY = newViewportY;
-      this.scrollEmitter.fire(this.viewportY);
-
-      // Show scrollbar when scrolling (with auto-hide)
-      if (scrollbackLength > 0) {
-        this.showScrollbar();
-      }
-    }
+    this.viewport.scrollLines(amount);
   }
 
-  /**
-   * Scroll viewport to the bottom (current output)
-   */
+  /** Scroll viewport to the bottom (current output) */
   public scrollToBottom(): void {
-    if (this.viewportY !== 0) {
-      this.viewportY = 0;
-      this.scrollEmitter.fire(this.viewportY);
-      // Show scrollbar briefly when scrolling to bottom
-      if (this.getScrollbackLength() > 0) {
-        this.showScrollbar();
-      }
-    }
+    this.viewport.scrollToBottom();
   }
 
   /**
    * Scroll viewport to a specific line in the buffer
-   * @param line Line number (0 = top of scrollback, scrollbackLength = bottom)
+   * @param line Lines back from the bottom (0 = the bottom, scrollbackLength = the top)
    */
   public scrollToLine(line: number): void {
-    const scrollbackLength = this.getScrollbackLength();
-    const newViewportY = Math.max(0, Math.min(scrollbackLength, line));
-
-    if (newViewportY !== this.viewportY) {
-      this.viewportY = newViewportY;
-      this.scrollEmitter.fire(this.viewportY);
-
-      // Show scrollbar when scrolling to specific line
-      if (scrollbackLength > 0) {
-        this.showScrollbar();
-      }
-    }
+    this.viewport.scrollToLine(line);
   }
-
-  // ==========================================================================
-  // Lifecycle
-  // ==========================================================================
 
   /**
    * Dispose terminal and clean up resources
@@ -1242,10 +984,6 @@ export class Terminal implements ITerminalCore {
     this.desktopNotificationEmitter.dispose();
     this.findChangeEmitter.dispose();
   }
-
-  // ==========================================================================
-  // Private Methods
-  // ==========================================================================
 
   /**
    * Sends focus that lands on the container itself to the textarea. (webtty)
@@ -1551,7 +1289,7 @@ export class Terminal implements ITerminalCore {
         this.pendingMouseMove = undefined;
         this.processMouseMove(pending);
       }
-    }, 16);
+    }, MOUSE_MOVE_THROTTLE_MS);
   };
 
   /**
@@ -1560,40 +1298,19 @@ export class Terminal implements ITerminalCore {
   private processMouseMove(e: MouseEvent): void {
     if (!this.canvas || !this.renderer || !this.linkDetector || !this.wasmTerm) return;
 
-    // Convert mouse coordinates to terminal cell position
-    const rect = this.canvas.getBoundingClientRect();
-    const x = Math.floor((e.clientX - rect.left) / this.renderer.charWidth);
-    // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
-    const y = Math.floor(
-      (e.clientY - rect.top - this.renderer.scrollOffset) / this.renderer.charHeight
+    // The cell under the pointer, as an absolute buffer row (scrollback included), which
+    // the link detector works in
+    const { x, y } = pointerCell(
+      e.clientX,
+      e.clientY,
+      this.canvas.getBoundingClientRect(),
+      this.renderer
     );
-
-    const viewportRow = y; // Row in the viewport (0 to rows-1)
-
-    // Check if there's a link at this position (for click handling and cursor)
-    // Buffer API expects absolute buffer coordinates (including scrollback)
-    // When scrolled, we need to adjust the buffer row based on viewportY
-    const scrollbackLength = this.wasmTerm.getScrollbackLength();
-    let bufferRow: number;
-
-    // Use floored viewportY for buffer mapping (must match renderer & selection)
-    const rawViewportYForBuffer = this.getViewportY();
-    const viewportYForBuffer = Math.max(0, Math.floor(rawViewportYForBuffer));
-
-    if (viewportYForBuffer > 0) {
-      // When scrolled, the buffer row depends on where in the viewport we are
-      if (viewportRow < viewportYForBuffer) {
-        // Mouse is over scrollback content
-        bufferRow = scrollbackLength - viewportYForBuffer + viewportRow;
-      } else {
-        // Mouse is over screen content (bottom part of viewport)
-        const screenRow = viewportRow - viewportYForBuffer;
-        bufferRow = scrollbackLength + screenRow;
-      }
-    } else {
-      // At bottom - buffer row is scrollback + screen row
-      bufferRow = scrollbackLength + viewportRow;
-    }
+    const bufferRow = viewportRowToBufferRow(
+      y,
+      this.wasmTerm.getScrollbackLength(),
+      this.getViewportY()
+    );
 
     // Make async call non-blocking - don't await
     this.linkDetector
@@ -1619,33 +1336,19 @@ export class Terminal implements ITerminalCore {
             this.canvas.style.cursor = cursorStyle;
           }
 
-          // Update renderer for underline: the link's own range, OSC 8 or regex (webtty)
+          // Update renderer for underline: the link's own range, OSC 8 or regex, while
+          // any of it is in view (webtty)
           if (this.renderer) {
-            if (link) {
-              // Convert buffer coordinates to viewport coordinates
-              const scrollbackLength = this.wasmTerm?.getScrollbackLength() || 0;
-
-              // Calculate viewport Y for start and end positions
-              // Use floored viewportY so overlay rows match renderer & selection
-              const rawViewportYForLinks = this.getViewportY();
-              const viewportYForLinks = Math.max(0, Math.floor(rawViewportYForLinks));
-              const startViewportY = link.range.start.y - scrollbackLength + viewportYForLinks;
-              const endViewportY = link.range.end.y - scrollbackLength + viewportYForLinks;
-
-              // Only show underline if link is visible in viewport
-              if (startViewportY < this.rows && endViewportY >= 0) {
-                this.renderer.setHoveredLinkRange({
-                  startX: link.range.start.x,
-                  startY: Math.max(0, startViewportY),
-                  endX: link.range.end.x,
-                  endY: Math.min(this.rows - 1, endViewportY),
-                });
-              } else {
-                this.renderer.setHoveredLinkRange(null);
-              }
-            } else {
-              this.renderer.setHoveredLinkRange(null);
-            }
+            this.renderer.setHoveredLinkRange(
+              link
+                ? linkViewportRange(
+                    link.range,
+                    this.wasmTerm?.getScrollbackLength() || 0,
+                    this.getViewportY(),
+                    this.rows
+                  )
+                : null
+            );
           }
         }
       })
@@ -1688,33 +1391,18 @@ export class Terminal implements ITerminalCore {
     // rather than relying on cached hover state (avoids async races)
     if (!this.canvas || !this.renderer || !this.linkDetector || !this.wasmTerm) return;
 
-    // Get click position
-    const rect = this.canvas.getBoundingClientRect();
-    const x = Math.floor((e.clientX - rect.left) / this.renderer.charWidth);
-    // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
-    const y = Math.floor(
-      (e.clientY - rect.top - this.renderer.scrollOffset) / this.renderer.charHeight
+    // The clicked cell as an absolute buffer row, as for a hover
+    const { x, y } = pointerCell(
+      e.clientX,
+      e.clientY,
+      this.canvas.getBoundingClientRect(),
+      this.renderer
     );
-
-    // Calculate buffer row (same logic as processMouseMove)
-    const viewportRow = y;
-    const scrollbackLength = this.wasmTerm.getScrollbackLength();
-    let bufferRow: number;
-
-    // Use floored viewportY for buffer mapping (must match renderer & selection)
-    const rawViewportYForClick = this.getViewportY();
-    const viewportYForClick = Math.max(0, Math.floor(rawViewportYForClick));
-
-    if (viewportYForClick > 0) {
-      if (viewportRow < viewportYForClick) {
-        bufferRow = scrollbackLength - viewportYForClick + viewportRow;
-      } else {
-        const screenRow = viewportRow - viewportYForClick;
-        bufferRow = scrollbackLength + screenRow;
-      }
-    } else {
-      bufferRow = scrollbackLength + viewportRow;
-    }
+    const bufferRow = viewportRowToBufferRow(
+      y,
+      this.wasmTerm.getScrollbackLength(),
+      this.getViewportY()
+    );
 
     // Get the link at this position
     const link = await this.linkDetector.getLinkAt(x, bufferRow);
@@ -1731,7 +1419,7 @@ export class Terminal implements ITerminalCore {
   };
 
   /**
-   * Handle wheel events for scrolling (Phase 2)
+   * Handle wheel events for scrolling
    */
   private handleWheel = (e: WheelEvent): void => {
     // Cancel only pinch and ctrl+wheel, which would zoom the page. A cancelled wheel
@@ -1788,7 +1476,10 @@ export class Terminal implements ITerminalCore {
       );
       if (lines !== 0) {
         const dir = Math.sign(lines);
-        const key = wheelArrowKey(dir, this.wasmTerm?.getMode(1, false) ?? false);
+        const key = wheelArrowKey(
+          dir,
+          this.wasmTerm?.getMode(APP_CURSOR_KEYS_MODE, false) ?? false
+        );
         this.tickPacer.push(key, dir, Math.abs(lines), pace);
       }
     }
@@ -2003,7 +1694,7 @@ export class Terminal implements ITerminalCore {
     if (!this.isDraggingScrollbar) {
       this.scrollbarHideTimeout = window.setTimeout(() => {
         this.hideScrollbar();
-      }, this.SCROLLBAR_HIDE_DELAY_MS);
+      }, SCROLLBAR_HIDE_DELAY_MS);
     }
   }
 
@@ -2028,7 +1719,7 @@ export class Terminal implements ITerminalCore {
     const startTime = Date.now();
     const animate = () => {
       const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / this.SCROLLBAR_FADE_DURATION_MS, 1);
+      const progress = Math.min(elapsed / SCROLLBAR_FADE_DURATION_MS, 1);
       this.scrollbarOpacity = progress;
 
       // Trigger render to show updated opacity
@@ -2051,7 +1742,7 @@ export class Terminal implements ITerminalCore {
     const startOpacity = this.scrollbarOpacity;
     const animate = () => {
       const elapsed = Date.now() - startTime;
-      const progress = Math.min(elapsed / this.SCROLLBAR_FADE_DURATION_MS, 1);
+      const progress = Math.min(elapsed / SCROLLBAR_FADE_DURATION_MS, 1);
       this.scrollbarOpacity = startOpacity * (1 - progress);
 
       // Trigger render to show updated opacity
@@ -2108,10 +1799,6 @@ export class Terminal implements ITerminalCore {
     this.currentTitle = title;
     this.titleChangeEmitter.fire(title);
   }
-
-  // ============================================================================
-  // Terminal Modes
-  // ============================================================================
 
   /**
    * Query terminal mode state

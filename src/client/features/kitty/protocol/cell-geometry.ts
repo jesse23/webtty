@@ -6,7 +6,7 @@ import { type KittyKeys, num } from './apc-command';
 
 /**
  * A cell's size in whole device pixels. Ghostty reports it to programs (CSI 16t,
- * from terminal.ts `deviceCellPixels`, which computes the same) and they size
+ * from the vendored `deviceCellPixels`, which computes the same) and they size
  * frames as cols x this, so it has to be an integer even though the CSS cell size
  * (and devicePixelRatio, e.g. 1.25 or 1.5 on Windows) is not.
  */

@@ -1,47 +1,50 @@
-/**
- * Buffer API - xterm.js-compatible buffer access
- *
- * Provides read-only access to terminal buffer contents, cursor state,
- * and viewport position. Wraps Ghostty WASM terminal state.
- *
- * Usage:
- * ```typescript
- * const cell = term.buffer.active.getLine(0)?.getCell(5);
- * console.log(cell?.getCodepoint(), cell?.getHyperlinkId());
- *
- * if (term.buffer.active.type === 'alternate') {
- *   console.log('Full-screen app running');
- * }
- * ```
- */
+// Derived from coder/ghostty-web lib/buffer.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// The xterm.js-compatible buffer API (objects): read-only views of the normal and alternate
+// screens, their lines and cells, over the engine of an IBufferSource. The link providers
+// read links through it, e.g. `term.buffer.active.getLine(y)?.getCell(x)` (ADR 061).
 
-import type { GhosttyTerminal } from './ghostty';
+import type { GhosttyCell } from './engine/cell-types';
+import type { GhosttyTerminal } from './engine/engine-types';
 import type { IBuffer, IBufferCell, IBufferLine, IBufferNamespace } from './interfaces';
-import type { Terminal } from './terminal';
-import type { GhosttyCell } from './types';
 
-// ============================================================================
-// BufferNamespace - Top-level buffer API
-// ============================================================================
+/** The engine calls the buffer API reads: the screen in use, the cursor and the lines. */
+export type BufferEngine = Pick<
+  GhosttyTerminal,
+  | 'cols'
+  | 'rows'
+  | 'isAlternateScreen'
+  | 'getCursor'
+  | 'getLine'
+  | 'getScrollbackLength'
+  | 'getScrollbackLine'
+>;
+
+/**
+ * What the buffer API reads from its terminal: the engine, unset before open() and after
+ * dispose(). (webtty, ADR 061: replaces reaching into Terminal through `any`)
+ */
+export interface IBufferSource {
+  readonly wasmTerm?: BufferEngine;
+}
 
 /**
  * Top-level buffer API namespace
  * Provides access to active, normal, and alternate screen buffers
  */
 export class BufferNamespace implements IBufferNamespace {
-  private terminal: Terminal;
+  private terminal: IBufferSource;
 
   // Lazy-initialized buffer wrappers (stateless, so we can cache them)
   private _normalBuffer?: Buffer;
   private _alternateBuffer?: Buffer;
 
-  constructor(terminal: Terminal) {
+  constructor(terminal: IBufferSource) {
     this.terminal = terminal;
   }
 
   get active(): IBuffer {
     // Query WASM to determine which buffer is active
-    const wasmTerm = (this.terminal as any).wasmTerm as GhosttyTerminal | undefined;
+    const wasmTerm = this.terminal.wasmTerm;
     if (!wasmTerm) {
       return this.normal; // Default to normal if not initialized
     }
@@ -64,18 +67,14 @@ export class BufferNamespace implements IBufferNamespace {
   }
 }
 
-// ============================================================================
-// Buffer - Represents a terminal buffer (normal or alternate)
-// ============================================================================
-
 /**
  * A terminal buffer (normal or alternate screen)
  */
 export class Buffer implements IBuffer {
-  private terminal: Terminal;
+  private terminal: IBufferSource;
   private bufferType: 'normal' | 'alternate';
 
-  constructor(terminal: Terminal, type: 'normal' | 'alternate') {
+  constructor(terminal: IBufferSource, type: 'normal' | 'alternate') {
     this.terminal = terminal;
     this.bufferType = type;
   }
@@ -142,14 +141,10 @@ export class Buffer implements IBuffer {
     return new BufferLine(cells, wasmTerm.cols);
   }
 
-  private getWasmTerm(): GhosttyTerminal | undefined {
-    return (this.terminal as any).wasmTerm as GhosttyTerminal | undefined;
+  private getWasmTerm(): BufferEngine | undefined {
+    return this.terminal.wasmTerm;
   }
 }
-
-// ============================================================================
-// BufferLine - Represents a single line in the buffer
-// ============================================================================
 
 /**
  * A single line in the buffer
@@ -195,10 +190,6 @@ export class BufferLine implements IBufferLine {
     return new BufferCell(this.cells[x], x);
   }
 }
-
-// ============================================================================
-// BufferCell - Represents a single cell in the buffer
-// ============================================================================
 
 /**
  * A single cell in the buffer

@@ -8,6 +8,7 @@ import {
   type MouseTrackingConfig,
   motionButton,
   mouseMods,
+  mouseReportText,
 } from '../../ghostty-web/input/mouse-report';
 
 // Mouse reports to the app (ADR 049, ADR 051): which presses, moves and releases reach
@@ -218,5 +219,18 @@ describe('MouseReporter', () => {
     fire(container, 'mousemove', { buttons: 1 });
     fire(container, 'mouseup', { button: 0 });
     expect(sent).toEqual([]);
+  });
+});
+
+describe('mouseReportText', () => {
+  test('passes a UTF-8 report through as text', () => {
+    expect(mouseReportText(new TextEncoder().encode('\x1b[<0;1;1M'))).toBe('\x1b[<0;1;1M');
+    expect(mouseReportText(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0xc3, 0xa8, 0x23]))).toBe(
+      '\x1b[M è#',
+    );
+  });
+
+  test('drops a report with raw bytes above 0x7f, which text frames cannot carry', () => {
+    expect(mouseReportText(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0x80, 0x21]))).toBe('');
   });
 });

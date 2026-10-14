@@ -42,3 +42,14 @@ export type SelectionEngineSource = Pick<
   | 'selectOutput'
   | 'selectionText'
 >;
+
+/**
+ * What the Viewport needs from the terminal: the scrollback length it clamps to, where a
+ * move is announced (onScroll), and the scrollbar it shows while scrolling.
+ */
+export interface ViewportHost {
+  getScrollbackLength(): number;
+  /** The view moved to `viewportY`. */
+  scrolled(viewportY: number): void;
+  showScrollbar(): void;
+}

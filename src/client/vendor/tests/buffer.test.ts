@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { BufferNamespace } from '../ghostty-web/buffer';
-import type { Terminal } from '../ghostty-web/terminal';
+import { type BufferEngine, BufferNamespace } from '../ghostty-web/buffer';
 import { loadGhostty } from './support/wasm';
 
 // The buffer API is what the link providers and the kitty graphics read: the
@@ -10,7 +9,7 @@ describe('BufferNamespace', () => {
     const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(10, 2);
     wasmTerm.write('old\r\nmid\r\n\x1b]8;;https://a.b\x1b\\ln\x1b]8;;\x1b\\k');
-    const buffer = new BufferNamespace({ wasmTerm } as unknown as Terminal);
+    const buffer = new BufferNamespace({ wasmTerm });
     const active = buffer.active;
     expect(active.type).toBe('normal');
     expect(active.length).toBe(3);
@@ -31,6 +30,42 @@ describe('BufferNamespace', () => {
     wasmTerm.write('\x1b[?1049h');
     expect(buffer.active.type).toBe('alternate');
     expect(buffer.active.length).toBe(2);
+    wasmTerm.free();
+  });
+
+  test('reads an empty normal screen before open() and after dispose()', () => {
+    const buffer = new BufferNamespace({});
+    const active = buffer.active;
+    expect(active.type).toBe('normal');
+    expect([active.cursorX, active.cursorY, active.length]).toEqual([0, 0, 0]);
+    expect(active.getLine(0)).toBeUndefined();
+    // The two buffers are made once and kept
+    expect(buffer.normal).toBe(active);
+    expect(buffer.alternate).toBe(buffer.alternate);
+  });
+
+  test('a cell past the end of the decoded row is blank, inside the line length', async () => {
+    const ghostty = await loadGhostty();
+    const wasmTerm = ghostty.createTerminal(10, 2);
+    wasmTerm.write('ab');
+    // An engine that decodes only the first two cells of the row
+    const engine: BufferEngine = {
+      cols: 10,
+      rows: 2,
+      isAlternateScreen: () => false,
+      getCursor: () => wasmTerm.getCursor(),
+      getScrollbackLength: () => 0,
+      getScrollbackLine: () => null,
+      getLine: (y) => wasmTerm.getLine(y)?.slice(0, 2) ?? null,
+    };
+    const buffer = new BufferNamespace({ wasmTerm: engine });
+    const line = buffer.active.getLine(0);
+    expect(line?.length).toBe(10);
+    expect([line?.getCell(1)?.getCodepoint(), line?.getCell(5)?.getCodepoint()]).toEqual([
+      'b'.codePointAt(0),
+      0,
+    ]);
+    expect([line?.getCell(-1), line?.getCell(10)]).toEqual([undefined, undefined]);
     wasmTerm.free();
   });
 });

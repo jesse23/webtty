@@ -151,3 +151,19 @@ export class MouseReporter {
     if (data) this.send(data, true);
   }
 }
+
+const MOUSE_REPORT_DECODER = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * A mouse report as text for the PTY, or '' when it is not valid UTF-8. Input travels as
+ * text frames that the server writes as UTF-8, so a report with raw bytes above 0x7f
+ * (X10 format past column or row 95, X10 buttons 8/9) would reach the app as different
+ * bytes; it is dropped instead (ADR 049). (webtty)
+ */
+export function mouseReportText(bytes: Uint8Array): string {
+  try {
+    return MOUSE_REPORT_DECODER.decode(bytes);
+  } catch {
+    return '';
+  }
+}

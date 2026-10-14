@@ -3,128 +3,8 @@ import type { TerminalEffects } from '../ghostty-web/ghostty';
 import { InputHandler } from '../ghostty-web/input-handler';
 import { LinkDetector } from '../ghostty-web/link-detector';
 import { OSC8LinkProvider } from '../ghostty-web/providers/osc8-link-provider';
-import {
-  cursorCellOffset,
-  deviceCellPixels,
-  mouseCursorFor,
-  mouseReportText,
-  mouseSurface,
-  Terminal,
-} from '../ghostty-web/terminal';
-import type { GhosttyTerminalConfig, ILink } from '../ghostty-web/types';
+import { Terminal } from '../ghostty-web/terminal';
 import { loadGhostty } from './support/wasm';
-
-describe('mouseCursorFor', () => {
-  const link: ILink = {
-    text: 'https://example.com',
-    range: { start: { x: 0, y: 0 }, end: { x: 18, y: 0 } },
-    activate: () => {},
-  };
-
-  test('uses the default arrow when no link is hovered', () => {
-    expect(mouseCursorFor(undefined)).toBe('default');
-  });
-
-  test('uses the pointer over a link', () => {
-    expect(mouseCursorFor(link)).toBe('pointer');
-  });
-});
-
-describe('cursorCellOffset', () => {
-  const grid = { cols: 80, rows: 24 };
-  const cell = { width: 9, height: 18 };
-  const canvas = { left: 0, top: 0 };
-
-  test('puts the spot at the cursor cell', () => {
-    expect(cursorCellOffset({ x: 10, y: 5 }, 0, grid, cell, canvas)).toEqual({
-      left: 90,
-      top: 90,
-    });
-  });
-
-  test('offsets by the canvas position inside the padding', () => {
-    expect(cursorCellOffset({ x: 0, y: 0 }, 0, grid, cell, { left: 12, top: 8 })).toEqual({
-      left: 12,
-      top: 8,
-    });
-  });
-
-  test('moves down with the scrollback offset', () => {
-    expect(cursorCellOffset({ x: 0, y: 5 }, 3, grid, cell, canvas).top).toBe(8 * 18);
-  });
-
-  test('stays on the last row once the cursor scrolls out of view', () => {
-    expect(cursorCellOffset({ x: 0, y: 20 }, 100, grid, cell, canvas).top).toBe(23 * 18);
-  });
-
-  test('clamps a pending-wrap cursor to the last column', () => {
-    expect(cursorCellOffset({ x: 80, y: 0 }, 0, grid, cell, canvas).left).toBe(79 * 9);
-  });
-});
-
-describe('deviceCellPixels', () => {
-  test('is the CSS cell at the device pixel ratio, in whole pixels', () => {
-    expect(deviceCellPixels(9, 2)).toBe(18);
-    expect(deviceCellPixels(8.4, 1.25)).toBe(11);
-    expect(deviceCellPixels(19.2, 1.5)).toBe(29);
-  });
-
-  test('never reports less than one pixel', () => {
-    expect(deviceCellPixels(0, 2)).toBe(1);
-    expect(deviceCellPixels(0.2, 1)).toBe(1);
-  });
-});
-
-describe('mouseSurface', () => {
-  // A 9.6 x 19.2 px CSS cell at DPR 1.25 is 12 x 24 device pixels.
-  const grid = { left: 110, top: 57, cols: 100, rows: 30, cellWidth: 9.6, cellHeight: 19.2 };
-  const box = { left: 100, top: 50, right: 110 + 960 + 7, bottom: 57 + 576 + 3 };
-  const cellPx = { width: 12, height: 24 };
-  const surface = (x: number, y: number) => mouseSurface(x, y, grid, box, cellPx);
-
-  test('is the container in device-pixel cells, the padding around the grid', () => {
-    expect(surface(0, 0).geometry).toEqual({
-      screenWidth: 13 + 1200 + 9,
-      screenHeight: 9 + 720 + 4,
-      cellWidth: 12,
-      cellHeight: 24,
-      paddingTop: 9,
-      paddingRight: 9,
-      paddingBottom: 4,
-      paddingLeft: 13,
-    });
-  });
-
-  test('puts cell boundaries exactly where the CSS grid has them, at any column', () => {
-    // Column 99 (0-based) starts at 110 + 99 * 9.6 = 1060.4 CSS px
-    const cell = (x: number) => Math.floor((surface(x, 60).x - 13) / 12);
-    expect(cell(1060.3)).toBe(98);
-    expect(cell(1060.5)).toBe(99);
-    expect(cell(110)).toBe(0);
-    const row = (y: number) => Math.floor((surface(120, y).y - 9) / 24);
-    expect(row(57 + 29 * 19.2 - 0.1)).toBe(28);
-    expect(row(57 + 29 * 19.2 + 0.1)).toBe(29);
-  });
-
-  test('positions in the padding fall before or after the grid', () => {
-    expect(surface(101, 51).x).toBeLessThan(13);
-    expect(surface(101, 51).y).toBeLessThan(9);
-    expect(surface(1075, 60).x).toBeGreaterThan(13 + 1200);
-  });
-});
-
-describe('mouseReportText', () => {
-  test('passes a UTF-8 report through as text', () => {
-    expect(mouseReportText(new TextEncoder().encode('\x1b[<0;1;1M'))).toBe('\x1b[<0;1;1M');
-    expect(mouseReportText(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0xc3, 0xa8, 0x23]))).toBe(
-      '\x1b[M è#',
-    );
-  });
-
-  test('drops a report with raw bytes above 0x7f, which text frames cannot carry', () => {
-    expect(mouseReportText(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0x80, 0x21]))).toBe('');
-  });
-});
 
 describe('Terminal wheel in mouse-tracking apps', () => {
   // A 10 px x 20 px CSS cell at DPR 1, the grid at (5, 5) in a container at (0, 0).
@@ -188,57 +68,46 @@ describe('Terminal wheel in mouse-tracking apps', () => {
   });
 });
 
-describe('Terminal scrollback options', () => {
-  // The engine config the terminal builds from its options (ADR 046).
-  const wasmConfig = (options: object) =>
-    (
-      new Terminal({ ghostty: {} as never, ...options }) as unknown as {
-        buildWasmConfig(): GhosttyTerminalConfig | undefined;
-      }
-    ).buildWasmConfig();
-
-  test('passes scrollbackLines through to the engine', () => {
-    expect(wasmConfig({ scrollbackLines: 10000 })?.scrollbackLines).toBe(10000);
-    expect(wasmConfig({ scrollbackLines: 0 })?.scrollbackLines).toBe(0);
-  });
-
-  test('leaves it unset when not given', () => {
-    expect(wasmConfig({ theme: {} })?.scrollbackLines).toBeUndefined();
-  });
-
-  test('leaves unset and invalid colours undefined, so #000000 is black', () => {
-    const config = wasmConfig({
-      theme: { foreground: '#d4d4d4', background: '#000000', red: 'nope', green: '#0dbc79' },
-    });
-    expect(config).toMatchObject({ fgColor: 0xd4d4d4, bgColor: 0, cursorColor: undefined });
-    expect(config?.palette?.slice(0, 3)).toEqual([undefined, undefined, 0x0dbc79]);
-  });
-});
-
-describe('Terminal cursor style', () => {
-  // The configured shape is the engine's default, which DECSCUSR Ps 0 and RIS restore;
-  // the output is not scanned (ADR 049).
-  test('passes cursorStyle and cursorBlink to the engine as its default', () => {
-    const term = new Terminal({ ghostty: {} as never, cursorStyle: 'bar', cursorBlink: true });
-    const config = (
-      term as unknown as { buildWasmConfig(): GhosttyTerminalConfig }
-    ).buildWasmConfig();
-    expect(config).toMatchObject({ cursorStyle: 'bar', cursorBlink: true });
-  });
-
-  test('a cursor option change sets the engine default', () => {
+describe('Terminal options', () => {
+  // The configured cursor shape is the engine's default, which DECSCUSR Ps 0 and RIS
+  // restore; the output is not scanned (ADR 049).
+  function cursorTerm() {
     const term = new Terminal({ ghostty: {} as never });
     const defaults: unknown[] = [];
     const internals = term as unknown as { isOpen: boolean; wasmTerm: object };
     internals.wasmTerm = {
       setDefaultCursor: (style: string, blink: boolean) => defaults.push([style, blink]),
     };
+    return { term, defaults, internals };
+  }
+
+  test('a cursor option change after open() sets the engine default', () => {
+    const { term, defaults, internals } = cursorTerm();
     internals.isOpen = true;
     term.options.cursorStyle = 'underline';
+    term.options.cursorBlink = true;
+    // Setting the value it already has applies nothing
     term.options.cursorBlink = true;
     expect(defaults).toEqual([
       ['underline', false],
       ['underline', true],
+    ]);
+  });
+
+  test('a change before open() is kept and applied by nothing', () => {
+    const { term, defaults } = cursorTerm();
+    term.options.cursorStyle = 'bar';
+    expect(term.options.cursorStyle).toBe('bar');
+    expect(defaults).toEqual([]);
+  });
+
+  test('fills every option it is not given with its default', () => {
+    const term = new Terminal({ ghostty: {} as never, fontSize: 20 });
+    expect([term.options.fontSize, term.options.fontFamily, term.cols, term.rows]).toEqual([
+      20,
+      'monospace',
+      80,
+      24,
     ]);
   });
 });
@@ -828,17 +697,6 @@ describe('Terminal clipboard writes', () => {
     ).clipboardWriteEmitter.fire('x');
     expect(copied).toEqual([]);
   });
-
-  test('passes clipboardWrite to the engine, on by default', () => {
-    const wasmConfig = (options: object) =>
-      (
-        new Terminal({ ghostty: {} as never, ...options }) as unknown as {
-          buildWasmConfig(): GhosttyTerminalConfig;
-        }
-      ).buildWasmConfig();
-    expect(wasmConfig({}).clipboardWrite).toBe(true);
-    expect(wasmConfig({ clipboardWrite: false }).clipboardWrite).toBe(false);
-  });
 });
 
 describe('Terminal desktop notifications', () => {
@@ -860,17 +718,6 @@ describe('Terminal desktop notifications', () => {
     ]);
     write('plain output');
     expect(shown).toHaveLength(2);
-  });
-
-  test('passes desktopNotifications to the engine, on by default', () => {
-    const wasmConfig = (options: object) =>
-      (
-        new Terminal({ ghostty: {} as never, ...options }) as unknown as {
-          buildWasmConfig(): GhosttyTerminalConfig;
-        }
-      ).buildWasmConfig();
-    expect(wasmConfig({}).desktopNotifications).toBe(true);
-    expect(wasmConfig({ desktopNotifications: false }).desktopNotifications).toBe(false);
   });
 });
 
