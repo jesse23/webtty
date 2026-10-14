@@ -10,7 +10,7 @@ import {
   makeTmpHome,
   waitForServer,
   waitForServerDown,
-} from '../utils.test';
+} from '../test-support/server-harness';
 import { getVersion } from '../version';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

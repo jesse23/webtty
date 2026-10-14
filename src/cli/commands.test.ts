@@ -10,7 +10,7 @@ import {
   makeTmpHome,
   waitForServerDown,
   waitForServerReady,
-} from '../utils.test';
+} from '../test-support/server-harness';
 import { bytesToChars, bytesToDisplay, toBrowserHost } from './commands';
 import * as httpModule from './http';
 

@@ -3,7 +3,12 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
-import { cleanupTmpHome, getFreePort, makeTmpHome, waitForServer } from '../utils.test';
+import {
+  cleanupTmpHome,
+  getFreePort,
+  makeTmpHome,
+  waitForServer,
+} from '../test-support/server-harness';
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const stripAnsi = (s: string) => s.replace(ANSI_RE, '');

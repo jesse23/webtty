@@ -2,7 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { cleanupTmpHome, getFreePort, makeTmpHome, waitForServer } from './utils.test';
+import {
+  cleanupTmpHome,
+  getFreePort,
+  makeTmpHome,
+  waitForServer,
+} from './test-support/server-harness';
 import { getVersion } from './version';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
