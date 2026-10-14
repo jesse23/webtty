@@ -403,6 +403,27 @@ describe('SelectionManager gestures', () => {
     t.free();
   });
 
+  test('a triple click with Ctrl or Cmd selects the command output; nothing outside it', () => {
+    const t = ghostty.createTerminal(20, 6);
+    t.write('\x1b]133;A\x07$ \x1b]133;B\x07ls\r\n\x1b]133;C\x07a.txt\r\nb.txt\r\n');
+    t.write('\x1b]133;D;0\x07\x1b]133;A\x07$ ');
+    const { m, canvas } = manager(t);
+    const output = (row: number, mods: object) =>
+      canvas.dispatch('click', { detail: 3, offsetX: 1, offsetY: row * 16 + 4, ...mods });
+    output(2, { ctrlKey: true });
+    expect(m.getSelection()).toBe('a.txt\nb.txt');
+    m.clearSelection();
+    output(1, { metaKey: true });
+    expect(m.getSelection()).toBe('a.txt\nb.txt');
+    output(1, {});
+    expect(m.getSelection()).toBe('a.txt');
+    m.clearSelection();
+    output(3, { ctrlKey: true });
+    expect(m.hasSelection()).toBe(false);
+    expect(writes).toEqual(['a.txt\nb.txt', 'a.txt\nb.txt', 'a.txt']);
+    t.free();
+  });
+
   // Ghostty's selection rules (ADR 050)
 
   test('a selection across a soft wrap copies one line; a hard newline stays', () => {

@@ -786,6 +786,19 @@ export class Terminal implements ITerminalCore {
     this.findAnchor = selected && { row: selected.start.row, scrollback };
   }
 
+  /**
+   * Ghostty's `jump_to_prompt`: moves the view by `delta` OSC 133 prompts (negative is
+   * up), a prompt landing as the top row; nothing without marks or past the last one.
+   * (webtty, ADR 057)
+   */
+  jumpToPrompt(delta: number): void {
+    if (!this.wasmTerm) return;
+    const scrollback = this.getScrollbackLength();
+    const top = scrollback - Math.floor(this.viewportY);
+    const row = this.wasmTerm.promptJumpRow(top, delta);
+    if (row !== top) this.scrollToLine(scrollback - row);
+  }
+
   /** Fires onFindChange if the count or the selected match changed. */
   private reportFind(): void {
     const state = this.wasmTerm?.searchState() ?? { total: 0, selected: null };

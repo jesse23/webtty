@@ -3,7 +3,8 @@
  *
  * Features:
  * - Mouse drag selection
- * - Double-click word and triple-click line selection (Ghostty's, ADR 050)
+ * - Double-click word and triple-click line selection (Ghostty's, ADR 050), and
+ *   Ctrl/Cmd+triple-click command output (Ghostty's, webtty ADR 057)
  * - Text extraction (Ghostty's, ADR 050)
  * - Clipboard copy on select (the terminal's copyOnSelect option)
  * - Visual selection highlighting (integrated into CanvasRenderer cell rendering)
@@ -457,7 +458,8 @@ export class SelectionManager {
     };
     document.addEventListener('mouseup', this.boundMouseUpHandler);
 
-    // Double click selects a word and triple click a line, by Ghostty's rules (ADR 050).
+    // Double click selects a word and triple click a line, by Ghostty's rules (ADR 050);
+    // with Ctrl or Cmd, triple click selects the command's output (webtty, ADR 057).
     // event.detail is the browser's click count.
     // Not while the app takes the press (webtty, ADR 051).
     canvas.addEventListener('click', (e: MouseEvent) => {
@@ -465,7 +467,12 @@ export class SelectionManager {
       if (this.pressIsApps(e)) return;
       const cell = this.pixelToCell(e.offsetX, e.offsetY);
       const at = { col: cell.col, row: this.viewportRowToAbsolute(cell.row) };
-      const range = e.detail === 2 ? this.wasmTerm.selectWord(at) : this.wasmTerm.selectLine(at);
+      const range =
+        e.detail === 2
+          ? this.wasmTerm.selectWord(at)
+          : e.ctrlKey || e.metaKey
+            ? this.wasmTerm.selectOutput(at)
+            : this.wasmTerm.selectLine(at);
       if (!range) return;
       this.selectionStart = { col: range.start.col, absoluteRow: range.start.row };
       this.selectionEnd = { col: range.end.col, absoluteRow: range.end.row };

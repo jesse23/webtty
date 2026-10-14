@@ -1079,3 +1079,55 @@ describe('Terminal right-click', () => {
     expect(new Terminal({ ghostty: {} as never }).options.rightClickBehavior).toBe('contextMenu');
   });
 });
+
+describe('Terminal jumpToPrompt', () => {
+  // Ghostty's jump_to_prompt on libghostty-vt's DELTA_PROMPT, in webtty's view (ADR 057).
+  async function promptTerm() {
+    const ghostty = await Ghostty.load(WASM);
+    const term = new Terminal({ ghostty, cols: 20, rows: 5 });
+    const internals = term as unknown as {
+      isOpen: boolean;
+      wasmTerm: ReturnType<typeof ghostty.createTerminal>;
+      showScrollbar: () => void;
+    };
+    internals.wasmTerm = ghostty.createTerminal(20, 5);
+    internals.isOpen = true;
+    internals.showScrollbar = () => {};
+    return { term, internals };
+  }
+  const command = (name: string) =>
+    `\x1b]133;A\x07$ \x1b]133;B\x07${name}\r\n\x1b]133;C\x07` +
+    Array.from({ length: 6 }, (_, i) => `${name} ${i}`).join('\r\n') +
+    '\r\n\x1b]133;D;0\x07';
+
+  test('scrolls a prompt to the top row, up and down, and back to the bottom', async () => {
+    const { term, internals } = await promptTerm();
+    // Prompts on rows 0, 7 and 14; 17 rows of scrollback
+    term.write(`${command('one')}${command('two')}${command('three')}\x1b]133;A\x07$ `);
+    const scrolls: number[] = [];
+    term.onScroll((y) => scrolls.push(y));
+    term.jumpToPrompt(-1);
+    expect(term.viewportY).toBe(17 - 14);
+    term.jumpToPrompt(-1);
+    expect(term.viewportY).toBe(17 - 7);
+    term.jumpToPrompt(-1);
+    term.jumpToPrompt(-1);
+    expect(term.viewportY).toBe(17);
+    term.jumpToPrompt(1);
+    expect(term.viewportY).toBe(10);
+    term.jumpToPrompt(2);
+    expect(term.viewportY).toBe(0);
+    expect(scrolls).toEqual([3, 10, 17, 10, 0]);
+    internals.wasmTerm.free();
+  });
+
+  test('leaves a fractional view alone when there is nowhere to go', async () => {
+    const { term, internals } = await promptTerm();
+    term.write(Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\r\n'));
+    term.viewportY = 2.5;
+    term.jumpToPrompt(-1);
+    term.jumpToPrompt(1);
+    expect(term.viewportY).toBe(2.5);
+    internals.wasmTerm.free();
+  });
+});
