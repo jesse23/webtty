@@ -7,6 +7,7 @@ import { packageRunner } from '../runtime';
 import type { Session } from './session';
 import { sessionRegistry, setLastUsedId } from './session';
 import { sessionBanner } from './sessions/session-banner';
+import { parseClientMessage, sizeFromQuery } from './ws/client-message';
 import { WS_CLOSE } from './ws/close-codes';
 
 function closeClients(session: Session, code: number, reason: string): void {
@@ -121,14 +122,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       return;
     }
 
-    const cols = Math.max(
-      1,
-      Math.min(1000, Number.parseInt(url.searchParams.get('cols') ?? '80', 10) || 80),
-    );
-    const rows = Math.max(
-      1,
-      Math.min(500, Number.parseInt(url.searchParams.get('rows') ?? '24', 10) || 24),
-    );
+    const { cols, rows } = sizeFromQuery(url.searchParams);
 
     if (!sessionRegistry.has(id)) {
       ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
@@ -192,27 +186,19 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
     ws.on('message', (data: Buffer) => {
       const message = data.toString('utf8');
-      if (message.startsWith('{')) {
-        try {
-          const msg = JSON.parse(message) as {
-            type: string;
-            cols: number;
-            rows: number;
-            chars: number;
-          };
-          if (msg.type === 'ack') {
-            session.output.ack(ws, Number(msg.chars));
-            return;
-          }
-          if (msg.type === 'resize') {
-            const c = Math.max(1, Math.min(1000, Math.trunc(msg.cols) || 80));
-            const r = Math.max(1, Math.min(500, Math.trunc(msg.rows) || 24));
-            session.pty?.resize(c, r);
-            return;
-          }
-        } catch {
-          // fall through
+      const msg = parseClientMessage(message);
+      try {
+        if (msg.type === 'ack') {
+          session.output.ack(ws, msg.chars);
+          return;
         }
+        if (msg.type === 'resize') {
+          session.pty?.resize(msg.cols, msg.rows);
+          return;
+        }
+      } catch {
+        // A control message whose handling throws (node-pty refuses to resize a PTY that
+        // has exited) is written to the PTY as raw input, as it always has been.
       }
       session.pty?.write(message);
     });
