@@ -70,4 +70,14 @@ describe('OutputAck', () => {
     expect(timers.length).toBe(0);
     expect(sent).toEqual([]);
   });
+
+  test('defaults to the window timers', async () => {
+    const sent: string[] = [];
+    const ack = new OutputAck((m) => sent.push(m));
+    ack.parsed(1);
+    ack.dispose();
+    ack.parsed(2);
+    await new Promise((resolve) => setTimeout(resolve, ACK_IDLE_MS + 20));
+    expect(sent).toEqual([JSON.stringify({ type: 'ack', chars: 3 })]);
+  });
 });
