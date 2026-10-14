@@ -1,15 +1,15 @@
-import type { Terminal } from '../../vendor/ghostty-web';
-import { type KittyKeys, num, parseKittyApc } from './protocol/apc-command';
-import { ApcSplitter } from './protocol/apc-splitter';
-import { axisScale, cellSpan } from './protocol/cell-geometry';
+import type { Terminal } from '../../../vendor/ghostty-web';
+import { type KittyKeys, num, parseKittyApc } from '../protocol/apc-command';
+import { ApcSplitter } from '../protocol/apc-splitter';
+import { axisScale, cellSpan } from '../protocol/cell-geometry';
 import {
   ChunkAssembler,
   MAX_TRANSMISSION_BYTES,
   type Transmission,
-} from './protocol/chunk-assembler';
-import { ControlScanner } from './protocol/control-scanner';
-import { kittyReply } from './protocol/kitty-reply';
-import { pngSize, pngSizeFromBytes } from './protocol/png-size';
+} from '../protocol/chunk-assembler';
+import { ControlScanner } from '../protocol/control-scanner';
+import { kittyReply } from '../protocol/kitty-reply';
+import { pngSize, pngSizeFromBytes } from '../protocol/png-size';
 
 // Sizes Ghostty reports to programs (CSI 14t/16t) are device pixels, as in kitty:
 // programs such as terminal-browser divide them by the display's

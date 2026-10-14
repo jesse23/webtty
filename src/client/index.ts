@@ -5,7 +5,7 @@ import { ClipboardWriter } from './features/clipboard/clipboard-writer';
 import { Composer } from './features/compose/composer';
 import { FindBar } from './features/find/find-bar';
 import { isMacPlatform, shortcutFor } from './features/keyboard/shortcut-map';
-import { KittyGraphics } from './features/kitty/graphics';
+import { KittyGraphics } from './features/kitty/graphics/kitty-graphics';
 import { activates, browserNotifications } from './features/notifications/browser-notifications';
 import { DesktopNotifier } from './features/notifications/desktop-notifier';
 import { nonTextPaste } from './features/paste/non-text-paste';
