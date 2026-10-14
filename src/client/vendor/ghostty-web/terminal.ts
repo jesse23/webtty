@@ -45,6 +45,13 @@ import { MenuSource, rightClickAction } from './mouse-route';
 import { OSC8LinkProvider } from './providers/osc8-link-provider';
 import { UrlRegexProvider } from './providers/url-regex-provider';
 import { CanvasRenderer } from './renderer';
+import {
+  inScrollbarColumn,
+  SCROLLBAR_PADDING,
+  scrollbarThumbHeight,
+  scrollbarThumbY,
+  scrollbarTrackHeight,
+} from './render/scrollbar-geometry';
 import { type FindAnchor, keptViewportY, viewportYToShow } from './search';
 import { SelectionManager } from './selection-manager';
 import type { ILink } from './types';
@@ -1891,28 +1898,17 @@ export class Terminal implements ITerminalCore {
     // The scrollbar is painted over the rows in view (webtty, ADR 043)
     const mouseY = e.clientY - rect.top - this.renderer.scrollOffset;
 
-    // Calculate scrollbar dimensions (match renderer's logic)
-    // Use rect dimensions which are already in CSS pixels
-    const canvasWidth = rect.width;
-    const canvasHeight = rect.height;
-    const scrollbarWidth = 8;
-    const scrollbarX = canvasWidth - scrollbarWidth - 4;
-    const scrollbarPadding = 4;
-
-    // Check if click is in scrollbar area
-    if (mouseX >= scrollbarX && mouseX <= scrollbarX + scrollbarWidth) {
+    // Check if click is in scrollbar area: the renderer's geometry, in the rect's CSS pixels
+    if (inScrollbarColumn(mouseX, rect.width)) {
       // Prevent default and stop propagation to prevent text selection
       e.preventDefault();
       e.stopPropagation();
       e.stopImmediatePropagation(); // Stop SelectionManager from seeing this event
 
       // Calculate scrollbar thumb position and size
-      const scrollbarTrackHeight = canvasHeight - scrollbarPadding * 2;
-      const visibleRows = this.rows;
-      const totalLines = scrollbackLength + visibleRows;
-      const thumbHeight = Math.max(20, (visibleRows / totalLines) * scrollbarTrackHeight);
-      const scrollPosition = this.viewportY / scrollbackLength;
-      const thumbY = scrollbarPadding + (scrollbarTrackHeight - thumbHeight) * (1 - scrollPosition);
+      const trackHeight = scrollbarTrackHeight(rect.height);
+      const thumbHeight = scrollbarThumbHeight(this.rows, scrollbackLength, trackHeight);
+      const thumbY = scrollbarThumbY(this.viewportY, scrollbackLength, trackHeight, thumbHeight);
 
       // Check if click is on thumb
       if (mouseY >= thumbY && mouseY <= thumbY + thumbHeight) {
@@ -1928,8 +1924,8 @@ export class Terminal implements ITerminalCore {
         }
       } else {
         // Click on track - jump to position
-        const relativeY = mouseY - scrollbarPadding;
-        const scrollFraction = 1 - relativeY / scrollbarTrackHeight; // Inverted: top = 1, bottom = 0
+        const relativeY = mouseY - SCROLLBAR_PADDING;
+        const scrollFraction = 1 - relativeY / trackHeight; // Inverted: top = 1, bottom = 0
         const targetViewportY = Math.round(scrollFraction * scrollbackLength);
         this.scrollToLine(Math.max(0, Math.min(scrollbackLength, targetViewportY)));
       }
@@ -1975,16 +1971,12 @@ export class Terminal implements ITerminalCore {
 
     // Convert mouse delta to viewport delta
     // Use rect height which is already in CSS pixels
-    const canvasHeight = rect.height;
-    const scrollbarPadding = 4;
-    const scrollbarTrackHeight = canvasHeight - scrollbarPadding * 2;
-    const visibleRows = this.rows;
-    const totalLines = scrollbackLength + visibleRows;
-    const thumbHeight = Math.max(20, (visibleRows / totalLines) * scrollbarTrackHeight);
+    const trackHeight = scrollbarTrackHeight(rect.height);
+    const thumbHeight = scrollbarThumbHeight(this.rows, scrollbackLength, trackHeight);
 
     // Calculate scroll fraction from thumb movement
     // Note: thumb moves in opposite direction to viewport (thumb down = scroll down = viewportY decreases)
-    const scrollFraction = -deltaY / (scrollbarTrackHeight - thumbHeight);
+    const scrollFraction = -deltaY / (trackHeight - thumbHeight);
     const viewportDelta = Math.round(scrollFraction * scrollbackLength);
 
     const newViewportY = this.scrollbarDragStartViewportY + viewportDelta;

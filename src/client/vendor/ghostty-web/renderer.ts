@@ -23,6 +23,28 @@ import type {
   RowContent,
 } from './render/renderable';
 import {
+  changeRow,
+  DEFAULT_OVERSCAN,
+  invalidateOutOfView,
+  invalidateRow,
+  nextBand,
+  ROW_CUT,
+  ROW_INVALID,
+  ROW_JOINED,
+  repaintRunEnd,
+  shiftedRowKeys,
+  shiftedRowStates,
+  wantedRowState,
+} from './render/row-band';
+import {
+  SCROLLBAR_PADDING,
+  SCROLLBAR_WIDTH,
+  scrollbarThumbHeight,
+  scrollbarThumbY,
+  scrollbarTrackHeight,
+  scrollbarX,
+} from './render/scrollbar-geometry';
+import {
   type HighlightSpan,
   highlightAt,
   highlightRows,
@@ -39,6 +61,7 @@ export { watchDevicePixelRatio, wholeDevicePixelRatio } from './render/device-pi
 export type { FontMetrics } from './render/font-metrics';
 export { frameLines } from './render/frame-lines';
 export type { GraphemeLookup, IRenderable, IScrollbackProvider } from './render/renderable';
+export { DEFAULT_OVERSCAN } from './render/row-band';
 
 // ============================================================================
 // Type Definitions
@@ -53,20 +76,6 @@ export interface RendererOptions {
   devicePixelRatio?: number; // Default: window.devicePixelRatio, rounded up and followed
   overscan?: number; // Rows drawn above and below the viewport. Default: DEFAULT_OVERSCAN (webtty, ADR 043)
 }
-
-/**
- * Rows drawn above and below the viewport, so pixel-smooth scrolling moves the canvas
- * across lines without drawing (webtty, ADR 043). At least 1: the row above the
- * viewport shows while it is at a fraction of a line.
- */
-export const DEFAULT_OVERSCAN = 16;
-
-// The state of a canvas row's pixels (webtty, ADR 043)
-const ROW_INVALID = 0;
-// Its own cells plus what the next line draws into it, as a full redraw leaves a row
-const ROW_JOINED = 1;
-// Its own cells only, as a full redraw leaves the last row
-const ROW_CUT = 2;
 
 /**
  * Rows a partial repaint draws on the scratch canvas at once, besides the row below: a
@@ -392,37 +401,24 @@ export class CanvasRenderer {
     const offset = view < scrollbackLength ? Math.min(this.requestedScrollOffset, maxOffset) : 0;
     const above = offset > 0 ? 1 : 0;
 
-    // Keep the canvas rows while the rows in view are among them. Otherwise draw them for
-    // a viewportY half the overscan further in the direction of the move, so the next
-    // moves that way stay within them, and copy the rows still in view.
-    const fits = (band: number) =>
-      band - view <= this.overscan && this.overscan + band - view - above >= 0;
+    // Keep the canvas rows while the rows in view are among them, else move the band and
+    // copy the rows still in view (see nextBand)
     let band = this.bandY;
     if (forceAll) {
       band = view;
-    } else if (!fits(band)) {
-      const ahead = Math.sign(view - band) * Math.floor(this.overscan / 2);
-      band = Math.max(0, Math.min(Math.max(scrollbackLength, view), view + ahead));
-      if (!fits(band)) band = view;
+    } else {
+      band = nextBand(this.bandY, view, this.overscan, above, scrollbackLength);
       const shift = band - this.bandY;
-      if (Math.abs(shift) < total) {
+      if (Math.abs(shift) >= total) {
+        forceAll = true;
+      } else if (shift !== 0) {
         this.shiftRows(shift);
-        const state = new Uint8Array(total);
-        for (let k = Math.max(0, -shift); k < Math.min(total, total - shift); k++) {
-          state[k + shift] = this.rowState[k];
-        }
-        this.rowState = state;
+        this.rowState = shiftedRowStates(this.rowState, shift);
         if (this.cursorRow !== null) this.cursorRow += shift;
         if (this.scrollbarRow !== null) this.scrollbarRow += shift;
         this.drawnSelection = moveRangeRows(this.drawnSelection, shift);
         this.drawnLinkRange = moveRangeRows(this.drawnLinkRange, shift);
-        const drawnSearch = new Array<string>(total).fill('');
-        for (let k = Math.max(0, -shift); k < Math.min(total, total - shift); k++) {
-          drawnSearch[k + shift] = this.drawnSearch[k] ?? '';
-        }
-        this.drawnSearch = drawnSearch;
-      } else {
-        forceAll = true;
+        this.drawnSearch = shiftedRowKeys(this.drawnSearch, shift, total);
       }
     }
     this.bandY = band;
@@ -431,22 +427,9 @@ export class CanvasRenderer {
 
     const state = this.rowState;
     if (forceAll) state.fill(ROW_INVALID);
-    // A row whose own pixels changed (an overlay over it)
-    const invalidate = (k: number) => {
-      if (k >= 0 && k < total) state[k] = ROW_INVALID;
-    };
-    // A row whose content or highlight changed: the row above may hold its overflow
-    const changed = (k: number) => {
-      invalidate(k);
-      if (k > 0 && k <= total && state[k - 1] === ROW_JOINED) state[k - 1] = ROW_INVALID;
-    };
     if (!forceAll) {
-      for (const y of dirtyRows) changed(top + y);
-      if (linesMoved) {
-        for (let k = 0; k < total; k++) {
-          if (k < top || k >= top + rows) state[k] = ROW_INVALID;
-        }
-      }
+      for (const y of dirtyRows) changeRow(state, top + y);
+      if (linesMoved) invalidateOutOfView(state, top, rows);
     }
 
     // The selection, in canvas rows. It is anchored to buffer lines like the canvas rows,
@@ -460,7 +443,7 @@ export class CanvasRenderer {
       for (const range of [this.drawnSelection, this.currentSelectionCoords]) {
         if (!range) continue;
         const last = Math.min(range.endRow, total - 1);
-        for (let k = Math.max(0, range.startRow); k <= last; k++) changed(k);
+        for (let k = Math.max(0, range.startRow); k <= last; k++) changeRow(state, k);
       }
     }
     this.drawnSelection = this.currentSelectionCoords;
@@ -476,7 +459,7 @@ export class CanvasRenderer {
       for (const [row, s] of spans) this.searchSpans[row - toScreen] = s;
     }
     for (let k = 0; k < total; k++) {
-      if (spansKey(this.searchSpans[k]) !== this.drawnSearch[k]) changed(k);
+      if (spansKey(this.searchSpans[k]) !== this.drawnSearch[k]) changeRow(state, k);
     }
 
     const rowAt = (k: number) =>
@@ -488,7 +471,7 @@ export class CanvasRenderer {
     if (!sameRange(this.currentLinkRange, this.drawnLinkRange)) {
       for (const range of [this.drawnLinkRange, this.currentLinkRange]) {
         if (!range) continue;
-        for (let k = range.startRow; k <= range.endRow; k++) changed(k);
+        for (let k = range.startRow; k <= range.endRow; k++) changeRow(state, k);
       }
     }
     this.drawnLinkRange = this.currentLinkRange;
@@ -504,7 +487,7 @@ export class CanvasRenderer {
         this.cursorRow === cursorRow &&
         cursor.x === this.cursorCol &&
         !this.cursorShapeChanged;
-      if (!sameCursor) invalidate(this.cursorRow);
+      if (!sameCursor) invalidateRow(state, this.cursorRow);
     }
     this.cursorShapeChanged = false;
 
@@ -514,7 +497,9 @@ export class CanvasRenderer {
     const scrollbarRow = paintsScrollbar ? top : null;
     if (this.scrollbarRow !== null && this.scrollbarRow !== scrollbarRow) {
       for (let k = this.scrollbarRow; k < this.scrollbarRow + rows; k++) {
-        if (scrollbarRow === null || k < scrollbarRow || k >= scrollbarRow + rows) invalidate(k);
+        if (scrollbarRow === null || k < scrollbarRow || k >= scrollbarRow + rows) {
+          invalidateRow(state, k);
+        }
       }
     }
 
@@ -522,13 +507,11 @@ export class CanvasRenderer {
     // the last row and the row above the viewport have nothing drawn into them from below.
     const first = top - above;
     const last = top + rows - 1;
-    const wanted = (k: number) => (k === last || k < top ? ROW_CUT : ROW_JOINED);
     const repainted = new Uint8Array(total);
     for (let k = first; k <= last; k++) {
-      if (state[k] === wanted(k)) continue;
-      let end = k;
-      while (end < last && wanted(end) === ROW_JOINED && state[end + 1] !== wanted(end + 1)) end++;
-      this.repaintRows(k, end, wanted(end) === ROW_CUT, dims.cols, rowAt);
+      if (state[k] === wantedRowState(k, top, last)) continue;
+      const end = repaintRunEnd(state, k, top, last);
+      this.repaintRows(k, end, wantedRowState(end, top, last) === ROW_CUT, dims.cols, rowAt);
       repainted.fill(1, k, end + 1);
       k = end;
     }
@@ -1125,38 +1108,33 @@ export class CanvasRenderer {
     const canvasHeight = visibleRows * this.metrics.height;
     const canvasWidth = this.canvas.width / this.devicePixelRatio;
 
-    // Scrollbar dimensions
-    const scrollbarWidth = 8;
-    const scrollbarX = canvasWidth - scrollbarWidth - 4;
-    const scrollbarPadding = 4;
-    const scrollbarTrackHeight = canvasHeight - scrollbarPadding * 2;
+    // Scrollbar dimensions (shared with the terminal's hit test)
+    const x = scrollbarX(canvasWidth);
+    const trackHeight = scrollbarTrackHeight(canvasHeight);
 
     // Always clear the scrollbar area first (fixes ghosting when fading out)
-    ctx.clearRect(scrollbarX - 2, top, scrollbarWidth + 6, canvasHeight);
+    ctx.clearRect(x - 2, top, SCROLLBAR_WIDTH + 6, canvasHeight);
     ctx.fillStyle = this.theme.background;
-    ctx.fillRect(scrollbarX - 2, top, scrollbarWidth + 6, canvasHeight);
+    ctx.fillRect(x - 2, top, SCROLLBAR_WIDTH + 6, canvasHeight);
 
     // Don't draw scrollbar if fully transparent or no scrollback
     if (opacity <= 0 || scrollbackLength === 0) return;
 
-    // Calculate scrollbar thumb size and position
-    const totalLines = scrollbackLength + visibleRows;
-    const thumbHeight = Math.max(20, (visibleRows / totalLines) * scrollbarTrackHeight);
-
-    // Position: 0 = at bottom, scrollbackLength = at top
-    const scrollPosition = viewportY / scrollbackLength; // 0 to 1
-    const thumbY = scrollbarPadding + (scrollbarTrackHeight - thumbHeight) * (1 - scrollPosition);
+    // Calculate scrollbar thumb size and position (0 = at bottom, scrollbackLength = at top)
+    const thumbHeight = scrollbarThumbHeight(visibleRows, scrollbackLength, trackHeight);
+    const thumbY = scrollbarThumbY(viewportY, scrollbackLength, trackHeight, thumbHeight);
 
     // Draw scrollbar track (subtle background) with opacity
     ctx.fillStyle = `rgba(128, 128, 128, ${0.1 * opacity})`;
-    ctx.fillRect(scrollbarX, top + scrollbarPadding, scrollbarWidth, scrollbarTrackHeight);
+    ctx.fillRect(x, top + SCROLLBAR_PADDING, SCROLLBAR_WIDTH, trackHeight);
 
     // Draw scrollbar thumb with opacity
     const isScrolled = viewportY > 0;
     const baseOpacity = isScrolled ? 0.5 : 0.3;
     ctx.fillStyle = `rgba(128, 128, 128, ${baseOpacity * opacity})`;
-    ctx.fillRect(scrollbarX, top + thumbY, scrollbarWidth, thumbHeight);
+    ctx.fillRect(x, top + thumbY, SCROLLBAR_WIDTH, thumbHeight);
   }
+
   public getMetrics(): FontMetrics {
     return { ...this.metrics };
   }
