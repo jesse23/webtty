@@ -84,3 +84,37 @@ describe('shortcutFor on macOS', () => {
     expect(at('KeyC', ['meta'])).toBeNull();
   });
 });
+
+describe('shortcutFor find keys (ADR 055)', () => {
+  const at = (mac: boolean, code: string, mods: Mod[] = []) => shortcutFor(key(code, mods), mac);
+
+  test('Ctrl+Shift+F opens the find bar outside macOS, Cmd+F on macOS', () => {
+    expect(at(false, 'KeyF', ['ctrl', 'shift'])).toEqual({ action: 'find', performable: false });
+    expect(at(true, 'KeyF', ['meta'])).toEqual({ action: 'find', performable: false });
+    expect(at(true, 'KeyF', ['ctrl', 'shift'])).toBeNull();
+    expect(at(false, 'KeyF', ['meta'])).toBeNull();
+  });
+
+  test('Ctrl+F stays the app’s', () => {
+    expect(at(false, 'KeyF', ['ctrl'])).toBeNull();
+    expect(at(true, 'KeyF', ['ctrl'])).toBeNull();
+  });
+
+  test('Escape closes, and goes to the app with no search open', () => {
+    for (const mac of [false, true]) {
+      expect(at(mac, 'Escape')).toEqual({ action: 'findClose', performable: true });
+      expect(at(mac, 'Escape', ['shift'])).toBeNull();
+    }
+  });
+
+  test('Cmd+Shift+F closes and Cmd+G / Cmd+Shift+G move on macOS only', () => {
+    expect(at(true, 'KeyF', ['meta', 'shift'])).toEqual({ action: 'findClose', performable: true });
+    expect(at(true, 'KeyG', ['meta'])).toEqual({ action: 'findNext', performable: true });
+    expect(at(true, 'KeyG', ['meta', 'shift'])).toEqual({
+      action: 'findPrevious',
+      performable: true,
+    });
+    expect(at(false, 'KeyG', ['meta'])).toBeNull();
+    expect(at(false, 'KeyG', ['ctrl'])).toBeNull();
+  });
+});

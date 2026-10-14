@@ -2,6 +2,7 @@ import { OutputAck } from './ack';
 import { ClipboardWriter } from './clipboard-write';
 import { Composer } from './compose';
 import { EdgeExtender } from './edge';
+import { FindBar } from './find-bar';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { nonTextPaste } from './paste';
@@ -25,6 +26,10 @@ interface Theme {
   cursor?: string;
   selection?: string;
   selectionForeground?: string;
+  searchBackground?: string;
+  searchForeground?: string;
+  searchSelectedBackground?: string;
+  searchSelectedForeground?: string;
   padding?: string;
   black?: string;
   red?: string;
@@ -441,6 +446,16 @@ container.addEventListener(
   (e: KeyboardEvent) => {
     const shortcut = shortcutFor(e, mac);
     if (!shortcut || findBinding(e)) return;
+    if (shortcut.action.startsWith('find')) {
+      // Escape, closing and moving are the app's while the bar is closed (ADR 055)
+      if (shortcut.action !== 'find' && !findBar.isOpen) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      if (shortcut.action === 'find') findBar.open();
+      else if (shortcut.action === 'findClose') findBar.close();
+      else findBar.go(shortcut.action === 'findNext' ? 'next' : 'previous');
+      return;
+    }
     if (shortcut.action === 'paste') {
       // Without the clipboard API the browser's own paste may still fire 'paste'
       if (pasteFromClipboard()) e.preventDefault();
@@ -455,6 +470,19 @@ container.addEventListener(
   },
   { capture: true },
 );
+
+// Find in the scrollback with libghostty-vt's search (ADR 055). The bar is outside the
+// container: its keys are its own. Closing it ends the search and refocuses the terminal.
+const findBar = new FindBar(document.body, terminalTheme, mac, {
+  find: (needle) => term.find(needle),
+  next: () => term.findNext(),
+  previous: () => term.findPrevious(),
+  close: () => {
+    term.endFind();
+    term.focus();
+  },
+});
+term.onFindChange((state) => findBar.update(state));
 
 // Cmd+K: nothing on the alternate screen; the clear is this tab's own, and a reload
 // replays the session's output again (ADR 054)

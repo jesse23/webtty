@@ -29,3 +29,77 @@ body {
 #terminal canvas {
   display: block;
 }
+
+/* The find bar (ADR 055), coloured from the theme */
+.find-bar {
+  position: fixed;
+  top: 8px;
+  right: 20px;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 28px);
+  padding: 4px;
+  border: 1px solid var(--find-border, #767676);
+  border-radius: 6px;
+  background: var(--find-bg, #000);
+  color: var(--find-fg, #ccc);
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 40%);
+}
+
+.find-bar[hidden] {
+  display: none;
+}
+
+.find-bar input {
+  flex: 0 1 16em;
+  min-width: 0;
+  padding: 3px 6px;
+  border: 1px solid var(--find-border, #767676);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  outline: none;
+}
+
+.find-bar input:focus {
+  border-color: var(--find-fg, #ccc);
+}
+
+.find-bar-count {
+  min-width: 4.5em;
+  text-align: right;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.find-bar button {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.find-bar button:hover,
+.find-bar button:focus-visible {
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  outline: none;
+}
+
+.find-bar-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

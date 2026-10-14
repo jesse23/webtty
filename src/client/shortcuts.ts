@@ -1,12 +1,13 @@
 /**
- * A copy, paste or clear-screen key, as Ghostty binds them by default (ADR 054).
- * `performable`: when the action cannot be done (no selection to copy, the alternate
- * screen for a clear) the key goes on to the app, as Ghostty's `performable:` bindings
- * do; otherwise it is consumed either way. A paste is never the app's: without a
- * clipboard API the browser's own paste is left to run instead.
+ * A copy, paste, clear-screen (ADR 054) or find (ADR 055) key, as Ghostty binds them by
+ * default. `performable`: when the action cannot be done (no selection to copy, the
+ * alternate screen for a clear, no search open to close or move in) the key goes on to
+ * the app, as Ghostty's `performable:` bindings do; otherwise it is consumed either way.
+ * A paste is never the app's: without a clipboard API the browser's own paste is left to
+ * run instead.
  */
 export interface Shortcut {
-  action: 'copy' | 'paste' | 'clear';
+  action: 'copy' | 'paste' | 'clear' | 'find' | 'findClose' | 'findNext' | 'findPrevious';
   performable: boolean;
 }
 
@@ -26,11 +27,25 @@ export function shortcutFor(e: Keys, mac: boolean): Shortcut | null {
   if (e.ctrlKey && !e.metaKey && e.code === 'KeyV') return { action: 'paste', performable: false };
   const mods = `${e.ctrlKey ? 'ctrl+' : ''}${e.altKey ? 'alt+' : ''}${e.shiftKey ? 'shift+' : ''}${e.metaKey ? 'super+' : ''}`;
   const trigger = `${mods}${e.code}`;
+  if (trigger === 'Escape') return { action: 'findClose', performable: true };
   if (mac) {
-    if (trigger === 'super+KeyK') return { action: 'clear', performable: true };
+    switch (trigger) {
+      case 'super+KeyK':
+        return { action: 'clear', performable: true };
+      case 'super+KeyF':
+        return { action: 'find', performable: false };
+      case 'shift+super+KeyF':
+        return { action: 'findClose', performable: true };
+      case 'super+KeyG':
+        return { action: 'findNext', performable: true };
+      case 'shift+super+KeyG':
+        return { action: 'findPrevious', performable: true };
+    }
     return null;
   }
   switch (trigger) {
+    case 'ctrl+shift+KeyF':
+      return { action: 'find', performable: false };
     case 'ctrl+shift+KeyC':
       return { action: 'copy', performable: true };
     case 'ctrl+Insert':
