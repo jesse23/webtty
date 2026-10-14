@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import { FELL_BEHIND, type FlowLimits, type FlowSocket, OutputPacer, splitChunks } from './flow';
+import {
+  FELL_BEHIND,
+  type FlowLimits,
+  type FlowSocket,
+  OutputPacer,
+  splitChunks,
+} from './output-pacer';
 
 const LIMITS: FlowLimits = {
   highWater: 100,

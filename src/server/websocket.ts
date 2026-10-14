@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
 import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
 import { packageRunner } from '../runtime';
-import { FELL_BEHIND } from './flow';
+import { FELL_BEHIND } from './output-pacer';
 import type { Session } from './session';
 import { sessionRegistry, setLastUsedId } from './session';
 

@@ -1,7 +1,7 @@
 import { homedir } from 'node:os';
 import type { WebSocket as WS } from 'ws';
 import type { PtyProcess } from '../pty';
-import { OutputPacer } from './flow';
+import { OutputPacer } from './output-pacer';
 
 /** A running (or recently created) terminal session. */
 export interface Session {
