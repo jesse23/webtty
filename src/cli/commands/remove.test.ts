@@ -1,3 +1,5 @@
+// Tests for `webtty rm` over fake CLI deps: the replies for each status, and stopping the server
+// when the last session goes (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { fakeCliDeps } from '../test-support/fake-cli-deps';
 import { json, refused } from '../test-support/scripted-fetch';

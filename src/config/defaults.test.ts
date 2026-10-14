@@ -1,3 +1,5 @@
+// Tests for the built-in config: the shell default from the environment, and the
+// default values every missing key falls back to (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_CONFIG, DEFAULT_KEYBOARD_BINDINGS, DEFAULT_THEME, defaultShell } from './defaults';
 

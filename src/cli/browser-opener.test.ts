@@ -1,3 +1,5 @@
+// Tests for the browser opener: the bind host a browser can reach, and the per-platform open
+// command over a fake spawn, and the WEBTTY_NO_OPEN and NODE_ENV=test opt-outs (ADR 063).
 import { describe, expect, mock, test } from 'bun:test';
 import {
   type BrowserOpenerHost,

@@ -1,3 +1,4 @@
+// Table tests for session IDs: the accepted format and the random default (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { generateId, isValidId } from './session-id';
 

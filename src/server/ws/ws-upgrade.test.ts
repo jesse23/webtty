@@ -1,3 +1,5 @@
+// Tests for the WebSocket server behind the HTTP upgrade: routing `/ws/:id/pty` and
+// `/ws/:id/events`, rejecting other paths, and the default PTY spawner (ADR 062).
 import { afterEach, describe, expect, test } from 'bun:test';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';

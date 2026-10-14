@@ -1,3 +1,5 @@
+// Tests for the config file location, read from HOME per call so tests can redirect it
+// (ADR 062).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import os from 'node:os';
 import path from 'node:path';

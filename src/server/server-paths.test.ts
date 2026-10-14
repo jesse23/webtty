@@ -1,3 +1,5 @@
+// Tests for where the server finds its files, over an injected existsSync: the package root,
+// the wasm, the client root and the missing-file exit (ADR 062).
 import { describe, expect, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';

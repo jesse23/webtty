@@ -1,3 +1,5 @@
+// Tests for the PTY output pacer over fake sockets and a fake PTY: the high and low water
+// marks, PTY pause, legacy clients, replay pacing and the end flush (ADR 048, ADR 062).
 import { describe, expect, test } from 'bun:test';
 import {
   FELL_BEHIND,

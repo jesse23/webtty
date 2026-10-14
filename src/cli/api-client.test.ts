@@ -1,4 +1,9 @@
+// Tests for WebttyClient over a scripted fetch and fake sockets: every request it makes, how it
+// reads replies and the NDJSON execute stream, and the configured client's base URL (ADR 063).
 import { describe, expect, test } from 'bun:test';
+import fs from 'node:fs';
+import path from 'node:path';
+import { cleanupTmpHome, makeTmpHome } from '../test-support/server-harness';
 import { configuredClient, localBaseUrl, ServerUnreachableError, WebttyClient } from './api-client';
 import {
   FAKE_BASE_URL,
@@ -36,6 +41,43 @@ describe('localBaseUrl and configuredClient', () => {
 
   test('configuredClient builds a client without reading the config yet', () => {
     expect(configuredClient()).toBeInstanceOf(WebttyClient);
+  });
+
+  test("configuredClient's base URL is the config file's port, read per request", async () => {
+    const home = makeTmpHome('api-client');
+    const savedHome = process.env.HOME;
+    const realFetch = globalThis.fetch;
+    const seen: string[] = [];
+    const writePort = (port: number) => {
+      fs.mkdirSync(path.join(home, '.config', 'webtty'), { recursive: true });
+      fs.writeFileSync(
+        path.join(home, '.config', 'webtty', 'config.json'),
+        JSON.stringify({ port }),
+      );
+    };
+    globalThis.fetch = Object.assign(
+      async (url: string | URL | Request) => {
+        seen.push(String(url));
+        return json([]);
+      },
+      { preconnect: realFetch.preconnect },
+    );
+    process.env.HOME = home;
+    try {
+      const client = configuredClient();
+      writePort(41001);
+      await client.isRunning();
+      writePort(41002);
+      await client.isRunning();
+    } finally {
+      globalThis.fetch = realFetch;
+      process.env.HOME = savedHome;
+      cleanupTmpHome(home);
+    }
+    expect(seen).toEqual([
+      'http://127.0.0.1:41001/api/sessions',
+      'http://127.0.0.1:41002/api/sessions',
+    ]);
   });
 
   test('a base URL function is read on every request', async () => {

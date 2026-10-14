@@ -1,3 +1,5 @@
+// Tests for the config service on a temporary HOME: the stub written on first run, reading and
+// merging a config file, and the re-exports `../config` importers rely on (ADR 062).
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';

@@ -1,3 +1,5 @@
+// Table tests for how `webtty key` shows bytes: the readable form and the `chars` JSON string
+// (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { bytesToChars, bytesToDisplay } from './key-format';
 

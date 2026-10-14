@@ -1,3 +1,5 @@
+// Tests for the server's composition root built in-process on port 0: routes, injected config
+// and spawner, the 500 fallback and the shutdown order (ADR 062, ADR 064).
 import { afterAll, afterEach, beforeAll, describe, expect, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import type { AddressInfo } from 'node:net';

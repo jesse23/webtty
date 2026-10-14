@@ -1,3 +1,5 @@
+// Tests for the NDJSON LineSplitter: lines split across chunks, CRLF and blank lines, the
+// partial last line, the optional CR strip and the maxLength cap (ADR 062, ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { LineSplitter } from './ndjson';
 

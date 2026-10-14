@@ -1,3 +1,5 @@
+// Tests for the request helpers: the 64 KB JSON body reader, its 413/400 replies, the JSON
+// content-type check and URL ID decoding (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import http from 'node:http';
 import { Socket } from 'node:net';

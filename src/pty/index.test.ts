@@ -1,3 +1,5 @@
+// Tests for the PTY facade: which backend each runtime and platform picks, and spawnPty
+// returning a working PtyProcess (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';

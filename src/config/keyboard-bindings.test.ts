@@ -1,3 +1,5 @@
+// Table tests for the `keyboardBindings` rules: validation, normalisation and merging user
+// entries over the defaults by `(key, mods)` (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { isValidBinding, mergeKeyboardBindings, normalizeBinding } from './keyboard-bindings';
 

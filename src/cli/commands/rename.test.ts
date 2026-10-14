@@ -1,3 +1,5 @@
+// Tests for `webtty mv` over fake CLI deps: success, the server's refusals, and the
+// not-running and usage messages (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { fakeCliDeps } from '../test-support/fake-cli-deps';
 import { json, refused } from '../test-support/scripted-fetch';

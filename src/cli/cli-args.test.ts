@@ -1,3 +1,5 @@
+// Table tests for the CLI argv parser: command, arguments and the `--dir` base directory, and
+// the aliases that mean `go` (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { GO_ALIASES, parseArgs } from './cli-args';

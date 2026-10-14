@@ -1,3 +1,5 @@
+// Table tests for the runtime predicates over RuntimeEnv snapshots, and their live-process
+// defaults (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import {
   bunTerminalAvailable,

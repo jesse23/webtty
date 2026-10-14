@@ -1,3 +1,5 @@
+// Tests for the response writers on a recording ServerResponse: CORS, JSON, text and
+// redirects, each setHeader, writeHead and end call pinned exactly (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import type http from 'node:http';
 import { recordResponse } from '../../test-support/response-recorder';

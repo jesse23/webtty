@@ -1,3 +1,5 @@
+// Table tests for the pure config parser: one rule per key, the whole object, keyboard bindings
+// and the right-click behaviour (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import type { Config } from './config-schema';
 import { DEFAULT_CONFIG, DEFAULT_KEYBOARD_BINDINGS, DEFAULT_THEME } from './defaults';

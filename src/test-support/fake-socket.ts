@@ -4,8 +4,9 @@
 
 type Listener = (...args: never[]) => void;
 
-/** Ready states a test can set, matching the `ws` constants. */
+/** The `ws` OPEN ready state, the one a FakeSocket starts in. */
 export const OPEN = 1;
+/** The `ws` CLOSED ready state, which close() moves the socket to. */
 export const CLOSED = 3;
 
 /** A socket with the surface the session, the pacer and the ws handlers use, and no network. */

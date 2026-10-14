@@ -1,3 +1,4 @@
+// Pins the exact text `webtty help` prints (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { helpText } from './help-text';
 

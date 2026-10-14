@@ -1,3 +1,5 @@
+// Table tests for what a PTY client sends: the size in the ws URL, clamping, and the resize,
+// ack and raw input messages (ADR 048, ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { type ClientMessage, clampSize, parseClientMessage, sizeFromQuery } from './client-message';
 

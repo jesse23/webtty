@@ -1,3 +1,5 @@
+// Tests for the node-pty backend over an injected addon: the spawn arguments per platform, the
+// handle's methods and the live deps (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import nodePty from '@lydell/node-pty';
 import {

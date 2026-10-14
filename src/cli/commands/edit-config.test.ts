@@ -1,3 +1,5 @@
+// Tests for `webtty config` over a fake EditorHost: the `{}` written when the file is missing,
+// the editor from $VISUAL, $EDITOR or the platform, and the live host's filesystem calls (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';

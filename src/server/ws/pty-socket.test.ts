@@ -1,3 +1,5 @@
+// Tests for the terminal client handler over a fake socket and fake PTY: attaching to the
+// session and routing resize, ack and input messages (ADR 048, ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { DEFAULT_CONFIG } from '../../config';
 import { FakePty } from '../../test-support/fake-pty';

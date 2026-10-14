@@ -1,3 +1,5 @@
+// Tests for SessionStore: create, get, rename and remove, the last-used ID, the on-empty
+// notice, lookup by shell PID and closeAll (ADR 062).
 import { describe, expect, mock, test } from 'bun:test';
 import { FakeSocket } from '../../test-support/fake-socket';
 import { SessionStore } from './session-store';

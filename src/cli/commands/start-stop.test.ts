@@ -1,3 +1,5 @@
+// Tests for `webtty start` and `webtty stop` over fake CLI deps: each lifecycle step and its
+// already-in-that-state message (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { fakeCliDeps, RUNNING, STOPPED } from '../test-support/fake-cli-deps';
 import { start, stop } from './start-stop';

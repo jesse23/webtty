@@ -1,3 +1,5 @@
+// Tests for one Session over a fake PTY and fake sockets: output and scrollback, the PTY's
+// start and exit, client attach and detach, close, events and the JSON view (ADR 062).
 import { describe, expect, mock, test } from 'bun:test';
 import { homedir } from 'node:os';
 import { DEFAULT_CONFIG } from '../../config';

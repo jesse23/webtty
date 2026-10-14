@@ -1,3 +1,5 @@
+// Tests for the client-safe config view: the served keys, their order and the legacy
+// `scrollback` key (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { toClientConfig } from './client-view';
 import { CLIENT_CONFIG_KEYS } from './config-schema';

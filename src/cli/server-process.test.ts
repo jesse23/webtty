@@ -1,7 +1,11 @@
+// Tests for the background server process: the entry it spawns, the production deps, and
+// startServer and stopServer over fake spawn, filesystem and client (ADR 063).
 import { describe, expect, mock, spyOn, test } from 'bun:test';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_CONFIG } from '../config';
+import { cleanupTmpHome, makeTmpHome } from '../test-support/server-harness';
 import { type FetchLike, WebttyClient } from './api-client';
 import {
   defaultServerProcessDeps,
@@ -67,6 +71,34 @@ describe('defaultServerProcessDeps', () => {
       error.mockRestore();
       exit.mockRestore();
     }
+  });
+
+  test("isRunning probes the configured port's /api/sessions", async () => {
+    const home = makeTmpHome('server-process');
+    fs.mkdirSync(path.join(home, '.config', 'webtty'), { recursive: true });
+    fs.writeFileSync(
+      path.join(home, '.config', 'webtty', 'config.json'),
+      JSON.stringify({ port: 41003 }),
+    );
+    const savedHome = process.env.HOME;
+    const realFetch = globalThis.fetch;
+    const seen: string[] = [];
+    globalThis.fetch = Object.assign(
+      async (url: string | URL | Request) => {
+        seen.push(String(url));
+        return Response.json([]);
+      },
+      { preconnect: realFetch.preconnect },
+    );
+    process.env.HOME = home;
+    try {
+      expect(await defaultServerProcessDeps().isRunning()).toBe(true);
+    } finally {
+      globalThis.fetch = realFetch;
+      process.env.HOME = savedHome;
+      cleanupTmpHome(home);
+    }
+    expect(seen).toEqual(['http://127.0.0.1:41003/api/sessions']);
   });
 
   test('sleep resolves after the delay', async () => {

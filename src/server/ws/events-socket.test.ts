@@ -1,3 +1,5 @@
+// Tests for the event subscriber handler: the close codes for an unknown session and a
+// session with no shell, and subscribing until the socket closes (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { FakePty } from '../../test-support/fake-pty';
 import { FakeSocket } from '../../test-support/fake-socket';

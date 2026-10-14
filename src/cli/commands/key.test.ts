@@ -1,3 +1,5 @@
+// Tests for `webtty key` over a fake KeyTty: raw mode, combos grouped by time, the output lines
+// and the restore on `q` and process end, plus the live TTY's wiring (ADR 063).
 import { describe, expect, spyOn, test } from 'bun:test';
 import { fakeCliDeps } from '../test-support/fake-cli-deps';
 import { type KeyTty, key, type ProcessEndEvent, processKeyTty } from './key';

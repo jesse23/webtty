@@ -1,3 +1,5 @@
+// Tests for the client key list: every key exists in the defaults, none repeats, and the legacy
+// `scrollback` key stays (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { CLIENT_CONFIG_KEYS, type ClientConfigKey, type Config } from './config-schema';
 import { DEFAULT_CONFIG } from './defaults';

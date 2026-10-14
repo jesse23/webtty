@@ -1,8 +1,6 @@
-/**
- * PTY output flow control (ADR 048). Each client acknowledges the characters it has
- * parsed; the server stops sending to a client that is too far behind, queues its
- * output in order, and pauses the PTY while every client is behind.
- */
+// PTY output flow control (ADR 048, ADR 062): each client acknowledges the characters it has
+// parsed; the server stops sending to a client that is too far behind, queues its output in
+// order, and pauses the PTY while every client is behind. An object, one per session.
 
 /** Close code for a client whose queued output passed {@link FlowLimits.maxPending}. */
 export const FELL_BEHIND = 4003;
@@ -27,6 +25,7 @@ export interface FlowLimits {
 /** How long {@link OutputPacer.end} waits for an acknowledgement before it closes anyway, in ms. */
 export const END_FLUSH_MS = 2000;
 
+/** The limits every session uses; tests pass smaller ones to reach each threshold quickly. */
 export const DEFAULT_FLOW_LIMITS: FlowLimits = {
   highWater: 2 * 1024 * 1024,
   lowWater: 512 * 1024,

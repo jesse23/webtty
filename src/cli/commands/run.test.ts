@@ -1,3 +1,5 @@
+// Tests for `webtty run` over fake CLI deps: a headless command's streamed output and exit code,
+// and the warm-up of server, session and PTY without a command (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { fakeCliDeps, RUNNING, STOPPED } from '../test-support/fake-cli-deps';
 import { json, lines, ndjson, type Responder, refused } from '../test-support/scripted-fetch';

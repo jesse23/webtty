@@ -1,3 +1,5 @@
+// Tests for `webtty ls` over fake CLI deps: the table, the filter, the empty and
+// not-running messages, and a reply that is not JSON (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { fakeCliDeps, STOPPED } from '../test-support/fake-cli-deps';
 import { json } from '../test-support/scripted-fetch';

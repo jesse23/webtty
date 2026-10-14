@@ -1,3 +1,4 @@
+// Pins the new-session banner for each package runner: its width and its help hint (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { sessionBanner } from './session-banner';
 

@@ -1,3 +1,5 @@
+// Tests for static file serving: MIME types by extension, and serveFile's 200 and 404 replies
+// (ADR 062).
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import { mimeType, serveFile } from './static-files';

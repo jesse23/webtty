@@ -1,3 +1,4 @@
+// Pins the WebSocket close codes on the wire, which the client depends on (ADR 048, ADR 062).
 import { describe, expect, test } from 'bun:test';
 import { WS_CLOSE } from './close-codes';
 

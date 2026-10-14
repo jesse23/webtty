@@ -1,3 +1,5 @@
+// Tests for `webtty go` over fake CLI deps: starting the server when needed, ensuring the
+// session, the URL it opens and the creation errors (ADR 063).
 import { describe, expect, test } from 'bun:test';
 import { fakeCliDeps, RUNNING, STOPPED } from '../test-support/fake-cli-deps';
 import { json } from '../test-support/scripted-fetch';
