@@ -4,7 +4,7 @@ import { WebSocketServer } from 'ws';
 import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
 import { packageRunner } from '../runtime';
-import type { Session } from './session';
+import type { Session } from './sessions/session';
 import { sessionBanner } from './sessions/session-banner';
 import type { SessionStore } from './sessions/session-store';
 import { parseClientMessage, sizeFromQuery } from './ws/client-message';

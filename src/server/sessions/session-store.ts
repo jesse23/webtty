@@ -1,7 +1,7 @@
 // SessionStore: the server's one registry of sessions, keyed by ID, plus the last-used
 // ID that `GET /` redirects to (ADR 062). An object created once in index.ts and passed
 // to the routes and the WebSocket server instead of a module-global Map.
-import { newSession, type Session } from '../session';
+import { newSession, type Session } from './session';
 
 /** What the store needs from its owner: who to tell once the last session has gone. */
 export interface SessionStoreOptions {

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { loadConfig, toClientConfig } from '../config';
 import { getVersion } from '../version';
 import { GHOSTTY_WASM, serveFile } from './http/static-files';
-import { sessionToJson } from './session';
+import { sessionToJson } from './sessions/session';
 import { generateId, isValidId } from './sessions/session-id';
 import type { SessionStore } from './sessions/session-store';
 import { broadcastToSubscribers, closeSession } from './websocket';
