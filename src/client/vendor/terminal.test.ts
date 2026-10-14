@@ -381,3 +381,105 @@ describe('Terminal wheel events', () => {
     expect(wheel(true)).toBe(true);
   });
 });
+
+describe('Terminal right-click', () => {
+  // Every contextmenu goes through one handler: the app's right button cancels the menu,
+  // and otherwise rightClickBehavior decides (ADR 051).
+  async function setup(rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none') {
+    const ghostty = await Ghostty.load(WASM);
+    const wasmTerm = ghostty.createTerminal(20, 2);
+    wasmTerm.write('hello');
+    const term = new Terminal({ ghostty: {} as never, rightClickBehavior });
+    const calls: string[] = [];
+    let selection = '';
+    const internals = term as unknown as {
+      wasmTerm: unknown;
+      selectionManager: unknown;
+      handleMenuPress(e: object): void;
+      handleMenuKey(): void;
+      handleContextMenu(e: object): void;
+    };
+    internals.wasmTerm = wasmTerm;
+    internals.selectionManager = {
+      getSelection: () => selection,
+      copySelection: () => {
+        calls.push(`copy ${selection}`);
+        return true;
+      },
+      clearSelection: () => {
+        calls.push('clear');
+        selection = '';
+      },
+      prepareContextMenu: () => calls.push('menu'),
+    };
+    term.onPasteRequest(() => calls.push('paste'));
+    /** A right-click (press, then menu), or a keyboard menu; whether the menu was cancelled. */
+    const menu = (opts: { shiftKey?: boolean; keyboard?: boolean } = {}) => {
+      let cancelled = false;
+      if (opts.keyboard) internals.handleMenuKey();
+      else internals.handleMenuPress({ button: 2, ctrlKey: false });
+      internals.handleContextMenu({
+        button: opts.keyboard ? 0 : 2,
+        shiftKey: opts.shiftKey ?? false,
+        clientX: 1,
+        clientY: 1,
+        preventDefault: () => {
+          cancelled = true;
+        },
+      });
+      return cancelled;
+    };
+    return {
+      menu,
+      calls,
+      select: (text: string) => {
+        selection = text;
+      },
+      track: (on: boolean) => wasmTerm.write(on ? '\x1b[?1000h' : '\x1b[?1000l'),
+      free: () => wasmTerm.free(),
+    };
+  }
+
+  test('contextMenu shows the menu; while the app tracks the mouse only Shift or the keyboard do', async () => {
+    const t = await setup('contextMenu');
+    expect(t.menu()).toBe(false);
+    t.track(true);
+    expect(t.menu()).toBe(true);
+    expect(t.menu({ shiftKey: true })).toBe(false);
+    expect(t.menu({ keyboard: true })).toBe(false);
+    expect(t.calls).toEqual(['menu', 'menu', 'menu']);
+    t.free();
+  });
+
+  test('copyPaste copies and clears a selection, or shows the menu without one', async () => {
+    const t = await setup('copyPaste');
+    expect(t.menu()).toBe(false);
+    t.select('hello');
+    expect(t.menu()).toBe(true);
+    expect(t.calls).toEqual(['menu', 'copy hello', 'clear']);
+    t.track(true);
+    t.select('hello');
+    expect(t.menu()).toBe(true);
+    expect(t.calls.length).toBe(3);
+    t.free();
+  });
+
+  test('paste asks for a paste with no menu; none does nothing', async () => {
+    const p = await setup('paste');
+    expect(p.menu()).toBe(true);
+    p.track(true);
+    expect(p.menu()).toBe(true);
+    expect(p.menu({ shiftKey: true })).toBe(true);
+    expect(p.calls).toEqual(['paste', 'paste']);
+    p.free();
+    const n = await setup('none');
+    expect(n.menu()).toBe(true);
+    expect(n.menu({ keyboard: true })).toBe(true);
+    expect(n.calls).toEqual([]);
+    n.free();
+  });
+
+  test('defaults to contextMenu', () => {
+    expect(new Terminal({ ghostty: {} as never }).options.rightClickBehavior).toBe('contextMenu');
+  });
+});

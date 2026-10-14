@@ -39,6 +39,7 @@ import type {
   ITerminalOptions,
 } from './interfaces';
 import { LinkDetector } from './link-detector';
+import { MenuSource, rightClickAction } from './mouse-route';
 import { OSC8LinkProvider } from './providers/osc8-link-provider';
 import { UrlRegexProvider } from './providers/url-regex-provider';
 import { CanvasRenderer } from './renderer';
@@ -205,12 +206,18 @@ export class Terminal implements ITerminalCore {
   private bellEmitter = new EventEmitter<void>();
   private titleChangeEmitter = new EventEmitter<string>();
   private scrollEmitter = new EventEmitter<number>();
+  private pasteRequestEmitter = new EventEmitter<void>();
   // Public event accessors (xterm.js compatibility)
   public readonly onData: IEvent<string> = this.dataEmitter.event;
   public readonly onResize: IEvent<{ cols: number; rows: number }> = this.resizeEmitter.event;
   public readonly onBell: IEvent<void> = this.bellEmitter.event;
   public readonly onTitleChange: IEvent<string> = this.titleChangeEmitter.event;
   public readonly onScroll: IEvent<number> = this.scrollEmitter.event;
+  /**
+   * A right-click asks to paste the clipboard (`rightClickBehavior: "paste"`). The
+   * embedder reads the clipboard, as for Ctrl+V. (webtty, ADR 051)
+   */
+  public readonly onPasteRequest: IEvent<void> = this.pasteRequestEmitter.event;
 
   // Lifecycle state
   private isOpen = false;
@@ -229,6 +236,8 @@ export class Terminal implements ITerminalCore {
   public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom)
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
   private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
+  // Whether a contextmenu came from a button or the keyboard (webtty, ADR 051)
+  private readonly menuSource = new MenuSource();
   private arrowAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
   private wheelPace?: (event: WheelEvent) => Pace;
   private beforeRender?: (now: number) => void;
@@ -264,6 +273,7 @@ export class Terminal implements ITerminalCore {
       disableStdin: options.disableStdin ?? false,
       mouseScrollSpeed: options.mouseScrollSpeed ?? 1,
       copyOnSelect: options.copyOnSelect ?? true,
+      rightClickBehavior: options.rightClickBehavior ?? 'contextMenu',
     };
 
     // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)
@@ -610,6 +620,11 @@ export class Terminal implements ITerminalCore {
       parent.addEventListener('mousemove', this.handleMouseMove);
       parent.addEventListener('mouseleave', this.handleMouseLeave);
       parent.addEventListener('click', this.handleClick);
+
+      // Every right-click and keyboard menu goes through handleContextMenu (webtty, ADR 051)
+      parent.addEventListener('mousedown', this.handleMenuPress, { capture: true });
+      parent.addEventListener('keydown', this.handleMenuKey, { capture: true });
+      parent.addEventListener('contextmenu', this.handleContextMenu, { capture: true });
 
       // Setup document-level mouseup for scrollbar drag (so drag works even outside canvas)
       document.addEventListener('mouseup', this.handleMouseUp);
@@ -1007,6 +1022,7 @@ export class Terminal implements ITerminalCore {
     this.bellEmitter.dispose();
     this.titleChangeEmitter.dispose();
     this.scrollEmitter.dispose();
+    this.pasteRequestEmitter.dispose();
   }
 
   // ==========================================================================
@@ -1176,6 +1192,11 @@ export class Terminal implements ITerminalCore {
       this.element.removeEventListener('mouseleave', this.handleMouseLeave);
       this.element.removeEventListener('click', this.handleClick);
       this.element.removeEventListener('focusin', this.handleFocusIn);
+      this.element.removeEventListener('mousedown', this.handleMenuPress, { capture: true });
+      this.element.removeEventListener('keydown', this.handleMenuKey, { capture: true });
+      this.element.removeEventListener('contextmenu', this.handleContextMenu, {
+        capture: true,
+      });
 
       // Remove contenteditable and accessibility attributes added in open()
       this.element.removeAttribute('contenteditable');
@@ -1530,6 +1551,43 @@ export class Terminal implements ITerminalCore {
     const { clientX: _x, clientY: _y, ...input } = event;
     return mouseReportText(this.wasmTerm.encodeMouse({ ...input, x, y }));
   }
+
+  private handleMenuPress = (e: MouseEvent): void => {
+    this.menuSource.press(e);
+  };
+
+  private handleMenuKey = (): void => {
+    this.menuSource.key();
+  };
+
+  /**
+   * The one place a right-click or a keyboard menu is handled. A right button the app
+   * takes (it tracks the mouse, Shift is up) is the app's: its press and release were
+   * reported, and the menu is cancelled. Otherwise `rightClickBehavior` decides: the
+   * browser menu, copy and clear the selection, paste, or nothing. (webtty: upstream
+   * always showed the menu, from the selection manager, ADR 051)
+   */
+  private handleContextMenu = (e: MouseEvent): void => {
+    const behavior = this.options.rightClickBehavior;
+    const action = rightClickAction({
+      tracking: this.wasmTerm?.hasMouseTracking() ?? false,
+      shiftKey: e.shiftKey,
+      fromKeyboard: this.menuSource.fromKeyboard(e),
+      behavior,
+      hasSelection: behavior === 'copyPaste' && this.getSelection() !== '',
+    });
+    if (action === 'menu') {
+      this.selectionManager?.prepareContextMenu(e);
+      return;
+    }
+    e.preventDefault();
+    if (action === 'copy') {
+      this.copySelection();
+      this.clearSelection();
+    } else if (action === 'paste') {
+      this.pasteRequestEmitter.fire();
+    }
+  };
 
   /**
    * Handle mouse down for scrollbar interaction

@@ -3,6 +3,7 @@
  */
 
 import type { Ghostty } from './ghostty';
+import type { RightClickBehavior } from './mouse-route';
 
 export interface ITerminalOptions {
   cols?: number; // Default: 80
@@ -24,6 +25,7 @@ export interface ITerminalOptions {
 
   // Selection options
   copyOnSelect?: boolean; // Copy a mouse selection to the clipboard when it is made (default: true) (webtty)
+  rightClickBehavior?: RightClickBehavior; // What a right-click the app does not take does (default: 'contextMenu') (webtty, ADR 051)
 
   // The Ghostty WASM instance, from Ghostty.load() (webtty: upstream's init() and its
   // module-level instance are removed)

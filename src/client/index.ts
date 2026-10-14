@@ -51,7 +51,7 @@ interface ClientConfig {
   scrollbackLines: number;
   theme: Theme;
   copyOnSelect: boolean;
-  rightClickBehavior: 'default' | 'copyPaste';
+  rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none';
   mouseScrollSpeed: number;
   padding: number;
   keyboardBindings: KeyboardBinding[];
@@ -83,8 +83,12 @@ const term = new Terminal({
   fontFamily: config.fontFamily,
   scrollbackLines: config.scrollbackLines,
   mouseScrollSpeed: config.mouseScrollSpeed,
-  // The terminal copies a mouse selection on mouseup, once, only when this is on (ADR 011)
+  // The terminal copies a mouse selection on mouseup, once, only when this is on (ADR 011).
+  // A drag the app takes, while it tracks the mouse and Shift is up, selects nothing.
   copyOnSelect: config.copyOnSelect,
+  // What a right-click the app does not take does; the terminal handles every
+  // contextmenu, and asks for a paste through onPasteRequest (ADR 051)
+  rightClickBehavior: config.rightClickBehavior,
   theme: terminalTheme,
 });
 
@@ -352,19 +356,6 @@ term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
   }
 });
 
-// Copy selected text to clipboard on right-click when copyPaste mode is active.
-if (config.rightClickBehavior === 'copyPaste') {
-  container.addEventListener('contextmenu', (e: MouseEvent) => {
-    const selection = term.getSelection() as string;
-    if (!selection) return;
-    e.preventDefault();
-    navigator.clipboard.writeText(selection).catch(() => {
-      /* empty */
-    });
-    term.clearSelection();
-  });
-}
-
 // ghostty-web swallows Ctrl+V without sending \x16 to the PTY (unlike
 // xterm.js), relying entirely on the browser 'paste' event. On macOS that
 // event only fires for Cmd+V (the OS paste gesture) - Ctrl+V produces no
@@ -384,6 +375,19 @@ function sendPaste(text: string): void {
   else term.paste(text);
 }
 
+// Reads the clipboard and pastes it, as Cmd+V does; a failed read sends Ctrl+V.
+// Returns false when the browser cannot read the clipboard.
+function pasteFromClipboard(): boolean {
+  if (!navigator.clipboard?.readText) return false;
+  navigator.clipboard.readText().then(sendPaste, sendCtrlV);
+  return true;
+}
+
+// rightClickBehavior "paste" (ADR 051)
+term.onPasteRequest(() => {
+  pasteFromClipboard();
+});
+
 // Ctrl+V never reaches us as a 'paste' event on macOS (see above), so read
 // the clipboard ourselves on keydown to make it behave like Cmd+V. Both
 // listeners are on `container` and keydown targets it directly, so they run
@@ -396,10 +400,9 @@ container.addEventListener(
   (e: KeyboardEvent) => {
     if (!e.ctrlKey || e.metaKey || e.code !== 'KeyV') return;
     if (findBinding(e)) return;
-    if (!navigator.clipboard?.readText) return;
+    if (!pasteFromClipboard()) return;
     e.preventDefault();
     e.stopImmediatePropagation();
-    navigator.clipboard.readText().then(sendPaste, sendCtrlV);
   },
   { capture: true },
 );
