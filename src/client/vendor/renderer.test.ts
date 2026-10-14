@@ -5,6 +5,7 @@ import { Ghostty } from './ghostty-web/ghostty';
 import {
   CanvasRenderer,
   frameLines,
+  REPAINT_CHUNK_ROWS,
   watchDevicePixelRatio,
   wholeDevicePixelRatio,
 } from './ghostty-web/renderer';
@@ -692,6 +693,49 @@ describe('overscan and copied scrolls (ADR 043)', () => {
         full.r.setScrollOffset(offset);
         full.r.render(term, true, view, provider, opacity);
         expect(live.shown()).toEqual(full.shown());
+      }
+    }
+    term.free();
+  });
+
+  test(`long runs are repainted in chunks on a small scratch canvas, as a full redraw`, async () => {
+    const tall = 3 * REPAINT_CHUNK_ROWS + 5;
+    const ghostty = await Ghostty.load(WASM);
+    const term = ghostty.createTerminal(cols, tall, { scrollbackLines: 10000 });
+    const provider = {
+      getScrollbackLine: (o: number) => term.getScrollbackLine(o),
+      getScrollbackLength: () => term.getScrollbackLength(),
+      getScrollbackGraphemeString: (o: number, c: number) => term.getScrollbackGraphemeString(o, c),
+    };
+    // Every line overflows into the rows above and below, so each chunk's edges matter
+    const lines = (from: number, count: number) =>
+      Array.from(
+        { length: count },
+        (_, i) => `\x1b[4${(from + i) % 8}m${from + i} e\u0301 g\x1b[0m`,
+      );
+    term.write(lines(0, tall * 2).join('\r\n'));
+    for (const overscan of [1, 4]) {
+      const live = renderer(2, { overscan });
+      live.r.resize(cols, tall);
+      const scratch = (live.r as unknown as { scratch: HTMLCanvasElement }).scratch;
+      const rowHeight = live.r.getMetrics().height * 2;
+      live.r.render(term, true, 0, provider, 1);
+      // New output moves every row, a clear blanks them, and scrolls copy and draw rows
+      for (const [output, y] of [
+        [`\r\n${lines(100, 3).join('\r\n')}`, 0],
+        ['', 2 * REPAINT_CHUNK_ROWS + 1],
+        ['', 4],
+        ['', 0],
+        ['\x1b[2J\x1b[H', 0],
+        [lines(200, tall - 1).join('\r\n'), 0],
+      ] as const) {
+        term.write(output);
+        live.r.render(term, false, y, provider, 1);
+        const full = renderer(2, { overscan });
+        full.r.resize(cols, tall);
+        full.r.render(term, true, y, provider, 1);
+        expect(live.shown()).toEqual(full.shown());
+        expect(scratch.height).toBeLessThanOrEqual((REPAINT_CHUNK_ROWS + 1) * rowHeight);
       }
     }
     term.free();

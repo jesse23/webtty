@@ -82,6 +82,13 @@ const ROW_JOINED = 1;
 const ROW_CUT = 2;
 
 /**
+ * Rows a partial repaint draws on the scratch canvas at once, besides the row below: a
+ * longer run is repainted in chunks of this many rows, so the scratch canvas stays a few
+ * rows high instead of growing to the canvas' size. (webtty, ADR 043)
+ */
+export const REPAINT_CHUNK_ROWS = 8;
+
+/**
  * The ratio the canvas is drawn at: the device pixel ratio rounded up to a whole
  * number. A fractional ratio (browser zoom, Windows 125%/150%) would put cell edges
  * between device pixels and make the backing-store size fractional; the browser
@@ -788,6 +795,9 @@ export class CanvasRenderer {
    * ends before a row that is kept. Drawing them clipped to the rows is
    * not the same: Chrome skips a glyph whose box is outside the clip, so a combining mark
    * of the next line loses the antialiased edge it draws on the last pixel line.
+   * A long run is drawn on the scratch canvas in chunks of `REPAINT_CHUNK_ROWS` rows, each
+   * with the next line, which leaves every row as the whole run drawn at once would: a
+   * row's pixels depend only on its own line and the next.
    * (webtty, ADR 043)
    */
   private repaintRows(
@@ -799,23 +809,41 @@ export class CanvasRenderer {
   ): void {
     const state = this.rowState;
     const total = state.length;
-    const end = cut ? last : last + 1;
     const free = (k: number) => k < 0 || k >= total || state[k] === ROW_INVALID;
     // Drawn on the canvas, the row above gets the first row's overflow and the row below
     // the last one's
-    const direct = cut && free(first - 1) && free(last + 1);
+    if (cut && free(first - 1) && free(last + 1)) {
+      for (let k = first; k <= last; k++) this.drawRow(k, cols, rowAt(k));
+    } else {
+      for (let from = first; from <= last; from += REPAINT_CHUNK_ROWS) {
+        const to = Math.min(from + REPAINT_CHUNK_ROWS - 1, last);
+        this.repaintChunk(from, to, cut && to === last, cols, rowAt);
+      }
+    }
+    for (let k = first; k <= last; k++) state[k] = ROW_JOINED;
+    state[last] = cut ? ROW_CUT : ROW_JOINED;
+  }
+
+  /**
+   * Draws canvas rows `first` to `last`, plus the next line unless `cut`, on the scratch
+   * canvas and copies rows `first` to `last` into the canvas. (webtty, ADR 043)
+   */
+  private repaintChunk(
+    first: number,
+    last: number,
+    cut: boolean,
+    cols: number,
+    rowAt: (k: number) => { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
+  ): void {
+    const end = cut ? last : last + 1;
     const own = this.ctx;
     const rowHeight = this.metrics.height * this.devicePixelRatio;
-    const scratch = direct ? null : this.scratchContext(first, end - first + 1);
-    if (scratch) this.ctx = scratch;
+    this.ctx = this.scratchContext(first, end - first + 1);
     try {
       for (let k = first; k <= end; k++) this.drawRow(k, cols, rowAt(k));
     } finally {
       this.ctx = own;
     }
-    for (let k = first; k <= last; k++) state[k] = ROW_JOINED;
-    state[last] = cut ? ROW_CUT : ROW_JOINED;
-    if (direct) return;
     // Replace the rows' pixels in device pixels: cleared first, the copy is not blended
     // over them, so a translucent background does not darken
     const width = this.canvas.width;
