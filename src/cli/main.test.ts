@@ -1,3 +1,5 @@
+// Tests for the CLI's composition root: dispatch of every command and alias, usage errors, and
+// the production deps createCliDeps wires to the real process (ADR 063).
 import { describe, expect, spyOn, test } from 'bun:test';
 import path from 'node:path';
 import { WebttyClient } from './api-client';
@@ -129,6 +131,11 @@ describe('CLI_COMMANDS and createCliDeps', () => {
     expect(deps.config).toBe(loadConfig);
     expect(deps.version).toBe(getVersion);
     expect(deps.editor.env).toBe(process.env);
+  });
+
+  test('server.start is startServer, so it runs with its defaults', async () => {
+    const { startServer } = await import('./server-process');
+    expect(createCliDeps().server.start).toBe(startServer);
   });
 });
 

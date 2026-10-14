@@ -64,7 +64,8 @@ export function createCliDeps(client: WebttyClient = configuredClient()): CliDep
     },
     exit: (code) => process.exit(code),
     version: getVersion,
-    server: { start: () => startServer(), stop: () => stopServer(client) },
+    // start is called with no arguments, so startServer runs with its defaults.
+    server: { start: startServer, stop: () => stopServer(client) },
     openBrowser: (url) => openBrowser(url),
     editor: processEditorHost(),
     tty: processKeyTty(),
