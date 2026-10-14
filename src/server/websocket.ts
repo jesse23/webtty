@@ -6,6 +6,7 @@ import { spawnForSession } from '../pty';
 import { packageRunner } from '../runtime';
 import type { Session } from './session';
 import { sessionRegistry, setLastUsedId } from './session';
+import { sessionBanner } from './sessions/session-banner';
 import { WS_CLOSE } from './ws/close-codes';
 
 function closeClients(session: Session, code: number, reason: string): void {
@@ -54,47 +55,7 @@ export function setLastSessionClosedHandler(handler: () => void): void {
   onLastSessionClosed = handler;
 }
 
-const DIM = '\x1b[2m';
-const RESET = '\x1b[0m';
-const BOLD = '\x1b[1m';
-const ITALIC = '\x1b[3m';
-const YELLOW = '\x1b[1;33m';
-const CYAN = '\x1b[1;36m';
-
 const PKG_RUNNER = packageRunner();
-
-function sessionBanner(): string {
-  const W = 48;
-  const pipe = (content: string) => `${CYAN}║${RESET}${content}${CYAN}║${RESET}`;
-  const blank = pipe(' '.repeat(W));
-
-  const titleVis = ' [ webtty ]   Terminal UI in the browser';
-  const titleStr = ` ${DIM}[${RESET} ${BOLD}${YELLOW}webtty${RESET} ${DIM}]   Terminal UI in the browser${RESET}`;
-  const titleLine = pipe(titleStr + ' '.repeat(W - titleVis.length));
-
-  const cmd = `${PKG_RUNNER} webtty help`;
-  const helpVis = ` Run \`${cmd}\` for more information.`;
-  const helpStr = ` ${DIM}Run \`${RESET}${ITALIC}${cmd}${RESET}${DIM}\` for more information.${RESET}`;
-  const helpLine = pipe(helpStr + ' '.repeat(W - helpVis.length));
-
-  return [
-    `${CYAN}╔${'═'.repeat(W)}╗${RESET}`,
-    '\r\n',
-    blank,
-    '\r\n',
-    titleLine,
-    '\r\n',
-    blank,
-    '\r\n',
-    helpLine,
-    '\r\n',
-    blank,
-    '\r\n',
-    `${CYAN}╚${'═'.repeat(W)}╝${RESET}`,
-    '\r\n',
-    '\r\n',
-  ].join('');
-}
 
 function handleSubscribe(ws: WS, id: string): void {
   const session = sessionRegistry.get(id);
@@ -218,7 +179,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
         });
       });
 
-      const banner = sessionBanner();
+      const banner = sessionBanner(PKG_RUNNER);
       session.output.send(ws, banner);
       session.scrollback = banner;
       session.pty.write('\n');
