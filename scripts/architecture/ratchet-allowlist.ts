@@ -59,7 +59,5 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     // Upstream's Node fallback in Ghostty.loadFromPath; tests run under Bun, where Bun.file
     // reads the wasm first, so engine/wasm-loader.ts can drop it.
     'client-node src/client/vendor/ghostty-web/ghostty.ts -> fs/promises': ENGINE_SPLIT,
-    'feature-feature src/client/features/find/find-bar.ts -> src/client/features/keyboard/shortcut-map.ts':
-      'C4: the find keys move out of find-bar.ts, so features/find no longer imports features/keyboard (ADR 060)',
   },
 };

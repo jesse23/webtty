@@ -535,7 +535,7 @@ container.addEventListener(
 
 // Find in the scrollback with libghostty-vt's search (ADR 055). The bar is outside the
 // container: its keys are its own. Closing it ends the search and refocuses the terminal.
-const findBar = new FindBar(document.body, terminalTheme, mac, {
+const findBar = new FindBar(document.body, terminalTheme, (e) => shortcutFor(e, mac)?.action, {
   find: (needle) => term.find(needle),
   next: () => term.findNext(),
   previous: () => term.findPrevious(),

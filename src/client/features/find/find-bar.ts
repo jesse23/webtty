@@ -9,8 +9,6 @@
  * previous match, Escape closes. The count is Ghostty's `selected/total`: `0/n` until a
  * match is selected.
  */
-import { shortcutFor } from '../keyboard/shortcut-map';
-
 /** The match count and the selected match's index (0 the newest), as the terminal reports them. */
 export interface FindState {
   total: number;
@@ -42,15 +40,27 @@ export function countDescription(state: FindState): string {
   return `Match ${state.selected + 1} of ${state.total}`;
 }
 
+/** The key fields the find field reads. */
+export type FieldKeyEvent = Pick<
+  KeyboardEvent,
+  'key' | 'code' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'
+>;
+
+/**
+ * The shortcut action a key is, if any. The root passes the keyboard feature's lookup in,
+ * so features/find does not import features/keyboard (ADR 060).
+ */
+export type ShortcutActionOf = (e: FieldKeyEvent) => string | undefined;
+
 /** What a key in the find field does: the field's own keys, then the find shortcuts. */
 export function fieldKey(
-  e: Pick<KeyboardEvent, 'key' | 'code' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>,
-  mac: boolean,
+  e: FieldKeyEvent,
+  shortcutActionOf: ShortcutActionOf,
 ): 'next' | 'previous' | 'close' | 'select' | null {
   if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey) {
     return e.shiftKey ? 'previous' : 'next';
   }
-  switch (shortcutFor(e, mac)?.action) {
+  switch (shortcutActionOf(e)) {
     case 'findClose':
       return 'close';
     case 'findNext':
@@ -76,7 +86,7 @@ export class FindBar {
   constructor(
     parent: HTMLElement,
     theme: Record<string, string | undefined>,
-    private readonly mac: boolean,
+    private readonly shortcutActionOf: ShortcutActionOf,
     private readonly actions: FindBarActions,
   ) {
     const root = document.createElement('div');
@@ -182,7 +192,7 @@ export class FindBar {
   private onKey(e: KeyboardEvent): void {
     // Composing (IME): Enter commits the text, not a search step
     if (e.isComposing) return;
-    const action = fieldKey(e, this.mac);
+    const action = fieldKey(e, this.shortcutActionOf);
     if (!action) return;
     e.preventDefault();
     if (action === 'close') this.close();
