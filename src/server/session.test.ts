@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, mock, test } from 'bun:test';
 import {
   createSession,
   lastUsedId,
@@ -24,6 +24,18 @@ describe('createSession', () => {
     expect(session.clients.size).toBe(0);
     expect(session.scrollback).toBe('');
     expect(typeof session.createdAt).toBe('number');
+  });
+});
+
+describe('session output', () => {
+  test('pauses the PTY the session holds when its only client falls behind', () => {
+    const session = createSession('test-output');
+    const pause = mock(() => {});
+    session.pty = { pid: 1, pause } as never;
+    const ws = { readyState: 1, OPEN: 1, bufferedAmount: 0, send() {}, close() {} };
+    session.output.add(ws, true);
+    session.output.broadcast('x'.repeat(2 * 1024 * 1024));
+    expect(pause).toHaveBeenCalledTimes(1);
   });
 });
 
