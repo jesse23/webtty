@@ -55,7 +55,7 @@ The vendored TS is excluded from Biome so it stays byte-identical to upstream un
 
 1. Reads `sessionId` from `window.location.pathname` (`/s/main` → `main`)
 2. Fetches `GET /api/config` to get terminal config
-3. Sets `document.title = sessionId + ' | webtty'`
+3. Sets `document.title` to `sessionId + ' | webtty'` through `TabTitle`, which later shows the program's title and the bell mark ([ADR 053](../adrs/053.client.focus-reports-title-and-bell.md))
 4. Loads the official libghostty-vt wasm and initialises the vendored ghostty-web `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollbackLines, mouseScrollSpeed, theme, copyOnSelect, rightClickBehavior)
 5. Connects to `ws://<host>/ws/:id/pty?cols=<cols>&rows=<rows>&flow=1` over WebSocket, and acknowledges output as it parses it: `{ type: 'ack', chars }`, the characters parsed since connecting, every 64 Ki characters and 100 ms after output stops (ADR 048)
 6. Fits the terminal to the viewport from the full container size (no scrollbar reserve, see ADR 033) and observes resize events
@@ -73,6 +73,7 @@ The vendored TS is excluded from Biome so it stays byte-identical to upstream un
   scrollbackLines,        // history in lines, 0 = no line limit, 32 MiB ceiling (ADR 046)
   theme, copyOnSelect, rightClickBehavior,
   clipboardWrite,         // Terminal option: report OSC 52 clipboard writes (ADR 052)
+  bellTitle,              // TabTitle: 🔔 in the tab title after a bell (ADR 053)
   mouseScrollSpeed,       // Terminal option: SGR wheel ticks per line/page event when the app tracks the mouse
   padding,                // px around the canvas, used by fit(); coloured by theme.padding or theme.background
   keyboardBindings        // used by the keydown capture handler, not passed to Terminal constructor
@@ -184,6 +185,14 @@ Programs write the clipboard with OSC 52 (`ESC ] 52 ; c ; <base64> BEL` or ST), 
 
 `readEffects` reports the last write since the previous call, `Terminal.onClipboardWrite` fires with it, and `index.ts` passes it to `ClipboardWriter` (`clipboard-write.ts`), which calls `navigator.clipboard.writeText`. After each (re)connect it ignores writes until a `keydown`, `mousedown`, `paste` or `drop` in the tab, so the replayed history does not overwrite the clipboard on reload. A missing clipboard API (http other than localhost), a refused write (no focus in Chrome, no recent input in Firefox, most writes in Safari) and a write held back for the replay are each logged to the console once; there is no error UI.
 
+## Focus Reports, Title and Bell
+
+Programs hear focus changes, name the tab and ring the bell as in Ghostty ([ADR 053](../adrs/053.client.focus-reports-title-and-bell.md)):
+
+- **Focus reports (mode 1004).** The terminal has focus while keyboard focus is inside the container and the window has focus; `Terminal` follows it with `focusin` / `focusout` on the container (a move inside it, the container passing focus to the textarea, is not a change). While the program has mode 1004 on, each change sends `CSI I` or `CSI O`, encoded by `ghostty_focus_encode`, through `onData`; a write that turns the mode on sends the current state, as Ghostty does when the mode is set, so the replay of a program that has it on tells the program this tab's focus. Nothing is sent with `disableStdin`.
+- **Title.** `TabTitle` (`tab-title.ts`) sets `document.title` to `<title> | webtty` from `Terminal.onTitleChange` (OSC 0 / OSC 2, read from Ghostty after each write), or `<session> | webtty` while the title is empty. Titles in the replay are applied.
+- **Bell.** With `bellTitle` on (default), a BEL puts `🔔 ` in front of the tab title, focused or not, until the terminal gains focus (`focusin` on the container, which a window focus fires too) or a key is pressed, as Ghostty's `bell-features = title`. No sound, flash or notification. Bells in the replay are ignored: from each connect, output is replay until it first pauses for 1 s (`REPLAY_QUIET_MS`), measured between WebSocket messages, the first message always being replay.
+
 ## Behavior Notes
 
 ### Tab close on session end
@@ -208,6 +217,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
+| Focus reports, title and bell | Mode 1004 focus reports encoded by Ghostty, sent on each change and when the mode is set; the tab title is the program's OSC 0/2 title (`<title> \| webtty`, the session id while it has none); a bell puts 🔔 in front of it until the terminal is focused or a key is pressed, and bells replayed on connect are ignored; `bellTitle: false` turns the mark off | [ADR 053](../adrs/053.client.focus-reports-title-and-bell.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` are Ghostty's default cursor; Ghostty applies DECSCUSR from the PTY (Ps 0 and RIS restore the default); mode 12 is ignored, as in Ghostty with `cursor-style-blink` set; and the renderer draws the shape and blink from its state, repainting the cursor cell so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
