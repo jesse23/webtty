@@ -47,9 +47,10 @@ export const FAST_STREAM_MS = 60;
 /** The spring's stiffness, rad/s: about 70 ms to settle, smoothing over a few deltas. */
 export const STREAM_OMEGA = 28;
 
-/** The OS asks for less motion. */
-function reducedMotion(): boolean {
-  return globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
+/** The browser object the stream asks whether the OS wants less motion. */
+export interface WheelStreamDeps {
+  /** `window.matchMedia`; without one, motion is full. */
+  matchMedia?(query: string): { matches: boolean };
 }
 
 /** A classified event: its pace, and whether it is a wheel notch. */
@@ -77,10 +78,12 @@ export class WheelStream {
   private springing = false;
   private last: { event: WheelEvent; classified: Classified } | null = null;
 
+  constructor(private readonly deps: WheelStreamDeps = globalThis) {}
+
   /** How `e` moves the scrollback. With reduced motion, everything moves at once. */
   forScrollback(e: WheelEvent): Pace {
     const { pace } = this.classify(e);
-    return reducedMotion() ? AT_ONCE : pace;
+    return this.reducedMotion() ? AT_ONCE : pace;
   }
 
   /**
@@ -90,7 +93,12 @@ export class WheelStream {
    */
   forApp(e: WheelEvent): Pace {
     const { pace, wheel } = this.classify(e);
-    return wheel && reducedMotion() ? AT_ONCE : pace;
+    return wheel && this.reducedMotion() ? AT_ONCE : pace;
+  }
+
+  /** The OS asks for less motion. */
+  private reducedMotion(): boolean {
+    return this.deps.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false;
   }
 
   private classify(e: WheelEvent): Classified {

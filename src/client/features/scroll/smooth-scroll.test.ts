@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { beforeEach, describe, expect, test } from 'bun:test';
 import type { Terminal } from '../../vendor/ghostty-web';
 import { SmoothScroll } from './smooth-scroll';
 import { WHEEL_GLIDE_MS, WheelStream } from './wheel-stream';
@@ -6,10 +6,15 @@ import { WHEEL_GLIDE_MS, WheelStream } from './wheel-stream';
 /** Scrolls made by `fake`, whose `frame` the render loop stand-in calls. */
 const live: SmoothScroll[] = [];
 
+/** The device pixel ratio, clock and reduced-motion setting the fakes are given. */
+const env = { dpr: 1, now: 0, reducedMotion: false };
+
 describe('SmoothScroll', () => {
   function fake(cellHeight: number) {
     const metrics = { height: cellHeight };
     const offsets: number[] = [];
+    let scrolled = (_y: number) => {};
+    let resized = () => {};
     const term = {
       viewportY: 0,
       rows: 40,
@@ -18,77 +23,134 @@ describe('SmoothScroll', () => {
         getMetrics: () => metrics,
         setScrollOffset: (offset: number) => offsets.push(offset),
       },
-      onScroll: () => {},
-      onResize: () => {},
+      onScroll: (cb: (y: number) => void) => {
+        scrolled = cb;
+      },
+      onResize: (cb: () => void) => {
+        resized = cb;
+      },
       getScrollbackLength: () => 100,
       scrollToLine(line: number) {
         term.viewportY = line;
       },
     };
-    const scroll = new SmoothScroll(term as unknown as Terminal, new WheelStream());
+    const stream = new WheelStream({
+      matchMedia: (q) => ({
+        matches: env.reducedMotion && q === '(prefers-reduced-motion: reduce)',
+      }),
+    });
+    const scroll = new SmoothScroll(term as unknown as Terminal, stream, {
+      window: {
+        get devicePixelRatio() {
+          return env.dpr;
+        },
+      },
+      performance: { now: () => env.now },
+    });
     live.push(scroll);
-    return { term, metrics, offsets, scroll };
+    return {
+      term,
+      metrics,
+      offsets,
+      scroll,
+      scrolled: (y: number) => scrolled(y),
+      resized: () => resized(),
+    };
   }
   const wheel = (deltaY: number) => ({ deltaY, deltaMode: 0 }) as WheelEvent;
 
+  beforeEach(() => {
+    Object.assign(env, { dpr: 1, now: 0, reducedMotion: false });
+    live.length = 0;
+  });
+
   test('update re-snaps the offset to a new device pixel ratio', () => {
-    const g = globalThis as { window?: unknown };
-    const saved = g.window;
-    try {
-      g.window = { devicePixelRatio: 1 };
-      const { term, offsets, scroll } = fake(13);
-      // 0.69 x 13 = 8.97 CSS px, snapped to 9 at 1x.
-      scroll.handleWheel(wheel(-13 * 5.69));
-      expect(term.viewportY).toBe(5);
-      expect(offsets.at(-1)).toBe(9);
-      g.window = { devicePixelRatio: 2 };
-      scroll.update();
-      expect(offsets.at(-1)).toBe(9);
-      g.window = { devicePixelRatio: 1.5 };
-      scroll.update();
-      // 8.97 x 1.5 = 13.455 device px, snapped to 13.
-      expect(offsets.at(-1)).toBeCloseTo(13 / 1.5);
-    } finally {
-      g.window = saved;
-    }
+    const { term, offsets, scroll } = fake(13);
+    // 0.69 x 13 = 8.97 CSS px, snapped to 9 at 1x.
+    scroll.handleWheel(wheel(-13 * 5.69));
+    expect(term.viewportY).toBe(5);
+    expect(offsets.at(-1)).toBe(9);
+    env.dpr = 2;
+    scroll.update();
+    expect(offsets.at(-1)).toBe(9);
+    env.dpr = 1.5;
+    scroll.update();
+    // 8.97 x 1.5 = 13.455 device px, snapped to 13.
+    expect(offsets.at(-1)).toBeCloseTo(13 / 1.5);
+  });
+
+  test('a zero device pixel ratio counts as 1x', () => {
+    const { offsets, scroll } = fake(13);
+    env.dpr = 0;
+    scroll.handleWheel(wheel(-13 * 5.69));
+    expect(offsets.at(-1)).toBe(9);
   });
 
   test('update re-splits the position for a new cell height', () => {
-    const g = globalThis as { window?: unknown };
-    const saved = g.window;
-    try {
-      g.window = { devicePixelRatio: 1 };
-      const { term, metrics, offsets, scroll } = fake(14);
-      // A fractional delta, so the trackpad path applies it at once: 2.518 lines.
-      scroll.handleWheel(wheel(-14 * 2.5 - 0.25));
-      expect(offsets.at(-1)).toBe(7);
-      metrics.height = 20;
-      scroll.update();
-      expect(term.viewportY).toBe(2);
-      expect(offsets.at(-1)).toBe(10);
-    } finally {
-      g.window = saved;
-    }
+    const { term, metrics, offsets, scroll } = fake(14);
+    // A fractional delta, so the trackpad path applies it at once: 2.518 lines.
+    scroll.handleWheel(wheel(-14 * 2.5 - 0.25));
+    expect(offsets.at(-1)).toBe(7);
+    metrics.height = 20;
+    scroll.update();
+    expect(term.viewportY).toBe(2);
+    expect(offsets.at(-1)).toBe(10);
+  });
+
+  test('new output at the bottom clears a sub-line offset', () => {
+    const { term, offsets, scroll } = fake(10);
+    // 0.55 lines: line 0 with a 5.5 px offset, rounded to 6.
+    scroll.handleWheel(wheel(-5.5));
+    expect([term.viewportY, offsets.at(-1)]).toEqual([0, 6]);
+    scroll.onOutput();
+    expect([term.viewportY, offsets.at(-1)]).toEqual([0, 0]);
+    // At rest on the bottom, output changes nothing.
+    scroll.onOutput();
+    expect(offsets).toEqual([6, 0]);
+  });
+
+  test('new output above the bottom is left to ghostty-web', () => {
+    const { term, offsets, scroll } = fake(10);
+    scroll.handleWheel(wheel(-25.75));
+    expect([term.viewportY, offsets.at(-1)]).toEqual([2, 6]);
+    scroll.onOutput();
+    expect([term.viewportY, offsets.at(-1)]).toEqual([2, 6]);
+  });
+
+  test("follows ghostty-web's own moves of the viewport, and resizes", () => {
+    const { term, offsets, scroll, scrolled, resized } = fake(10);
+    scroll.handleWheel(wheel(-25.75));
+    // A keyboard scroll to line 7.
+    term.viewportY = 7;
+    scrolled(7);
+    expect(offsets.at(-1)).toBe(0);
+    // Its own line is not a move to follow.
+    offsets.length = 0;
+    scrolled(7);
+    expect(offsets).toEqual([]);
+    term.viewportY = 3;
+    resized();
+    expect([term.viewportY, offsets.at(-1)]).toEqual([3, 0]);
+  });
+
+  test('leaves the alternate screen, and a terminal without a renderer, to ghostty-web', () => {
+    const alt = fake(10);
+    alt.term.wasmTerm.isAlternateScreen = () => true;
+    expect(alt.scroll.handleWheel(wheel(-40))).toBe(false);
+    const bare = fake(10);
+    (bare.term as { renderer?: unknown }).renderer = undefined;
+    expect(bare.scroll.handleWheel(wheel(-40))).toBe(false);
+    bare.scroll.update();
+    bare.scroll.frame(16);
   });
 
   describe('mouse wheel glide', () => {
     function withFrames(run: (tick: (ms: number) => void) => void) {
-      const g = globalThis as { window?: unknown; performance?: unknown };
-      const [savedWindow, savedPerformance] = [g.window, g.performance];
-      let now = 0;
-      g.window = { devicePixelRatio: 1 };
-      g.performance = { now: () => now };
-      live.length = 0;
-      try {
-        // One frame of the render loop, `ms` after the last.
-        run((ms) => {
-          now += ms;
-          for (const scroll of live) scroll.frame(now);
-        });
-      } finally {
-        g.window = savedWindow;
-        g.performance = savedPerformance;
-      }
+      // One frame of the render loop, `ms` after the last.
+      run((ms) => {
+        env.now += ms;
+        for (const scroll of live) scroll.frame(env.now);
+      });
     }
     const notch = (deltaY: number) => ({ deltaX: 0, deltaY, deltaMode: 0 }) as WheelEvent;
 
@@ -122,44 +184,25 @@ describe('SmoothScroll', () => {
 
     test('with reduced motion a notch scrolls at once', () => {
       withFrames(() => {
-        const g = globalThis as { matchMedia?: unknown };
-        const saved = g.matchMedia;
-        g.matchMedia = (q: string) => ({ matches: q === '(prefers-reduced-motion: reduce)' });
-        try {
-          const { term, scroll } = fake(10);
-          scroll.handleWheel(notch(-40));
-          expect(term.viewportY).toBe(4);
-        } finally {
-          g.matchMedia = saved;
-        }
+        env.reducedMotion = true;
+        const { term, scroll } = fake(10);
+        scroll.handleWheel(notch(-40));
+        expect(term.viewportY).toBe(4);
       });
     });
 
     test('a glide is not stopped by its own move onto the next line', () => {
       withFrames((tick) => {
-        const { term, offsets, scroll } = fake(10);
+        const { term, offsets, scroll, scrolled } = fake(10);
         // ghostty-web fires onScroll synchronously from scrollToLine.
-        let onScroll = (_y: number) => {};
-        const t = term as unknown as { onScroll: unknown; scrollToLine: (l: number) => void };
-        const real = t.scrollToLine;
-        t.scrollToLine = (l: number) => {
-          real(l);
-          onScroll(l);
+        const real = term.scrollToLine;
+        term.scrollToLine = (line: number) => {
+          real(line);
+          scrolled(line);
         };
-        const s = new SmoothScroll(
-          {
-            ...term,
-            onScroll: (cb: (y: number) => void) => {
-              onScroll = cb;
-            },
-          } as unknown as Terminal,
-          new WheelStream(),
-        );
-        live.push(s);
-        void scroll;
         // Frames 0.5 ms apart are sure to land within 0.05 lines below a line, where the
         // offset rounds up to the next line.
-        s.handleWheel(notch(-40));
+        scroll.handleWheel(notch(-40));
         for (let i = 0; i < 300; i++) tick(0.5);
         expect([term.viewportY, offsets.at(-1)]).toEqual([4, 0]);
       });

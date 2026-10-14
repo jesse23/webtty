@@ -23,6 +23,12 @@ import { Glide, type Terminal } from '../../vendor/ghostty-web';
 import { splitScroll, wheelLines } from './scroll-split';
 import type { WheelStream } from './wheel-stream';
 
+/** The browser objects the scroll reads: the device pixel ratio, at every split, and the clock. */
+export interface SmoothScrollDeps {
+  window: Pick<Window, 'devicePixelRatio'>;
+  performance: Pick<Performance, 'now'>;
+}
+
 /** Scrolls the terminal's scrollback by pixels: a fractional position that glides. */
 export class SmoothScroll {
   /** The position in lines scrolled up from the bottom, fractional between rows. */
@@ -33,6 +39,7 @@ export class SmoothScroll {
   constructor(
     private readonly term: Terminal,
     private readonly stream: WheelStream,
+    private readonly deps: SmoothScrollDeps = { window, performance },
   ) {
     // ghostty-web moves the viewport itself on new output (to the bottom), keyboard
     // scrolling and scrollbar drags. Follow it whenever it lands on a different line.
@@ -50,7 +57,7 @@ export class SmoothScroll {
     const lines = wheelLines(e, metrics.height, this.term.rows);
     // A delta during a glide adds to where the glide is heading.
     const to = this.clamp(this.glide.target - lines);
-    this.glide.retarget(to, this.stream.forScrollback(e), performance.now());
+    this.glide.retarget(to, this.stream.forScrollback(e), this.deps.performance.now());
     if (!this.glide.active) this.apply();
     return true;
   }
@@ -63,7 +70,7 @@ export class SmoothScroll {
     if (!this.glide.active) return;
     // A spring has arrived once within half a device pixel.
     const height = this.term.renderer?.getMetrics()?.height ?? 15;
-    this.glide.step(now, 0.5 / (height * (window.devicePixelRatio || 1)));
+    this.glide.step(now, 0.5 / (height * (this.deps.window.devicePixelRatio || 1)));
     this.glide.value = this.clamp(this.glide.value);
     this.apply();
   }
@@ -97,7 +104,7 @@ export class SmoothScroll {
     const { line, offset } = splitScroll(
       this.glide.value,
       metrics.height,
-      window.devicePixelRatio || 1,
+      this.deps.window.devicePixelRatio || 1,
     );
     // Changes ghostty-web's viewportY synchronously. Its render loop draws the rows that
     // came into view and shows the offset on the next frame. Rounding the offset can land

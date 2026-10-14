@@ -87,35 +87,33 @@ describe('WheelStream at the start of a gesture', () => {
 });
 
 describe('WheelStream with reduced motion', () => {
-  function reduced(run: () => void) {
-    const g = globalThis as { matchMedia?: unknown };
-    const saved = g.matchMedia;
-    g.matchMedia = (q: string) => ({ matches: q === '(prefers-reduced-motion: reduce)' });
-    try {
-      run();
-    } finally {
-      g.matchMedia = saved;
-    }
-  }
+  const reduced = () =>
+    new WheelStream({
+      matchMedia: (q) => ({ matches: q === '(prefers-reduced-motion: reduce)' }),
+    });
   const at = (deltaY: number, timeStamp: number, deltaMode = 0) =>
     ({ deltaX: 0, deltaY, deltaMode, timeStamp }) as WheelEvent;
 
   test('everything moves the scrollback at once', () => {
-    reduced(() => {
-      const s = new WheelStream();
-      expect(s.forScrollback(at(-3, 1000, 1)).duration).toBe(0);
-      s.forScrollback(at(-95.5, 2000));
-      expect(s.forScrollback(at(-97.25, 2040)).duration).toBe(0);
-    });
+    const s = reduced();
+    expect(s.forScrollback(at(-3, 1000, 1)).duration).toBe(0);
+    s.forScrollback(at(-95.5, 2000));
+    expect(s.forScrollback(at(-97.25, 2040)).duration).toBe(0);
   });
 
   test("a wheel notch's ticks go at once, a sparse stream's stay paced", () => {
-    reduced(() => {
-      const s = new WheelStream();
-      expect(s.forApp(at(-3, 1000, 1)).duration).toBe(0);
-      s.forApp(at(-95.5, 2000));
-      expect(s.forApp(at(-97.25, 2040)).duration).toBeGreaterThan(0);
-    });
+    const s = reduced();
+    expect(s.forApp(at(-3, 1000, 1)).duration).toBe(0);
+    s.forApp(at(-95.5, 2000));
+    expect(s.forApp(at(-97.25, 2040)).duration).toBeGreaterThan(0);
+  });
+});
+
+describe('WheelStream without matchMedia', () => {
+  test('moves at full motion', () => {
+    const s = new WheelStream({});
+    const notch = { deltaX: 0, deltaY: -3, deltaMode: 1, timeStamp: 1000 } as WheelEvent;
+    expect(s.forScrollback(notch).duration).toBe(WHEEL_GLIDE_MS);
   });
 });
 
