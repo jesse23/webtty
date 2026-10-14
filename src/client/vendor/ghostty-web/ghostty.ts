@@ -81,6 +81,12 @@ export interface ScreenRange {
   end: ScreenCell;
 }
 
+/** Where a search is (ADR 055): its match count and the selected match's index, 0 the newest. */
+export interface SearchState {
+  total: number;
+  selected: number | null;
+}
+
 /** Bell, title and clipboard writes since the last `readEffects` (ADR 042, ADR 052). */
 export interface TerminalEffects {
   bell: boolean;
@@ -167,6 +173,28 @@ export interface GhosttyTerminal {
    * soft-wrapped rows joined, trailing whitespace trimmed, spacer cells skipped.
    */
   selectionText(start: ScreenCell, end: ScreenCell): string;
+
+  // Search (ADR 055), Ghostty's, on the active screen, scrollback included
+  /**
+   * Sets the text to find, matched as Ghostty does: ASCII letters case-insensitively,
+   * the rest exactly, soft-wrapped rows joined. `''` ends the search.
+   */
+  setSearch(needle: string): void;
+  /**
+   * Catches the search up with the terminal, working for at most about `budgetMs`.
+   * Returns whether the results may have changed.
+   */
+  searchStep(budgetMs: number): boolean;
+  /** Selects the next match (toward older output) or the previous one, wrapping; false if none. */
+  searchSelect(direction: 'next' | 'previous'): boolean;
+  searchState(): SearchState;
+  /** The selected match in screen rows, or null. */
+  searchSelectedMatch(): ScreenRange | null;
+  /**
+   * Every match, newest to oldest, as screen rows: start col, start row, end col, end
+   * row per match, both ends inclusive.
+   */
+  searchMatches(): Int32Array;
 
   // Mouse reports (ADR 049)
   /** The geometry `encodeMouse` positions are in. */
@@ -340,6 +368,12 @@ interface OfficialWasmExports {
   /** The GhosttyMousePosition struct is passed by value, i.e. by pointer on wasm32. */
   ghostty_mouse_event_set_position(event: number, position: number): void;
   ghostty_focus_encode(event: number, buf: number, len: number, outWritten: number): number;
+  ghostty_search_new(allocator: number, out: number, term: number): number;
+  ghostty_search_free(search: number): void;
+  ghostty_search_tick(search: number, outStatus: number): number;
+  ghostty_search_feed(search: number): number;
+  ghostty_search_set(search: number, option: number, value: number): number;
+  ghostty_search_get(search: number, data: number, out: number): number;
 }
 
 interface ManifestBits {
@@ -773,6 +807,24 @@ function resolveOfficialLayout(layout: VtLayout) {
       SUCCESS: layout.value('GhosttyClipboardWriteResult', 'SUCCESS'),
       UNSUPPORTED: layout.value('GhosttyClipboardWriteResult', 'UNSUPPORTED'),
     },
+    search: {
+      bufferSize: layout.size('GhosttySelectionBuffer'),
+      ptr: layout.offset('GhosttySelectionBuffer', 'ptr'),
+      cap: layout.offset('GhosttySelectionBuffer', 'cap'),
+      len: layout.offset('GhosttySelectionBuffer', 'len'),
+      NEEDLE: layout.value('GhosttySearchOption', 'NEEDLE'),
+      SELECT_NEXT: layout.value('GhosttySearchOption', 'SELECT_NEXT'),
+      SELECT_PREV: layout.value('GhosttySearchOption', 'SELECT_PREV'),
+      SELECT_SCROLL: layout.value('GhosttySearchOption', 'SELECT_SCROLL'),
+      SCROLL_NONE: layout.value('GhosttySearchScroll', 'NONE'),
+      STATUS: layout.value('GhosttySearchData', 'STATUS'),
+      TOTAL_MATCHES: layout.value('GhosttySearchData', 'TOTAL_MATCHES'),
+      SELECTED_INDEX: layout.value('GhosttySearchData', 'SELECTED_INDEX'),
+      SELECTED_MATCH: layout.value('GhosttySearchData', 'SELECTED_MATCH'),
+      MATCHES: layout.value('GhosttySearchData', 'MATCHES'),
+      COMPLETE: layout.value('GhosttySearchStatus', 'COMPLETE'),
+      FEED_REQUIRED: layout.value('GhosttySearchStatus', 'FEED_REQUIRED'),
+    },
     focus: {
       GAINED: layout.value('GhosttyFocusEvent', 'GAINED'),
       LOST: layout.value('GhosttyFocusEvent', 'LOST'),
@@ -1169,7 +1221,8 @@ export class OfficialTerminal implements GhosttyTerminal {
     | 'mousePos'
     | 'mouseOut'
     | 'focusOut'
-    | 'clipReply',
+    | 'clipReply'
+    | 'searchBuf',
     number
   >;
   private readonly callbacks: InstalledFn[] = [];
@@ -1240,6 +1293,13 @@ export class OfficialTerminal implements GhosttyTerminal {
   private pendingTitle: string | null = null;
   private pendingClipboard: string | null = null;
 
+  // Search (ADR 055): the handle while a needle is set, the generation it last fed, and
+  // the wasm buffer matches are read into, grown as needed.
+  private search = 0;
+  private searchFedGen = 0;
+  private matchBuf = 0;
+  private matchCap = 0;
+
   constructor(vt: Ghostty, cols: number, rows: number, config?: GhosttyTerminalConfig) {
     this.vt = vt;
     this.ex = vt.ex;
@@ -1301,6 +1361,7 @@ export class OfficialTerminal implements GhosttyTerminal {
       mouseOut: [MOUSE_REPORT_MAX, 8],
       focusOut: [FOCUS_REPORT_MAX, 8],
       clipReply: [L.clipboardWrite.replySize, 8],
+      searchBuf: [L.search.bufferSize, 8],
     } as const);
     this.scratch = scratch;
     this.at = at;
@@ -1458,6 +1519,7 @@ export class OfficialTerminal implements GhosttyTerminal {
   free(): void {
     const ex = this.ex;
     if (!this.term) return;
+    this.setSearch('');
     ex.ghostty_terminal_free(this.term);
     this.term = 0;
     // Slots are released only after nothing can call them (fn-table.ts rule 3).
@@ -1667,6 +1729,148 @@ export class OfficialTerminal implements GhosttyTerminal {
     const text = new TextDecoder().decode(this.u8().slice(ptr, ptr + len));
     ex.ghostty_free(0, ptr, len);
     return text;
+  }
+
+  // ==========================================================================
+  // Search (ADR 055)
+  // ==========================================================================
+
+  setSearch(needle: string): void {
+    const ex = this.ex;
+    const at = this.at;
+    const S = this.L.search;
+    if (!needle) {
+      if (this.search) ex.ghostty_search_free(this.search);
+      this.search = 0;
+      if (this.matchBuf) ex.ghostty_wasm_free(this.matchBuf, this.matchCap * this.L.selection.size);
+      this.matchBuf = 0;
+      this.matchCap = 0;
+      return;
+    }
+    if (!this.search) {
+      this.search = this.vt.newHandle('search_new', (slot) =>
+        ex.ghostty_search_new(0, slot, this.term)
+      );
+      // The view is webtty's own; Ghostty's viewport stays at the bottom
+      this.dv().setInt32(at.u32, S.SCROLL_NONE, true);
+      ex.ghostty_search_set(this.search, S.SELECT_SCROLL, at.u32);
+    }
+    const bytes = new TextEncoder().encode(needle);
+    const buf = ex.ghostty_wasm_alloc(bytes.length);
+    try {
+      this.u8().set(bytes, buf);
+      const dv = this.dv();
+      dv.setUint32(at.str + this.L.string.ptr, buf, true);
+      dv.setUint32(at.str + this.L.string.len, bytes.length, true);
+      // An unchanged needle keeps its results
+      ex.ghostty_search_set(this.search, S.NEEDLE, at.str);
+    } finally {
+      ex.ghostty_wasm_free(buf, bytes.length);
+    }
+    this.searchFedGen = 0;
+  }
+
+  searchStep(budgetMs: number): boolean {
+    const ex = this.ex;
+    const at = this.at;
+    const S = this.L.search;
+    if (!this.search) return false;
+    let worked = false;
+    // Feeding is the only way the search sees output, resizes and resets
+    if (this.searchFedGen !== this.generation) {
+      ex.ghostty_search_feed(this.search);
+      this.searchFedGen = this.generation;
+      worked = true;
+    }
+    if (ex.ghostty_search_get(this.search, S.STATUS, at.u32) !== 0) return worked;
+    let status = this.dv().getInt32(at.u32, true);
+    const end = performance.now() + budgetMs;
+    while (status !== S.COMPLETE && performance.now() < end) {
+      if (status === S.FEED_REQUIRED) ex.ghostty_search_feed(this.search);
+      else ex.ghostty_search_tick(this.search, 0);
+      if (ex.ghostty_search_get(this.search, S.STATUS, at.u32) !== 0) break;
+      status = this.dv().getInt32(at.u32, true);
+      worked = true;
+    }
+    return worked;
+  }
+
+  searchSelect(direction: 'next' | 'previous'): boolean {
+    const S = this.L.search;
+    if (!this.search) return false;
+    const option = direction === 'next' ? S.SELECT_NEXT : S.SELECT_PREV;
+    return this.ex.ghostty_search_set(this.search, option, 0) === 0;
+  }
+
+  searchState(): SearchState {
+    const ex = this.ex;
+    const at = this.at;
+    const S = this.L.search;
+    if (!this.search) return { total: 0, selected: null };
+    const read = (data: number): number | null =>
+      ex.ghostty_search_get(this.search, data, at.u32) === 0
+        ? this.dv().getUint32(at.u32, true)
+        : null;
+    return { total: read(S.TOTAL_MATCHES) ?? 0, selected: read(S.SELECTED_INDEX) };
+  }
+
+  searchSelectedMatch(): ScreenRange | null {
+    const at = this.at;
+    const Sel = this.L.selection;
+    if (!this.search) return null;
+    this.clearSelectionStruct();
+    if (this.ex.ghostty_search_get(this.search, this.L.search.SELECTED_MATCH, at.sel) !== 0) {
+      return null;
+    }
+    const start = this.screenCellOf(at.sel + Sel.start);
+    const end = this.screenCellOf(at.sel + Sel.end);
+    return start && end ? { start, end } : null;
+  }
+
+  searchMatches(): Int32Array {
+    const ex = this.ex;
+    const at = this.at;
+    const S = this.L.search;
+    const Sel = this.L.selection;
+    if (!this.search) return new Int32Array(0);
+    // Matches are read where they are, before anything changes the terminal; the
+    // buffer is grown to the count Ghostty reports, then read again.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const dv = this.dv();
+      dv.setUint32(at.searchBuf + S.ptr, this.matchBuf, true);
+      dv.setUint32(at.searchBuf + S.cap, this.matchCap, true);
+      dv.setUint32(at.searchBuf + S.len, 0, true);
+      for (let i = 0; i < this.matchCap; i++) {
+        dv.setUint32(this.matchBuf + i * Sel.size + Sel.sizeField, Sel.size, true);
+      }
+      const rc = ex.ghostty_search_get(this.search, S.MATCHES, at.searchBuf);
+      const len = this.dv().getUint32(at.searchBuf + S.len, true);
+      if (rc === this.L.result.OUT_OF_SPACE && attempt === 0) {
+        if (this.matchBuf) ex.ghostty_wasm_free(this.matchBuf, this.matchCap * Sel.size);
+        // Room for the matches output adds before the next read
+        this.matchCap = len + (len >> 2) + 16;
+        this.matchBuf = ex.ghostty_wasm_alloc(this.matchCap * Sel.size);
+        if (!this.matchBuf) {
+          this.matchCap = 0;
+          return new Int32Array(0);
+        }
+        continue;
+      }
+      if (rc !== 0) return new Int32Array(0);
+      const out = new Int32Array(len * 4);
+      for (let i = 0; i < len; i++) {
+        const sel = this.matchBuf + i * Sel.size;
+        const start = this.screenCellOf(sel + Sel.start);
+        const end = this.screenCellOf(sel + Sel.end);
+        // A match that has no screen point (none expected) is left at row -1
+        out[i * 4] = start?.col ?? 0;
+        out[i * 4 + 1] = start?.row ?? -1;
+        out[i * 4 + 2] = end?.col ?? 0;
+        out[i * 4 + 3] = end?.row ?? -1;
+      }
+      return out;
+    }
+    return new Int32Array(0);
   }
 
   // ==========================================================================
