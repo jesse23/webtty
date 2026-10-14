@@ -281,6 +281,104 @@ describe('Terminal paste', () => {
   });
 });
 
+describe('Terminal clearScreen', () => {
+  // Ghostty's clear_screen with what libghostty-vt has: the erasing is written to the
+  // terminal, and only FF, at a prompt, goes to the app (ADR 054).
+  async function clearTerm(options: object = {}) {
+    const ghostty = await Ghostty.load(WASM);
+    const wasmTerm = ghostty.createTerminal(20, 5);
+    const term = new Terminal({ ghostty: {} as never, ...options });
+    const internals = term as unknown as { isOpen: boolean; wasmTerm: unknown };
+    internals.wasmTerm = wasmTerm;
+    internals.isOpen = true;
+    const sent: string[] = [];
+    term.onData((data) => sent.push(data));
+    const text = (cells: { codepoint: number }[] | null) =>
+      (cells ?? [])
+        .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ' '))
+        .join('')
+        .trimEnd();
+    const screen = () => Array.from({ length: 5 }, (_, y) => text(wasmTerm.getLine(y)));
+    const scrollback = () =>
+      Array.from({ length: wasmTerm.getScrollbackLength() }, (_, i) =>
+        text(wasmTerm.getScrollbackLine(i)),
+      );
+    const fill = () => {
+      for (let i = 0; i < 8; i++) term.write(`line${i}\r\n`);
+    };
+    return { term, wasmTerm, sent, screen, scrollback, fill };
+  }
+
+  test('away from a prompt, drops the scrollback and the rows above the cursor', async () => {
+    const { term, wasmTerm, sent, screen, scrollback, fill } = await clearTerm();
+    fill();
+    term.write('$ make');
+    expect(term.clearScreen()).toBe(true);
+    expect(screen()).toEqual(['$ make', '', '', '', '']);
+    expect(scrollback()).toEqual([]);
+    expect(wasmTerm.getCursor()).toMatchObject({ x: 6, y: 0 });
+    // Output in progress carries on below the cursor's row
+    term.write('\r\nok');
+    expect(screen()).toEqual(['$ make', 'ok', '', '', '']);
+    expect(sent).toEqual([]);
+    wasmTerm.free();
+  });
+
+  test('with the cursor on the top row, drops only the scrollback', async () => {
+    const { term, wasmTerm, screen, scrollback, fill } = await clearTerm();
+    fill();
+    term.write('\x1b[H');
+    expect(term.clearScreen()).toBe(true);
+    expect(screen()).toEqual(['line4', 'line5', 'line6', 'line7', '']);
+    expect(scrollback()).toEqual([]);
+    wasmTerm.free();
+  });
+
+  test('at an OSC 133 prompt, erases everything and sends FF for the shell to redraw', async () => {
+    const { term, wasmTerm, sent, screen, scrollback, fill } = await clearTerm();
+    fill();
+    term.write('\x1b]133;A\x07~ > \x1b]133;B\x07ls');
+    expect(wasmTerm.cursorAtPrompt()).toBe(true);
+    expect(term.clearScreen()).toBe(true);
+    expect(screen()).toEqual(['', '', '', '', '']);
+    expect(scrollback()).toEqual([]);
+    expect(sent).toEqual(['\x0c']);
+    wasmTerm.free();
+  });
+
+  test('sends no FF with stdin disabled', async () => {
+    const { term, wasmTerm, sent } = await clearTerm({ disableStdin: true });
+    term.write('\x1b]133;A\x07$ \x1b]133;B\x07');
+    expect(term.clearScreen()).toBe(true);
+    expect(sent).toEqual([]);
+    wasmTerm.free();
+  });
+
+  test('does nothing on the alternate screen, where the key goes to the app', async () => {
+    const { term, wasmTerm, sent, screen, fill } = await clearTerm();
+    fill();
+    term.write('\x1b[?1049h\x1b[Hvim');
+    expect(term.clearScreen()).toBe(false);
+    expect(screen()[0]).toBe('vim');
+    term.write('\x1b[?1049l');
+    expect(wasmTerm.getScrollbackLength()).toBe(4);
+    expect(sent).toEqual([]);
+    wasmTerm.free();
+  });
+
+  test('clears the selection', async () => {
+    const { term, wasmTerm, fill } = await clearTerm();
+    fill();
+    let cleared = 0;
+    (term as unknown as { selectionManager: object }).selectionManager = {
+      clearSelection: () => cleared++,
+    };
+    term.clearScreen();
+    expect(cleared).toBe(1);
+    wasmTerm.free();
+  });
+});
+
 describe('Terminal bell and title', () => {
   // Bell and title come from the engine's readEffects, not from scanning the output
   // (ADR 047).

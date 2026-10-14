@@ -814,6 +814,24 @@ describe('official engine: focus reports (ADR 053)', () => {
   });
 });
 
+describe('official engine: cursor at a prompt (ADR 054)', () => {
+  test('follows OSC 133 marks, and is false without them and on the alternate screen', () => {
+    const t = term();
+    t.write('$ ');
+    expect(t.cursorAtPrompt()).toBe(false);
+    t.write('\r\n\x1b]133;A\x07~ > \x1b]133;B\x07ls');
+    expect(t.cursorAtPrompt()).toBe(true);
+    t.write('\x1b[?1049h');
+    expect(t.cursorAtPrompt()).toBe(false);
+    t.write('\x1b[?1049l');
+    expect(t.cursorAtPrompt()).toBe(true);
+    // The command runs: its output is not a prompt
+    t.write('\r\n\x1b]133;C\x07output\r\nmore');
+    expect(t.cursorAtPrompt()).toBe(false);
+    t.free();
+  });
+});
+
 describe('official engine: memory growth', () => {
   test('reads correct cells and replies after the wasm memory has grown', () => {
     const t = term(120, 40, { scrollbackLines: 0 });

@@ -136,6 +136,11 @@ export interface GhosttyTerminal {
   isAlternateScreen(): boolean;
   hasMouseTracking(): boolean;
   getMode(mode: number, isAnsi?: boolean): boolean;
+  /**
+   * Whether the cursor is at a shell prompt or its input, from OSC 133 marks; false
+   * without them and on the alternate screen. (ADR 054)
+   */
+  cursorAtPrompt(): boolean;
 
   // Scrollback, graphemes, hyperlinks
   getScrollbackLength(): number;
@@ -517,6 +522,7 @@ function resolveOfficialLayout(layout: VtLayout) {
       CURSOR_Y: tdata('CURSOR_Y'),
       ACTIVE_SCREEN: tdata('ACTIVE_SCREEN'),
       MOUSE_TRACKING: tdata('MOUSE_TRACKING'),
+      CURSOR_AT_PROMPT: tdata('CURSOR_AT_PROMPT'),
       TITLE: tdata('TITLE'),
       SCROLLBACK_ROWS: tdata('SCROLLBACK_ROWS'),
       COLOR_PALETTE_DEFAULT: tdata('COLOR_PALETTE_DEFAULT'),
@@ -1507,6 +1513,12 @@ export class OfficialTerminal implements GhosttyTerminal {
   hasMouseTracking(): boolean {
     const at = this.at;
     const rc = this.ex.ghostty_terminal_get(this.term, this.L.tdata.MOUSE_TRACKING, at.u8);
+    return rc === 0 && this.u8()[at.u8] !== 0;
+  }
+
+  cursorAtPrompt(): boolean {
+    const at = this.at;
+    const rc = this.ex.ghostty_terminal_get(this.term, this.L.tdata.CURSOR_AT_PROMPT, at.u8);
     return rc === 0 && this.u8()[at.u8] !== 0;
   }
 

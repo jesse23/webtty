@@ -674,6 +674,29 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
+   * Ghostty's `clear_screen` (Cmd+K): clears the selection and the scrollback, then at a
+   * shell prompt the screen, sending FF so the shell redraws its prompt, and elsewhere the
+   * rows above the cursor, whose row becomes the top one. Returns false, doing nothing, on
+   * the alternate screen, where the key is the app's. The erasing is written to the
+   * terminal, not the PTY. (webtty, ADR 054)
+   */
+  clearScreen(): boolean {
+    this.assertOpen();
+    const wasmTerm = this.wasmTerm!;
+    if (wasmTerm.isAlternateScreen()) return false;
+    this.clearSelection();
+    if (wasmTerm.cursorAtPrompt()) {
+      // ED 2 at a prompt moves the screen into the scrollback, so ED 3 comes after it
+      this.write('\x1b[2J\x1b[3J');
+      if (!this.options.disableStdin) this.dataEmitter.fire('\x0c');
+    } else {
+      const y = wasmTerm.getCursor().y;
+      this.write(`${y > 0 ? `\x1b[${y}S\x1b[${y}A` : ''}\x1b[3J`);
+    }
+    return true;
+  }
+
+  /**
    * Write data to terminal
    */
   write(data: string | Uint8Array, callback?: () => void): void {
