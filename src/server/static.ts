@@ -1,10 +1,6 @@
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 /** File extension → MIME type map used by {@link serveFile}. */
 export const MIME_TYPES: Record<string, string> = {
@@ -40,8 +36,7 @@ export const GHOSTTY_WASM = 'ghostty-vt-small.wasm';
  * @returns The absolute path to the wasm file.
  * @throws Exits the process with code 1 if the wasm cannot be found.
  */
-export function findGhosttyWasm(): string {
-  const projectRoot = path.join(__dirname, '..', '..');
+export function findGhosttyWasm(projectRoot: string): string {
   const candidates = [
     path.join(projectRoot, 'dist', GHOSTTY_WASM),
     path.join(projectRoot, 'src', 'client', 'vendor', 'ghostty-vt', GHOSTTY_WASM),

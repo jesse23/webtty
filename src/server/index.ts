@@ -20,8 +20,8 @@ delete process.env.PORT;
 const HTTP_HOST_DISPLAY = config.host;
 const HTTP_HOST = config.host === 'localhost' ? '127.0.0.1' : config.host;
 
-const wasmPath = findGhosttyWasm();
 const projectRoot = path.resolve(__dirname, '..', '..');
+const wasmPath = findGhosttyWasm(projectRoot);
 const builtDistPath = path.join(projectRoot, 'dist');
 const srcClientPath = path.join(projectRoot, 'src', 'client');
 const clientDistPath = fs.existsSync(path.join(builtDistPath, 'client.html'))

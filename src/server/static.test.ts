@@ -3,6 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { findGhosttyWasm, mimeType, serveFile } from './static';
 
+const PROJECT_ROOT = path.resolve(import.meta.dir, '..', '..');
+
 describe('mimeType', () => {
   test('returns correct type for known extensions', () => {
     expect(mimeType('index.html')).toBe('text/html');
@@ -33,7 +35,7 @@ describe('findGhosttyWasm', () => {
 
   test('prefers the wasm copied into dist/ by the build', () => {
     const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) => String(p).endsWith(BUILT));
-    expect(findGhosttyWasm().endsWith(BUILT)).toBe(true);
+    expect(findGhosttyWasm(PROJECT_ROOT)).toBe(path.join(PROJECT_ROOT, BUILT));
     existsSpy.mockRestore();
   });
 
@@ -43,8 +45,8 @@ describe('findGhosttyWasm', () => {
       const s = String(p);
       return s.endsWith(BUILT) ? false : realExistsSync(s);
     });
-    const wasmPath = findGhosttyWasm();
-    expect(wasmPath.endsWith(VENDORED)).toBe(true);
+    const wasmPath = findGhosttyWasm(PROJECT_ROOT);
+    expect(wasmPath).toBe(path.join(PROJECT_ROOT, VENDORED));
     expect(realExistsSync(wasmPath)).toBe(true);
     existsSpy.mockRestore();
   });
@@ -54,7 +56,7 @@ describe('findGhosttyWasm', () => {
     const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
     const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
 
-    findGhosttyWasm();
+    findGhosttyWasm(PROJECT_ROOT);
 
     expect(exitSpy).toHaveBeenCalledWith(1);
     expect(errorSpy).toHaveBeenCalledWith('Error: Could not find ghostty-vt-small.wasm.');
