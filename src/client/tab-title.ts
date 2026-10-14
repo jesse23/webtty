@@ -32,7 +32,7 @@ export class TabTitle {
     this.update();
   }
 
-  /** The program rang the bell. */
+  /** The program rang the bell, or a notification could not be shown (ADR 056). */
   bell(): void {
     if (!this.bellTitle || this.replay.active || this.ringing) return;
     this.ringing = true;

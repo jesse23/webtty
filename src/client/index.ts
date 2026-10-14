@@ -5,6 +5,7 @@ import { EdgeExtender } from './edge';
 import { FindBar } from './find-bar';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
+import { browserNotifications, DesktopNotifier } from './notifications';
 import { nonTextPaste } from './paste';
 import { ReplayWindow } from './replay';
 import { isMacPlatform, shortcutFor } from './shortcuts';
@@ -63,6 +64,7 @@ interface ClientConfig {
   rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none';
   clipboardWrite: boolean;
   bellTitle: boolean;
+  desktopNotifications: boolean;
   mouseScrollSpeed: number;
   padding: number;
   keyboardBindings: KeyboardBinding[];
@@ -109,6 +111,8 @@ const term = new Terminal({
   rightClickBehavior: config.rightClickBehavior,
   // Programs may write the clipboard with OSC 52; off, Ghostty ignores it (ADR 052)
   clipboardWrite: config.clipboardWrite,
+  // Programs may ask for desktop notifications with OSC 9 / OSC 777 (ADR 056)
+  desktopNotifications: config.desktopNotifications,
   theme: terminalTheme,
 });
 
@@ -242,6 +246,25 @@ term.onBell(() => tabTitle.bell());
 container.addEventListener('focusin', () => tabTitle.attended());
 window.addEventListener('keydown', () => tabTitle.attended(), { capture: true });
 
+// Desktop notifications (OSC 9, OSC 777), shown while the terminal is not focused, as
+// Ghostty on macOS does; the bell mark without permission. Permission is asked on the
+// next key or click after the first one, a gesture browsers accept (ADR 056).
+const notifier = new DesktopNotifier(browserNotifications(), sessionId, replay, {
+  focused: () => document.hasFocus() && container.contains(document.activeElement),
+  name: () => tabTitle.name,
+  mark: () => tabTitle.bell(),
+  focus: () => {
+    window.focus();
+    term.focus();
+  },
+});
+term.onDesktopNotification((n) => notifier.notify(n, performance.now()));
+for (const type of ['keydown', 'mousedown'] as const) {
+  window.addEventListener(type, () => notifier.userInput(), { capture: true });
+}
+container.addEventListener('focusin', () => notifier.attended());
+window.addEventListener('keydown', () => notifier.attended(), { capture: true });
+
 function connect(): void {
   // flow=1: this client acknowledges output as it parses it, so the server paces it
   // (ADR 048).
@@ -250,7 +273,8 @@ function connect(): void {
   ws = socket;
   // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
   clipboardWriter.connected();
-  // ... and ignore its bells until the replay's last piece (ADR 053)
+  // ... and ignore its bells and notifications until the replay's last piece (ADR 053,
+  // ADR 056)
   replay.connected();
   const ack = new OutputAck((message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(message);
