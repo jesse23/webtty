@@ -154,7 +154,8 @@ src/
                                 kitty-error.ts, kitty-terminal.ts, overlay-canvas.ts (+ dispose), kitty-graphics.ts (facade),
                                 test-support/graphics-harness.ts
         kitty-feature.ts
-    test-support/               fake-terminal.ts, fake-socket.ts, manual-clock.ts, recording-target.ts, dom-window.ts
+    test-support/               fake-terminal.ts, fake-socket.ts, fake-window.ts, fake-resize-observer.ts, fake-context.ts,
+                                manual-clock.ts, recording-target.ts, dom-window.ts
     test-support.test.ts        the fakes' self-tests (a test-support/ folder holds no *.test.ts)
     vendor/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md

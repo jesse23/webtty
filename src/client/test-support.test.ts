@@ -3,8 +3,11 @@
 
 import { describe, expect, test } from 'bun:test';
 import { createDomWindow } from './test-support/dom-window';
+import { FAKE_CONFIG, fakeContext } from './test-support/fake-context';
+import { fakeResizeObserver } from './test-support/fake-resize-observer';
 import { fakeWebSocket } from './test-support/fake-socket';
 import { FakeTerminal } from './test-support/fake-terminal';
+import { FakeWindow } from './test-support/fake-window';
 import { ManualClock } from './test-support/manual-clock';
 import { RecordingTarget } from './test-support/recording-target';
 
@@ -211,6 +214,86 @@ describe('FakeTerminal', () => {
       'scrollToBottom',
     ]);
     expect(term.asTerminal() as object).toBe(term);
+  });
+
+  test('loads addons, syncs cell pixels and gets a renderer as open() gives one', () => {
+    const term = new FakeTerminal();
+    let activatedWith: unknown;
+    term.loadAddon({ activate: (t) => (activatedWith = t) });
+    term.syncCellPixelSize();
+    expect(activatedWith).toBe(term);
+    expect(term.renderer).toBeUndefined();
+    const renderer = term.attachRenderer();
+    expect(term.wasmTerm).toBeDefined();
+    renderer.render({}, false, 2);
+    renderer.remeasureFont();
+    expect(term.calls).toEqual([
+      'loadAddon',
+      'syncCellPixelSize',
+      'render:dirty@2',
+      'remeasureFont',
+    ]);
+  });
+});
+
+describe('FakeWindow', () => {
+  test('records listeners as `window`, media queries, and close and focus calls', () => {
+    const win = new FakeWindow('https://example.test:1234/s/abc');
+    expect(win.location.host).toBe('example.test:1234');
+    expect(win.location.pathname).toBe('/s/abc');
+    win.addEventListener('resize', () => {});
+    expect(win.added[0].target).toBe('window');
+    const query = win.matchMedia('(resolution: 1dppx)');
+    expect(query.matches).toBe(true);
+    expect(query.name).toBe('media (resolution: 1dppx)');
+    expect(win.queries).toEqual([query]);
+    win.close();
+    win.focus();
+    expect(win.calls).toEqual(['close', 'focus']);
+    expect(win.asWindow() as object).toBe(win);
+  });
+});
+
+describe('fakeResizeObserver', () => {
+  test('records observers and targets, reports resizes until disconnected', () => {
+    const { ResizeObserver, observers } = fakeResizeObserver();
+    let resizes = 0;
+    const observer = new ResizeObserver(() => resizes++);
+    const a = {} as Element;
+    const b = {} as Element;
+    observer.observe(a, { box: 'border-box' });
+    observer.observe(b);
+    observer.unobserve(b);
+    observer.unobserve(b);
+    expect(observers[0].observed).toEqual([{ target: a, options: { box: 'border-box' } }]);
+    observers[0].resize();
+    observer.disconnect();
+    observers[0].resize();
+    expect(resizes).toBe(1);
+    expect(observers[0].disconnected).toBe(true);
+  });
+});
+
+describe('fakeContext', () => {
+  test('a context over a happy-dom #terminal with settable fonts and visibility', async () => {
+    const fake = fakeContext({ padding: 4 });
+    expect(fake.ctx.config.padding).toBe(4);
+    expect(fake.ctx.config.fontSize).toBe(FAKE_CONFIG.fontSize);
+    expect(fake.ctx.doc.getElementById('terminal')).toBe(fake.container);
+    expect(fake.ctx.term as object).toBe(fake.term);
+    expect(fake.ctx.win as object).toBe(fake.win);
+    let changes = 0;
+    fake.ctx.doc.addEventListener('visibilitychange', () => changes++);
+    fake.setVisibility('hidden');
+    expect(fake.ctx.doc.visibilityState).toBe('hidden');
+    expect(changes).toBe(1);
+    let loaded = false;
+    void fake.ctx.doc.fonts.ready.then(() => {
+      loaded = true;
+    });
+    await fake.fontsLoaded();
+    expect(loaded).toBe(true);
+    await fake.dom.close();
   });
 });
 

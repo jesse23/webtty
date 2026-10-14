@@ -28,12 +28,21 @@ export interface TerminalEvents {
 /** The name of a terminal event. */
 export type TerminalEventName = keyof TerminalEvents;
 
+/** The slice of the renderer the layout uses; its calls go to the terminal's `calls`. */
+export interface FakeRenderer {
+  render(buffer: object, forceAll: boolean, viewportY: number): void;
+  remeasureFont(): void;
+}
+
 /** A fake `Terminal`: fire its events, read what was written, called and subscribed. */
 export class FakeTerminal {
   cols = 80;
   rows = 24;
   viewportY = 0;
   options: Record<string, unknown> = {};
+  /** Undefined until {@link attachRenderer}, as before `open()`. */
+  renderer: FakeRenderer | undefined;
+  wasmTerm: object | undefined;
   /** Everything passed to `write`, in order. */
   readonly written: (string | Uint8Array)[] = [];
   /** Every command called, as `name` or `name:arg`, in order. */
@@ -106,6 +115,26 @@ export class FakeTerminal {
 
   reset(): void {
     this.calls.push('reset');
+  }
+
+  syncCellPixelSize(): void {
+    this.calls.push('syncCellPixelSize');
+  }
+
+  loadAddon(addon: { activate(terminal: unknown): void }): void {
+    this.calls.push('loadAddon');
+    addon.activate(this);
+  }
+
+  /** Gives the terminal a renderer and an engine, as `open()` does; returns the renderer. */
+  attachRenderer(): FakeRenderer {
+    this.wasmTerm = {};
+    this.renderer = {
+      render: (_buffer, forceAll, viewportY) =>
+        this.calls.push(`render:${forceAll ? 'all' : 'dirty'}@${viewportY}`),
+      remeasureFont: () => this.calls.push('remeasureFont'),
+    };
+    return this.renderer;
   }
 
   scrollToBottom(): void {
