@@ -105,6 +105,12 @@ export interface GhosttyTerminal {
 
   // Lifecycle
   write(data: string | Uint8Array): void;
+  /**
+   * Writes the shortest start of `data` that brings the parser to ground, outside any
+   * sequence (ESC, CSI, OSC, DCS, UTF-8), and returns its length: 0 when already there.
+   * Null when all of `data` was written without reaching it. (ADR 054)
+   */
+  writeUntilGround(data: Uint8Array): number | null;
   /** Grid resize, with the device-pixel cell size for size reports when known. */
   resize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void;
   /** Device-pixel cell size for size reports. */
@@ -244,6 +250,12 @@ interface OfficialWasmExports {
     outWritten: number
   ): number;
   ghostty_terminal_vt_write(term: number, ptr: number, len: number): void;
+  ghostty_terminal_vt_write_until_ground(
+    term: number,
+    ptr: number,
+    len: number,
+    outConsumed: number
+  ): number;
   ghostty_terminal_paste(term: number, paste: number, outWritten: number): number;
   /** The GhosttyTerminalScrollViewport struct is passed by value, i.e. by pointer on wasm32. */
   ghostty_terminal_scroll_viewport(term: number, behavior: number): void;
@@ -1328,21 +1340,38 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   write(data: string | Uint8Array): void {
     const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+    this.feed(bytes, typeof data === 'string' ? data : undefined, false);
+  }
+
+  writeUntilGround(data: Uint8Array): number | null {
+    return this.feed(data, undefined, true);
+  }
+
+  /** vt_write, or vt_write_until_ground: the bytes consumed, null if ground was not reached. */
+  private feed(bytes: Uint8Array, text: string | undefined, untilGround: boolean): number | null {
     // Writes never leave the view scrolled (terminal.ts scrolls to the bottom after
     // writing); the first frame at the bottom repaints every row.
     if (this.offset !== 0) {
       this.offset = 0;
       this.dirtyMax = DirtyState.FULL;
     }
-    if (bytes.length > 0) {
-      const ex = this.ex;
-      const ptr = ex.ghostty_wasm_alloc(bytes.length);
-      if (!ptr) throw new Error('libghostty-vt: out of memory');
-      this.u8().set(bytes, ptr);
+    const ex = this.ex;
+    let consumed: number | null = bytes.length;
+    // until_ground takes NULL for no bytes, and then only says whether it is at ground
+    const ptr = bytes.length > 0 ? ex.ghostty_wasm_alloc(bytes.length) : 0;
+    if (bytes.length > 0 && !ptr) throw new Error('libghostty-vt: out of memory');
+    if (ptr) this.u8().set(bytes, ptr);
+    if (untilGround) {
+      const rc = ex.ghostty_terminal_vt_write_until_ground(this.term, ptr, bytes.length, this.at.u32);
+      consumed = rc === this.L.result.SUCCESS ? this.dv().getUint32(this.at.u32, true) : null;
+    } else if (ptr) {
       ex.ghostty_terminal_vt_write(this.term, ptr, bytes.length);
-      ex.ghostty_wasm_free(ptr, bytes.length);
+    }
+    if (ptr) ex.ghostty_wasm_free(ptr, bytes.length);
+    const fed = consumed ?? bytes.length;
+    if (fed > 0) {
       const scan = scanCursorBlink(
-        typeof data === 'string' ? data : LATIN1.decode(bytes),
+        text ?? LATIN1.decode(bytes.subarray(0, fed)),
         this.blinkCarry
       );
       this.blinkCarry = scan.carry;
@@ -1354,6 +1383,7 @@ export class OfficialTerminal implements GhosttyTerminal {
     }
     this.generation++;
     if (this.titleChanged) this.readTitle();
+    return consumed;
   }
 
   resize(cols: number, rows: number, cellWidthPx?: number, cellHeightPx?: number): void {

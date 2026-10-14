@@ -193,6 +193,8 @@ Ctrl+C is always the app's. Modifiers match exactly except for Ctrl+V. `shortcut
 - at a shell prompt (`cursorAtPrompt`, `GHOSTTY_TERMINAL_DATA_CURSOR_AT_PROMPT`, which needs OSC 133 marks, as fish 4 sends): `CSI 2 J` then `CSI 3 J`, and FF to the shell, which redraws its prompt at the top;
 - otherwise: the rows above the cursor scroll off (`CSI n S`, `CSI n A`), so the cursor's row is the top one, then `CSI 3 J`.
 
+The sequences go in only where the output is at ground: if the last message ended inside a sequence, the clear waits and is written where the next output finishes it (`ghostty_terminal_vt_write_until_ground`), with the screen, prompt and cursor read then.
+
 The selection and kitty graphics placements are cleared too. The clear is the tab's own: a reload, reconnect or another tab gets the server's replay, scrollback included.
 
 ## Program Clipboard Writes

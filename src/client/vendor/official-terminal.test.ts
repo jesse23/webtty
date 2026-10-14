@@ -830,6 +830,23 @@ describe('official engine: cursor at a prompt (ADR 054)', () => {
     expect(t.cursorAtPrompt()).toBe(false);
     t.free();
   });
+
+  test('writeUntilGround writes up to the end of a cut-off sequence', () => {
+    const t = term();
+    const bytes = (s: string) => new TextEncoder().encode(s);
+    expect(t.writeUntilGround(bytes(''))).toBe(0);
+    expect(t.writeUntilGround(bytes('ab'))).toBe(0);
+    t.write('a\x1b[3');
+    expect(t.writeUntilGround(new Uint8Array(0))).toBeNull();
+    expect(t.writeUntilGround(bytes('1;'))).toBeNull();
+    expect(t.writeUntilGround(bytes('2mbc'))).toBe(2);
+    t.write('\x1b]2;ti');
+    expect(t.writeUntilGround(bytes('tle\x07x'))).toBe(4);
+    // A multi-byte character cut in two is a sequence too
+    t.write(new Uint8Array([0xc3]));
+    expect(t.writeUntilGround(new Uint8Array([0xa9, 0x41]))).toBe(1);
+    t.free();
+  });
 });
 
 describe('official engine: memory growth', () => {

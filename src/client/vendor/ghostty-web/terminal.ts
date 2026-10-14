@@ -247,6 +247,9 @@ export class Terminal implements ITerminalCore {
   private focused = false;
   private focusReporting = false;
 
+  // A clearScreen waiting for the output to reach ground (webtty, ADR 054)
+  private pendingClear = false;
+
   // Phase 2: Viewport and scrolling state
   public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom)
   private customWheelEventHandler?: (event: WheelEvent) => boolean;
@@ -678,22 +681,31 @@ export class Terminal implements ITerminalCore {
    * shell prompt the screen, sending FF so the shell redraws its prompt, and elsewhere the
    * rows above the cursor, whose row becomes the top one. Returns false, doing nothing, on
    * the alternate screen, where the key is the app's. The erasing is written to the
-   * terminal, not the PTY. (webtty, ADR 054)
+   * terminal, not the PTY, and so waits for output cut off inside a sequence to finish
+   * it. (webtty, ADR 054)
    */
   clearScreen(): boolean {
     this.assertOpen();
-    const wasmTerm = this.wasmTerm!;
-    if (wasmTerm.isAlternateScreen()) return false;
+    if (this.wasmTerm!.isAlternateScreen()) return false;
     this.clearSelection();
+    this.pendingClear = true;
+    this.writeInternal(new Uint8Array(0));
+    return true;
+  }
+
+  /** The erasing of `clearScreen`, for when the parser is at ground. */
+  private writeClear(): void {
+    const wasmTerm = this.wasmTerm!;
+    // The output before it may have turned the alternate screen on
+    if (wasmTerm.isAlternateScreen()) return;
     if (wasmTerm.cursorAtPrompt()) {
       // ED 2 at a prompt moves the screen into the scrollback, so ED 3 comes after it
-      this.write('\x1b[2J\x1b[3J');
+      wasmTerm.write('\x1b[2J\x1b[3J');
       if (!this.options.disableStdin) this.dataEmitter.fire('\x0c');
     } else {
       const y = wasmTerm.getCursor().y;
-      this.write(`${y > 0 ? `\x1b[${y}S\x1b[${y}A` : ''}\x1b[3J`);
+      wasmTerm.write(`${y > 0 ? `\x1b[${y}S\x1b[${y}A` : ''}\x1b[3J`);
     }
-    return true;
   }
 
   /**
@@ -717,6 +729,17 @@ export class Terminal implements ITerminalCore {
     // Note: We intentionally do NOT clear selection on write - most modern terminals
     // preserve selection when new data arrives. Selection is cleared by user actions
     // like clicking or typing, not by incoming data.
+
+    // A waiting clear goes in where the output reaches ground (webtty, ADR 054)
+    if (this.pendingClear) {
+      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+      const n = this.wasmTerm!.writeUntilGround(bytes);
+      if (n !== null) {
+        this.pendingClear = false;
+        this.writeClear();
+      }
+      data = bytes.subarray(n ?? bytes.length);
+    }
 
     // Write directly to WASM terminal (handles VT parsing internally)
     this.wasmTerm!.write(data);
@@ -860,6 +883,8 @@ export class Terminal implements ITerminalCore {
     this.currentTitle = '';
     // The new engine starts with mode 1004 off (webtty, ADR 053)
     this.focusReporting = false;
+    // A clear waiting for the old engine's output is not for the new one (webtty, ADR 054)
+    this.pendingClear = false;
   }
 
   /**

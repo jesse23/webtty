@@ -377,6 +377,69 @@ describe('Terminal clearScreen', () => {
     expect(cleared).toBe(1);
     wasmTerm.free();
   });
+
+  test('waits for a sequence cut off by the end of a write, and clears where it ends', async () => {
+    const { term, wasmTerm, screen, scrollback, fill } = await clearTerm();
+    fill();
+    term.write('build \x1b[3');
+    expect(term.clearScreen()).toBe(true);
+    expect(scrollback().length).toBeGreaterThan(0);
+    // The rest of the SGR finishes it; the clear goes in there, before the text after it
+    term.write('1mred\r\nnext');
+    expect(screen()).toEqual(['build red', 'next', '', '', '']);
+    expect(scrollback()).toEqual([]);
+    const red = wasmTerm.getLine(0)?.[6];
+    expect(red && red.fg_r > red.fg_g).toBe(true);
+    wasmTerm.free();
+  });
+
+  test('a cut-off OSC keeps its effect', async () => {
+    const { term, wasmTerm, scrollback, fill } = await clearTerm();
+    fill();
+    const titles: string[] = [];
+    term.onTitleChange((t) => titles.push(t));
+    term.write('\x1b]2;bui');
+    term.clearScreen();
+    term.write('ld\x07');
+    expect(titles).toEqual(['build']);
+    expect(scrollback()).toEqual([]);
+    wasmTerm.free();
+  });
+
+  test('a write that ends inside another sequence still gets the clear', async () => {
+    const { term, wasmTerm, screen, scrollback, fill } = await clearTerm();
+    fill();
+    term.write('a\x1b[3');
+    term.clearScreen();
+    term.write('1mb\x1b[0');
+    expect(scrollback()).toEqual([]);
+    term.write('mc');
+    expect(screen()).toEqual(['abc', '', '', '', '']);
+    wasmTerm.free();
+  });
+
+  test('a waiting clear at a prompt checks the prompt and sends FF once it goes in', async () => {
+    const { term, wasmTerm, sent, screen, fill } = await clearTerm();
+    fill();
+    term.write('\x1b]133;A\x07$ \x1b]133;B\x07\x1b[3');
+    term.clearScreen();
+    expect(sent).toEqual([]);
+    term.write('1m');
+    expect(screen()).toEqual(['', '', '', '', '']);
+    expect(sent).toEqual(['\x0c']);
+    wasmTerm.free();
+  });
+
+  test('a waiting clear is dropped if the screen has turned alternate', async () => {
+    const { term, wasmTerm, scrollback, fill } = await clearTerm();
+    fill();
+    term.write('\x1b[?1049');
+    term.clearScreen();
+    term.write('h\x1b[Hvim');
+    term.write('\x1b[?1049l');
+    expect(scrollback().length).toBeGreaterThan(0);
+    wasmTerm.free();
+  });
 });
 
 describe('Terminal bell and title', () => {
