@@ -1,6 +1,6 @@
 # SPEC: Config
 
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -119,10 +119,16 @@ All keys are optional — omit any key to use the default value.
 | `padding` | number | `0` | Padding in px around the terminal canvas, on all four sides. The canvas is fitted to whole cells, so a few extra pixels can remain on top of this: on the right and at the bottom. The top and left gap is exactly `padding`. The padding is coloured by `theme.padding`, or `theme.background` if that is unset. |
 | `logs` | boolean | `false` | Write server stdout/stderr to `~/.config/webtty/server.log`. Appends on each start. Default `false` — server runs silently. |
 | `fontSize` | number | `13` | Font size in px |
-| `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace"` | CSS font-family stack |
+| `fontFamily` | string | `"Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'"` | CSS font-family stack. See [Default font stack](#default-font-stack). |
 | `theme` | object | Campbell | Terminal color palette — see theme keys below |
 | `keyboardBindings` | array | `[]` | Custom key-to-sequence bindings sent to the PTY. See [key-bindings spec](key-bindings.md) for schema and examples. |
 
+
+### Default font stack
+
+Chrome draws a grapheme cluster in the first font of the stack that has every codepoint in it, or in a system fallback font. Menlo has no enclosing marks (U+20DD-U+20E0), so `a⃝` or `1⃝` came out as a missing-glyph box. `'STIX Two Text'` (shipped with macOS) has them and is added last, so it is used only for clusters no earlier font covers whole: the cell size, which is measured from the first available font, and every glyph Menlo or the system fallback drew before stay the same. The exceptions are about 120 letterlike symbols, modifier letters and ligatures Menlo lacks (`℃`, `₹`, `ℹ`, `ℓ`, `ℝ`, `ﬀ`), which now come from STIX Two Text instead of the system fallback. It goes last rather than after Menlo because on Linux or Windows, where Menlo is missing, a STIX font installed there would otherwise become the cell font; where it is not installed, the name is skipped. `'STIX Two Math'` covers the same marks but also draws its own symbols in the Private Use Area that Powerline and Nerd Font glyphs use, so a missing-glyph box became an unrelated glyph; `STIXGeneral` takes over about 2,000 math symbols from the system fallback. Neither font covers U+20E3 (keycap) without VS16, so `1⃣` stays a box.
+
+A `fontFamily` written in `config.json` replaces the whole stack, so it keeps whatever it was set to; append `'STIX Two Text'` to it to get the marks. The first run writes only `port` and `host`, so a config without `fontFamily` gets the new default.
 
 ### Theme keys
 
@@ -172,7 +178,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
   "copyOnSelect": true,
   "rightClickBehavior": "default",
   "fontSize": 13,
-  "fontFamily": "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+  "fontFamily": "Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'",
 
   "keyboardBindings": [
     { "key": "enter", "mods": ["shift"], "chars": "\u001b\r" }

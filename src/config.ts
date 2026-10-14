@@ -166,7 +166,9 @@ export const DEFAULT_CONFIG: Config = {
   cols: 80,
   rows: 24,
   fontSize: 13,
-  fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace",
+  // 'STIX Two Text' comes last: it fills only clusters no earlier font covers whole,
+  // such as a letter with an enclosing mark (a⃝, U+20DD), which Menlo lacks.
+  fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'",
   cursorStyle: 'bar',
   cursorStyleBlink: true,
   copyOnSelect: true,

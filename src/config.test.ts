@@ -62,6 +62,18 @@ describe('loadConfig — first run', () => {
     expect(DEFAULT_CONFIG.term).toBe('xterm-256color');
   });
 
+  test('DEFAULT_CONFIG.fontFamily ends with STIX Two Text for enclosing marks', () => {
+    expect(DEFAULT_CONFIG.fontFamily).toBe(
+      "Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'",
+    );
+  });
+
+  test('first run leaves fontFamily out of the file, so the default applies', () => {
+    const config = loadConfig();
+    expect(fs.readFileSync(configPath, 'utf8')).not.toContain('fontFamily');
+    expect(config.fontFamily).toBe(DEFAULT_CONFIG.fontFamily);
+  });
+
   test('returns config that equals DEFAULT_CONFIG after first run', () => {
     const config = loadConfig();
     expect(config.port).toBe(DEFAULT_CONFIG.port);
