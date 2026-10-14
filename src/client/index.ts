@@ -1,3 +1,4 @@
+import { browserEnv } from './app/browser-env';
 import { type KeyboardBinding, loadClientConfig } from './app/client-config';
 import { detectMac, isTerminalFocused } from './app/platform';
 import { toTerminalOptions } from './app/terminal-options';
@@ -18,11 +19,13 @@ import { TabTitle } from './features/tab-title/tab-title';
 import { EdgeExtender } from './layout/edge-extender';
 import { computeInsets } from './layout/fit-insets';
 import { terminalCanvas } from './layout/terminal-canvas';
-import { FitAddon, Ghostty, Terminal, watchDevicePixelRatio } from './vendor/ghostty-web';
+import { FitAddon, watchDevicePixelRatio } from './vendor/ghostty-web';
 
 const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
 
-const config = await loadClientConfig(fetch);
+const env = browserEnv();
+
+const config = await loadClientConfig(env.fetch);
 
 // Whether the output being parsed is the replay sent on connect (ADR 053)
 const replay = new ReplayWindow();
@@ -37,13 +40,13 @@ const tabTitle = new TabTitle(sessionId, config.bellTitle, replay, (title) => {
 // wasm lookup (relative to its own module URL) would depend on where the bundle sits.
 // Load the wasm from the path the server serves it at instead (ADR 041). It is
 // Ghostty's official libghostty-vt wasm, the only engine (ADR 042, ADR 047).
-const ghostty = await Ghostty.load('/ghostty-vt-small.wasm');
+const ghostty = await env.loadEngine('/ghostty-vt-small.wasm');
 
 // Translate webtty's theme keys to ghostty-web's names and keep `padding`, a webtty
 // setting and not a terminal colour, out of the theme it receives (ADR 036).
 const terminalTheme = toTerminalTheme(config.theme ?? {});
 
-const term = new Terminal(toTerminalOptions(config, terminalTheme, ghostty));
+const term = env.createTerminal(toTerminalOptions(config, terminalTheme, ghostty));
 
 const container = document.getElementById('terminal') as HTMLElement;
 // The canvas paints theme.background; the container shows only in the padding around
