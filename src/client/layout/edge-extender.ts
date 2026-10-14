@@ -8,6 +8,7 @@
  * cells have: a dark sidebar stays dark, the main area stays light.
  */
 import { computeEdgeRects, type Rect } from './edge-rects';
+import { terminalCanvas } from './terminal-canvas';
 
 /** A canvas and the rows of it in view, in canvas pixels. */
 export interface VisibleArea {
@@ -93,7 +94,7 @@ export class EdgeExtender {
   /** Reposition the strips. Call after every fit, when the canvas or padding may have moved. */
   update(): void {
     if (this.disposed) return;
-    const canvas = this.terminalCanvas();
+    const canvas = terminalCanvas(this.container);
     if (!canvas) return;
     const rects = computeEdgeRects(
       {
@@ -124,13 +125,9 @@ export class EdgeExtender {
     this.right?.el.remove();
   }
 
-  private terminalCanvas(): HTMLCanvasElement | null {
-    return this.container.querySelector('canvas:not([data-edge])');
-  }
-
   private readonly paint = (): void => {
     this.frame = null;
-    const terminal = this.terminalCanvas();
+    const terminal = terminalCanvas(this.container);
     const area =
       this.visibleArea() ??
       (terminal

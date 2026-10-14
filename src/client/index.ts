@@ -14,6 +14,7 @@ import { WheelStream } from './features/scroll/wheel-stream';
 import { TabTitle } from './features/tab-title/tab-title';
 import { EdgeExtender } from './layout/edge-extender';
 import { computeInsets } from './layout/fit-insets';
+import { terminalCanvas } from './layout/terminal-canvas';
 import { FitAddon, Ghostty, Terminal, watchDevicePixelRatio } from './vendor/ghostty-web';
 
 interface KeyboardBinding {
@@ -154,7 +155,7 @@ function fit(): void {
   // already sent the new cell pixels with resize; this sends them when only the
   // pixels changed, for Ghostty's size reports (ADR 042).
   term.syncCellPixelSize();
-  const canvas = container.querySelector('canvas:not([data-edge])') as HTMLElement | null;
+  const canvas = terminalCanvas(container);
   if (!canvas) return;
   const insets = computeInsets(
     Math.max(0, container.clientWidth - canvas.offsetWidth),

@@ -2,6 +2,7 @@
 // repaints on the frame after anything changed, follows the terminal's scroll, size and
 // pixel ratio, and frees its backing store while there is nothing to draw.
 
+import { TERMINAL_CANVAS_UNDER_OVERLAY, terminalCanvas } from '../../../layout/terminal-canvas';
 import { DisposableStore, listen, toDisposable } from '../../../vendor/ghostty-web';
 import {
   type CellSize,
@@ -79,14 +80,10 @@ export class OverlayCanvas {
     this.store.dispose();
   }
 
-  private terminalCanvas(): HTMLCanvasElement | null {
-    return this.container.querySelector('canvas:not([data-kitty]):not([data-edge])');
-  }
-
   private readonly tick = (): void => {
     this.frame = this.deps.window.requestAnimationFrame(this.tick);
     if (this.source.placements.size === 0 && !this.canvas.width) return;
-    const canvas = this.terminalCanvas();
+    const canvas = terminalCanvas(this.container, TERMINAL_CANVAS_UNDER_OVERLAY);
     if (!canvas) return;
     const cell = cellSize(this.term);
     const signature = [

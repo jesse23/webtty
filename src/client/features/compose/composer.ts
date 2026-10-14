@@ -8,6 +8,7 @@
  * ghostty-web's own compositionend handling.
  */
 
+import { terminalCanvas } from '../../layout/terminal-canvas';
 import { DisposableStore, listen } from '../../vendor/ghostty-web';
 import { type OverlayBox, overlayBox } from './composer-geometry';
 
@@ -116,7 +117,7 @@ export class Composer {
 
   private placeOverlay(spot: { left: number; top: number }): void {
     const o = this.overlay;
-    const canvas = this.terminalCanvas();
+    const canvas = terminalCanvas(this.container);
     const box = overlayBox(
       spot,
       this.cell(),
@@ -132,10 +133,6 @@ export class Composer {
   private cell(): { width: number; height: number } {
     const metrics = this.term.renderer?.getMetrics();
     return { width: metrics?.width ?? 0, height: metrics?.height ?? 0 };
-  }
-
-  private terminalCanvas(): HTMLCanvasElement | null {
-    return this.container.querySelector('canvas:not([data-edge])');
   }
 }
 
