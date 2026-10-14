@@ -262,6 +262,7 @@ export class Terminal implements ITerminalCore {
       convertEol: options.convertEol ?? false,
       disableStdin: options.disableStdin ?? false,
       mouseScrollSpeed: options.mouseScrollSpeed ?? 1,
+      copyOnSelect: options.copyOnSelect ?? true,
     };
 
     // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)

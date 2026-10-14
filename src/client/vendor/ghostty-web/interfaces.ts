@@ -22,6 +22,9 @@ export interface ITerminalOptions {
   // Scrolling options
   mouseScrollSpeed?: number; // Wheel ticks per line/page wheel event when the app tracks the mouse (default: 1)
 
+  // Selection options
+  copyOnSelect?: boolean; // Copy a mouse selection to the clipboard when it is made (default: true) (webtty)
+
   // Internal: Ghostty WASM instance (optional, for test isolation)
   // If not provided, uses the module-level instance from init()
   ghostty?: Ghostty;

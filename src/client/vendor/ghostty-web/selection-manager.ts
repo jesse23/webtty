@@ -5,7 +5,7 @@
  * - Mouse drag selection
  * - Double-click word selection
  * - Text extraction from terminal buffer
- * - Automatic clipboard copy
+ * - Clipboard copy on select (the terminal's copyOnSelect option)
  * - Visual selection highlighting (integrated into CanvasRenderer cell rendering)
  * - Auto-scroll during drag selection
  */
@@ -608,13 +608,7 @@ export class SelectionManager {
           return;
         }
 
-        if (this.hasSelection()) {
-          const text = this.getSelection();
-          if (text) {
-            this.copyToClipboard(text);
-            this.selectionChangedEmitter.fire();
-          }
-        }
+        if (this.hasSelection()) this.selectionMade();
       }
     };
     document.addEventListener('mouseup', this.boundMouseUpHandler);
@@ -633,12 +627,7 @@ export class SelectionManager {
           this.selectionStart = { col: word.startCol, absoluteRow };
           this.selectionEnd = { col: word.endCol, absoluteRow };
           this.requestRender();
-
-          const text = this.getSelection();
-          if (text) {
-            this.copyToClipboard(text);
-            this.selectionChangedEmitter.fire();
-          }
+          this.selectionMade();
         }
       } else if (e.detail >= 3) {
         // Triple-click (or more) - select line content (like native Ghostty)
@@ -674,12 +663,7 @@ export class SelectionManager {
           this.selectionStart = { col: 0, absoluteRow };
           this.selectionEnd = { col: endCol, absoluteRow };
           this.requestRender();
-
-          const text = this.getSelection();
-          if (text) {
-            this.copyToClipboard(text);
-            this.selectionChangedEmitter.fire();
-          }
+          this.selectionMade();
         }
       }
     });
@@ -958,6 +942,18 @@ export class SelectionManager {
     }
 
     return { startCol, endCol };
+  }
+
+  /**
+   * A mouse selection is made: copy it when the terminal's copyOnSelect is on, building
+   * its text once, and report the change. (webtty)
+   */
+  private selectionMade(): void {
+    if (this.terminal.options.copyOnSelect) {
+      const text = this.getSelection();
+      if (text) this.copyToClipboard(text);
+    }
+    this.selectionChangedEmitter.fire();
   }
 
   /**

@@ -152,7 +152,7 @@ Controlled by two config keys from `GET /api/config`:
 
 | Config | Default | Behavior |
 |--------|---------|----------|
-| `copyOnSelect: true` | on | Auto-copies selection to clipboard on mouseup via `term.onSelectionChange`. Context menu untouched. |
+| `copyOnSelect: true` | on | Auto-copies a mouse selection (drag, double or triple click) to clipboard once, on mouseup, through the Terminal's `copyOnSelect` option; off, nothing is copied. Context menu untouched. |
 | `rightClickBehavior: "copyPaste"` | off | Right-click with selection copies + clears selection. `e.preventDefault()` only fires when selection exists. |
 
 Both can be active simultaneously. The canvas-based terminal has no DOM text selection — these are the only reliable copy paths.

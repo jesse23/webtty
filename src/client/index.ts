@@ -83,6 +83,8 @@ const term = new Terminal({
   fontFamily: config.fontFamily,
   scrollbackLines: config.scrollbackLines,
   mouseScrollSpeed: config.mouseScrollSpeed,
+  // The terminal copies a mouse selection on mouseup, once, only when this is on (ADR 011)
+  copyOnSelect: config.copyOnSelect,
   theme: terminalTheme,
 });
 
@@ -349,17 +351,6 @@ term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
     ws.send(JSON.stringify({ type: 'resize', cols, rows }));
   }
 });
-
-// Copy the selected text to the clipboard whenever the selection changes.
-if (config.copyOnSelect) {
-  term.onSelectionChange(() => {
-    const selection = term.getSelection() as string;
-    if (!selection) return;
-    navigator.clipboard.writeText(selection).catch(() => {
-      /* empty */
-    });
-  });
-}
 
 // Copy selected text to clipboard on right-click when copyPaste mode is active.
 if (config.rightClickBehavior === 'copyPaste') {
