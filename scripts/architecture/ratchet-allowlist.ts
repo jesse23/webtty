@@ -49,8 +49,5 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'banned-name src/pty/types.ts': 'server track: pty/pty-process.ts (ADR 062)',
     'banned-name src/client/vendor/ghostty-web/types.ts':
       'V15: the vendor types.ts shim is removed (ADR 061)',
-    // Upstream's Node fallback in Ghostty.loadFromPath; tests run under Bun, where Bun.file
-    // reads the wasm first, so engine/wasm-loader.ts can drop it.
-    'client-node src/client/vendor/ghostty-web/ghostty.ts -> fs/promises': ENGINE_SPLIT,
   },
 };

@@ -33,6 +33,7 @@ import { isKittyKeyboardReply } from './engine/kitty-keyboard-reply';
 import { type OfficialLayout, resolveOfficialLayout } from './engine/official-layout';
 import { Scratch } from './engine/scratch';
 import { isTextMime } from './engine/text-mime';
+import { loadWasmExports } from './engine/wasm-loader';
 import { readBits, readVtLayout } from './engine/vt-layout';
 import type { OfficialWasmExports } from './engine/wasm-exports';
 import { FnTable, type InstalledFn, WasmValType } from './fn-table';
@@ -123,88 +124,12 @@ export class Ghostty {
     this.unidentifiedKey = layout.value('GhosttyKey', 'UNIDENTIFIED');
   }
 
+  /**
+   * Loads the official wasm from `wasmPath`, or from the pinned copy beside this layer
+   * (engine/wasm-loader.ts, ADR 061).
+   */
   static async load(wasmPath?: string): Promise<Ghostty> {
-    // If explicit path provided, use it
-    if (wasmPath) {
-      return Ghostty.loadFromPath(wasmPath);
-    }
-
-    // Resolve path relative to this module
-    const moduleUrl = new URL('../ghostty-vt/ghostty-vt-small.wasm', import.meta.url);
-
-    // Build paths to try, prioritizing file system paths for Node/Bun
-    const defaultPaths: string[] = [];
-
-    // For Node/Bun: try absolute file path first (strip file:// protocol)
-    if (moduleUrl.protocol === 'file:') {
-      let filePath = moduleUrl.pathname;
-      // Remove leading slash on Windows paths (e.g., /C:/ -> C:/)
-      if (filePath.match(/^\/[A-Za-z]:\//)) {
-        filePath = filePath.slice(1);
-      }
-      defaultPaths.push(filePath);
-    }
-
-    // Also try other common paths
-    defaultPaths.push(moduleUrl.href, './ghostty-vt-small.wasm', '/ghostty-vt-small.wasm');
-
-    let lastError: Error | null = null;
-    for (const path of defaultPaths) {
-      try {
-        return await Ghostty.loadFromPath(path);
-      } catch (e) {
-        lastError = e instanceof Error ? e : new Error(String(e));
-      }
-    }
-    throw lastError || new Error('Failed to load Ghostty WASM');
-  }
-
-  private static async loadFromPath(path: string): Promise<Ghostty> {
-    let wasmBytes: ArrayBuffer | undefined;
-
-    // Try Bun.file first (for Bun environments)
-    if (typeof Bun !== 'undefined' && typeof Bun.file === 'function') {
-      try {
-        const file = Bun.file(path);
-        if (await file.exists()) {
-          wasmBytes = await file.arrayBuffer();
-        }
-      } catch {
-        // Bun.file failed, try next method
-      }
-    }
-
-    // Try Node.js fs module if Bun.file didn't work
-    if (!wasmBytes) {
-      try {
-        const fs = await import('fs/promises');
-        const buffer = await fs.readFile(path);
-        wasmBytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-      } catch {
-        // fs failed, try fetch
-      }
-    }
-
-    // Fall back to fetch (for browser environments)
-    if (!wasmBytes) {
-      const response = await fetch(path);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch WASM: ${response.status} ${response.statusText}`);
-      }
-      wasmBytes = await response.arrayBuffer();
-      if (wasmBytes.byteLength === 0) {
-        throw new Error(`WASM file is empty (0 bytes). Check path: ${path}`);
-      }
-    }
-
-    if (!wasmBytes) {
-      throw new Error(`Could not load WASM from path: ${path}`);
-    }
-
-    const wasmModule = await WebAssembly.compile(wasmBytes);
-    // The official wasm imports nothing.
-    const instance = await WebAssembly.instantiate(wasmModule, {});
-    return new Ghostty(instance.exports as unknown as OfficialWasmExports);
+    return new Ghostty(await loadWasmExports(wasmPath));
   }
 
   createKeyEncoder(): KeyEncoder {
