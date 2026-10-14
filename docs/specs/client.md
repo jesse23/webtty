@@ -214,7 +214,7 @@ Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of th
 
 - **Matching** is Ghostty's: ASCII letters case-insensitively, everything else exactly, soft-wrapped rows joined so a match can span a wrap; scrollback and screen, on the active screen.
 - **Order**: next goes toward older output (up), previous toward newer, both wrapping. Nothing is selected until the first Enter; the count is Ghostty's `selected/total` (`0/n` before then).
-- **Scrolling**: if no row of the selected match is in view, the view jumps so its first row is the top row. While a match is selected and the view is scrolled up, output does not pull the view to the bottom: it stays on its rows.
+- **Scrolling**: if no row of the selected match is in view, the view jumps so its first row is the top row. While a match is selected and the view is scrolled up, output does not pull the view to the bottom: it stays on its rows. A key or a paste sent to the program scrolls to the bottom, as in Ghostty (`scroll-to-bottom = keystroke, no-output`); mouse reports do not.
 - **Highlights**: every match in `searchBackground` / `searchForeground`, the selected one in `searchSelectedBackground` / `searchSelectedForeground` (Ghostty's defaults); the selection is drawn over both.
 - **The bar** (`find-bar.ts`) is a DOM overlay at the top right, outside `#terminal`, coloured from the theme, with a labelled field, the count in a live region, ↑ (next), ↓ (previous) and × buttons. Typing searches after 150 ms; closing ends the search, clears the highlights and refocuses the terminal, and the field keeps its text for the next open.
 

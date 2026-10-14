@@ -453,6 +453,7 @@ describe('Terminal find', () => {
       getMetrics: () => ({ width: 8, height: 16, baseline: 12 }),
       devicePixelRatio: 1,
       setSearchHighlights: (h: unknown) => highlights.push(h),
+      render: () => {},
     };
     const internals = term as unknown as {
       isOpen: boolean;
@@ -551,6 +552,33 @@ describe('Terminal find', () => {
     frames(2);
     term.scrollToLine(5);
     term.write('x\r\n');
+    expect(term.viewportY).toBe(0);
+    internals.wasmTerm.free();
+  });
+
+  test('a key or a paste scrolls a view on a selected match to the bottom', async () => {
+    // Ghostty's `scroll-to-bottom = keystroke` (ADR 055)
+    const { term, internals, frames } = await findTerm();
+    const input = term as unknown as { handleInput: (data: string, mouse?: boolean) => void };
+    term.write('needle\r\n');
+    for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
+    term.find('needle');
+    frames(2);
+    term.findNext();
+    const view = term.viewportY;
+    expect(view).toBeGreaterThan(0);
+    // A mouse report leaves the view alone
+    input.handleInput('\x1b[M !!', true);
+    expect(term.viewportY).toBe(view);
+    input.handleInput('l');
+    expect(term.viewportY).toBe(0);
+    // and the echo is followed
+    term.write('l\r\n');
+    frames();
+    expect(term.viewportY).toBe(0);
+    term.findNext();
+    expect(term.viewportY).toBeGreaterThan(0);
+    term.paste('ls');
     expect(term.viewportY).toBe(0);
     internals.wasmTerm.free();
   });

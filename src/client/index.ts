@@ -351,6 +351,8 @@ container.addEventListener(
     e.preventDefault();
     e.stopPropagation();
     if (binding.chars && ws.readyState === WebSocket.OPEN) {
+      // A keystroke scrolls to the bottom, as the terminal's own keys do (ADR 055)
+      term.scrollToBottom();
       ws.send(binding.chars);
     }
   },
@@ -403,7 +405,9 @@ term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
 // event only fires for Cmd+V (the OS paste gesture) - Ctrl+V produces no
 // event at all. See ADR 014.
 function sendCtrlV(): void {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send('\x16');
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  term.scrollToBottom();
+  ws.send('\x16');
 }
 
 // Text goes through the terminal, which encodes it as Ghostty does: bracketed
@@ -413,8 +417,10 @@ function sendCtrlV(): void {
 function sendPaste(text: string): void {
   if (!ws || ws.readyState !== WebSocket.OPEN) return;
   const ctrlV = nonTextPaste(text);
-  if (ctrlV) ws.send(ctrlV);
-  else term.paste(text);
+  if (ctrlV) {
+    term.scrollToBottom();
+    ws.send(ctrlV);
+  } else term.paste(text);
 }
 
 // Reads the clipboard and pastes it, as Cmd+V does; a failed read sends Ctrl+V.

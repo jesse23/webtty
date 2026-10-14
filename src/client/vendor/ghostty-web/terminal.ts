@@ -689,6 +689,8 @@ export class Terminal implements ITerminalCore {
   paste(text: string): void {
     this.assertOpen();
     if (this.options.disableStdin) return;
+    // Ghostty always scrolls to the bottom on a paste (webtty, ADR 055)
+    this.scrollToBottom();
     this.wasmTerm!.paste(text);
     this.processTerminalResponses();
   }
@@ -1773,12 +1775,18 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Input from the InputHandler. Keys and text clear the selection; a mouse report leaves
-   * it alone, so a Shift selection outlives the app's hover and clicks. (webtty, ADR 051)
+   * Input from the InputHandler. Keys and text clear the selection and scroll to the
+   * bottom; a mouse report leaves both alone, so a Shift selection outlives the app's
+   * hover and clicks. (webtty, ADR 051, ADR 055)
    */
   private handleInput = (data: string, mouseReport = false): void => {
     if (this.options.disableStdin) return;
-    if (!mouseReport) this.selectionManager?.clearSelection();
+    if (!mouseReport) {
+      this.selectionManager?.clearSelection();
+      // Ghostty's `scroll-to-bottom = keystroke`, which output no longer does while a
+      // match is selected (webtty, ADR 055)
+      this.scrollToBottom();
+    }
     this.awaitingEcho = true;
     this.dataEmitter.fire(data);
   };
