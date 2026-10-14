@@ -14,6 +14,7 @@
  */
 
 import type { Ghostty, MouseButton, MouseInput } from './ghostty';
+import { pressToApp } from './mouse-route';
 import type { KeyEncoder } from './ghostty';
 import { Key, KeyAction, KeyEncoderOption, Mods } from './types';
 
@@ -248,6 +249,9 @@ export class InputHandler {
   private isComposing = false;
   private isDisposed = false;
   private mouseButtonsPressed = 0; // Track which buttons are pressed for motion reporting
+  // Buttons pressed with Shift while the app tracks the mouse: webtty's (selection, menu),
+  // so nothing about them reaches the app until they are released (webtty, ADR 051)
+  private mouseButtonsBypassed = 0;
   private lastKeyDownData: string | null = null;
   private lastKeyDownTime = 0;
   private lastCompositionData: string | null = null;
@@ -646,10 +650,17 @@ export class InputHandler {
    */
   private handleMouseDown(event: MouseEvent): void {
     if (this.isDisposed) return;
-    if (!this.mouseConfig?.hasMouseTracking()) return;
+    const tracking = this.mouseConfig?.hasMouseTracking() ?? false;
+    if (!tracking) return;
 
     const button = MOUSE_BUTTONS[event.button];
     if (!button) return;
+    // Shift+press is webtty's: the app gets neither it, the drag nor the release
+    // (webtty, ADR 051)
+    if (!pressToApp(tracking, event.shiftKey)) {
+      this.mouseButtonsBypassed |= 1 << event.button;
+      return;
+    }
     // Back and forward would leave the session's page (webtty)
     if (event.button >= 3) event.preventDefault();
 
@@ -672,6 +683,10 @@ export class InputHandler {
     const button = MOUSE_BUTTONS[event.button];
     if (!button) return;
     const bit = 1 << event.button;
+    if (this.mouseButtonsBypassed & bit) {
+      this.mouseButtonsBypassed &= ~bit;
+      return;
+    }
     if (!(this.mouseButtonsPressed & bit) && !this.isOverTerminal(event)) return;
     if (event.button >= 3) event.preventDefault();
 
@@ -690,7 +705,12 @@ export class InputHandler {
     if (!this.mouseConfig?.hasMouseTracking()) return;
 
     // No button held: a release outside the document never cleared the bitmask
-    if (event.buttons === 0) this.mouseButtonsPressed = 0;
+    if (event.buttons === 0) {
+      this.mouseButtonsPressed = 0;
+      this.mouseButtonsBypassed = 0;
+    }
+    // A Shift drag is webtty's selection (webtty, ADR 051)
+    if (this.mouseButtonsBypassed !== 0) return;
     if (this.mouseButtonsPressed === 0 && !this.isOverTerminal(event)) return;
 
     this.sendMouseEvent(event, 'motion', motionButton(this.mouseButtonsPressed));

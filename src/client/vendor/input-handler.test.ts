@@ -140,6 +140,32 @@ describe('InputHandler mouse', () => {
     handler.dispose();
   });
 
+  // Shift is the bypass, as in Ghostty and xterm (ADR 051)
+  test('a Shift drag and its release send nothing, even if Shift is let go', async () => {
+    const { handler, container, doc, sent, mouse } = await setup();
+    container.fire('mousedown', mouse(true, { button: 0, buttons: 1, shiftKey: true }).event);
+    doc.fire('mousemove', mouse(true, { buttons: 1, clientX: 30, shiftKey: true }).event);
+    doc.fire('mousemove', mouse(true, { buttons: 1, clientX: 50 }).event);
+    doc.fire('mouseup', mouse(true, { button: 0, clientX: 50 }).event);
+    expect(sent).toEqual([]);
+    // The next press without Shift is the app's again
+    container.fire('mousedown', mouse(true, { button: 0, buttons: 1 }).event);
+    doc.fire('mouseup', mouse(true, { button: 0 }).event);
+    expect(sent).toEqual(['<press:left>', '<release:left>']);
+    handler.dispose();
+  });
+
+  test('a Shift right-click sends nothing; a right-click is the app’s', async () => {
+    const { handler, container, doc, sent, mouse } = await setup();
+    container.fire('mousedown', mouse(true, { button: 2, buttons: 2, shiftKey: true }).event);
+    doc.fire('mouseup', mouse(true, { button: 2, shiftKey: true }).event);
+    expect(sent).toEqual([]);
+    container.fire('mousedown', mouse(true, { button: 2, buttons: 2 }).event);
+    doc.fire('mouseup', mouse(true, { button: 2 }).event);
+    expect(sent).toEqual(['<press:right>', '<release:right>']);
+    handler.dispose();
+  });
+
   test('back and forward are buttons 8 and 9, and do not navigate', async () => {
     const { handler, container, doc, sent, mouse } = await setup();
     const down = mouse(true, { button: 3, buttons: 8 });

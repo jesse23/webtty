@@ -125,6 +125,43 @@ describe('SelectionManager copy on select', () => {
     expect(scrolls.every((amount) => amount === 3)).toBe(true);
   });
 
+  // While the app tracks the mouse, a press is the app's; Shift selects (ADR 051)
+  test('with mouse tracking on, a drag or a double click selects and copies nothing', () => {
+    wasmTerm.write('\x1b[?1000h');
+    const { m, canvas, changes } = manager(true);
+    drag(canvas);
+    canvas.dispatch('click', { detail: 2, offsetX: 8 * 7, offsetY: 4 });
+    canvas.dispatch('click', { detail: 3, offsetX: 8, offsetY: 20 });
+    expect(m.hasSelection()).toBe(false);
+    expect(m.getSelectionRange()).toBeNull();
+    expect(writes).toEqual([]);
+    expect(changes()).toBe(0);
+  });
+
+  test('with mouse tracking on, Shift drag, double and triple click select and copy', () => {
+    wasmTerm.write('\x1b[?1002h\x1b[?1006h');
+    const { m, canvas } = manager(true);
+    canvas.dispatch('mousedown', { button: 0, offsetX: 1, offsetY: 4, shiftKey: true });
+    canvas.dispatch('mousemove', { offsetX: 4 * 8 + 1, offsetY: 4, shiftKey: true });
+    documentTarget.dispatch('mouseup', {});
+    canvas.dispatch('click', { detail: 2, offsetX: 8 * 7, offsetY: 4, shiftKey: true });
+    canvas.dispatch('click', { detail: 3, offsetX: 8, offsetY: 20, shiftKey: true });
+    expect(writes).toEqual(['hello', 'world', 'second line']);
+    expect(m.getSelection()).toBe('second line');
+  });
+
+  test('a press the app takes leaves the current selection', () => {
+    const { m, canvas } = manager(true);
+    drag(canvas);
+    wasmTerm.write('\x1b[?1000h');
+    canvas.dispatch('mousedown', { button: 0, offsetX: 8 * 7, offsetY: 20 });
+    documentTarget.dispatch('mouseup', {});
+    expect(m.getSelection()).toBe('hello');
+    wasmTerm.write('\x1b[?1000l');
+    drag(canvas);
+    expect(writes).toEqual(['hello', 'hello']);
+  });
+
   test('nothing is copied or built with copyOnSelect off, but the change is reported', () => {
     const { canvas, builds, changes } = manager(false);
     drag(canvas);

@@ -13,6 +13,7 @@
 import { EventEmitter } from './event-emitter';
 import type { GhosttyTerminal } from './ghostty';
 import type { IEvent } from './interfaces';
+import { pressToApp } from './mouse-route';
 import type { CanvasRenderer } from './renderer';
 import type { Terminal } from './terminal';
 
@@ -257,6 +258,10 @@ export class SelectionManager {
           canvas.parentElement.focus();
         }
 
+        // A press the app takes (it tracks the mouse, Shift is up) starts no selection
+        // and leaves the current one; Shift selects here instead. (webtty, ADR 051)
+        if (this.pressIsApps(e)) return;
+
         const cell = this.pixelToCell(e.offsetX, e.offsetY);
 
         // Always clear previous selection on new click
@@ -399,8 +404,10 @@ export class SelectionManager {
 
     // Double click selects a word and triple click a line, by Ghostty's rules (ADR 050).
     // event.detail is the browser's click count.
+    // Not while the app takes the press (webtty, ADR 051).
     canvas.addEventListener('click', (e: MouseEvent) => {
       if (e.detail < 2) return;
+      if (this.pressIsApps(e)) return;
       const cell = this.pixelToCell(e.offsetX, e.offsetY);
       const at = { col: cell.col, row: this.viewportRowToAbsolute(cell.row) };
       const range = e.detail === 2 ? this.wasmTerm.selectWord(at) : this.wasmTerm.selectLine(at);
@@ -501,6 +508,11 @@ export class SelectionManager {
     };
 
     document.addEventListener('click', this.boundClickHandler);
+  }
+
+  /** Whether the app takes this press: it tracks the mouse and Shift is up. (webtty, ADR 051) */
+  private pressIsApps(e: MouseEvent): boolean {
+    return pressToApp(this.wasmTerm.hasMouseTracking(), e.shiftKey);
   }
 
   /**
