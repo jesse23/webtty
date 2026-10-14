@@ -240,6 +240,24 @@ describe('OutputPacer', () => {
     expect(ws.closed?.code).toBe(FELL_BEHIND);
   });
 
+  test("a replay's allowance ends once its queue drains", () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    pacer.send(ws, 'r'.repeat(2500));
+    let acked = 0;
+    while (ws.received.length > acked) {
+      acked = ws.received.length;
+      pacer.ack(ws, acked);
+    }
+    // Block the client again, then queue just over maxPending (1000) of live output.
+    pacer.broadcast('x'.repeat(100));
+    for (let i = 0; i < 100; i++) pacer.broadcast('x'.repeat(10));
+    expect(ws.closed).toBeNull();
+    pacer.broadcast('x'.repeat(10));
+    expect(ws.closed?.code).toBe(FELL_BEHIND);
+  });
+
   test('a legacy client gets a replay whole', () => {
     const { pacer } = setup(null);
     const ws = new FakeSocket();

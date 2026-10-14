@@ -163,8 +163,9 @@ export class OutputPacer {
    * anything queued for it. An acknowledging client gets it in pieces of
    * {@link FlowLimits.chunk}, so a large replay is paced like live output instead of
    * filling the send buffer at once. What it queues is allowed on top of
-   * {@link FlowLimits.maxPending}: the replay is already held as the scrollback, and a
-   * scrollback over the limit would otherwise close every client that connects. A legacy
+   * {@link FlowLimits.maxPending} until the queue drains: the replay is already held as the
+   * scrollback, and a scrollback over the limit would otherwise close every client that
+   * connects. A legacy
    * client gets it whole as before: Bun's shim accepts one large message, but drops and
    * reorders pieces sent past its 16 MB backlog.
    */
@@ -241,6 +242,8 @@ export class OutputPacer {
       this.transmit(ws, flow, message);
     }
     flow.pending.splice(0, i);
+    // A drained queue holds no replay any more, so live output gets the plain limit.
+    if (flow.pending.length === 0) flow.maxPending = this.limits.maxPending;
   }
 
   private fellBehind(ws: FlowSocket): void {
