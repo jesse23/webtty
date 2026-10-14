@@ -239,15 +239,42 @@ Shells that mark their prompts with OSC 133 (`133;A` prompt, `133;B` command lin
 **Getting the marks.** webtty does not inject shell integration (ADR 057 records it as a follow-up):
 
 - **fish 4.0 and later** send them with no setup.
-- **zsh and bash** (bash 3.2 too) send none. Source Ghostty's integration script at the top of `~/.zshrc` / `~/.bashrc`, from a Ghostty install or a copy of [`src/shell-integration`](https://github.com/ghostty-org/ghostty/tree/main/src/shell-integration) (GPLv3); with `GHOSTTY_SHELL_FEATURES` unset it only sends the marks:
+- **zsh and bash** send none. Paste webtty's snippet at the end of `~/.zshrc` or `~/.bashrc` ([ADR 058](../adrs/058.client.zsh-bash-prompt-marks.md)); bash 3.2 (macOS `/bin/bash`) has no `PS0`, so it gets the prompt jumps and Cmd+K but not output selection:
 
-  ```sh
-  # ~/.zshrc (macOS app path; on Linux typically /usr/share/ghostty/shell-integration)
-  source /Applications/Ghostty.app/Contents/Resources/ghostty/shell-integration/zsh/ghostty-integration
-  # ~/.bashrc
-  source /Applications/Ghostty.app/Contents/Resources/ghostty/shell-integration/bash/ghostty.bash
+  ```zsh
+  # ~/.zshrc, at the end. webtty: OSC 133 prompt marks (ADR 058)
+  if [[ -o interactive ]]; then
+    autoload -Uz add-zsh-hook
+    _webtty_precmd() {
+      local ret=$?
+      (( ${+_webtty_ran} )) && printf '\e]133;D;%s\a' "$ret"
+      unset _webtty_ran
+      printf '\e]133;A\a'
+      [[ $PS1 == *'133;B'* ]] || PS1+=$'%{\e]133;B\a%}'
+    }
+    _webtty_preexec() { _webtty_ran=1; printf '\e]133;C\a'; }
+    add-zsh-hook precmd _webtty_precmd
+    add-zsh-hook preexec _webtty_preexec
+  fi
   ```
 
+  ```bash
+  # ~/.bashrc, at the end. webtty: OSC 133 prompt marks (ADR 058)
+  if [[ $- == *i* ]]; then
+    _webtty_prompt() {
+      local ret=$?
+      [[ -n ${_webtty_started-} ]] && printf '\e]133;D;%s\a' "$ret"
+      _webtty_started=1
+      printf '\e]133;A\a'
+      [[ $PS1 == *'133;B'* ]] || PS1+='\[\e]133;B\a\]'
+      return "$ret"
+    }
+    PROMPT_COMMAND="_webtty_prompt${PROMPT_COMMAND:+;$PROMPT_COMMAND}"
+    PS0+=$'\e]133;C\a'
+  fi
+  ```
+
+- Ghostty's integration scripts also work when sourced by hand (GPLv3; from a Ghostty install or [`src/shell-integration`](https://github.com/ghostty-org/ghostty/tree/main/src/shell-integration)); with `GHOSTTY_SHELL_FEATURES` unset they only send the marks.
 - starship (1.26) does not send them.
 
 ## Program Clipboard Writes
@@ -320,7 +347,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
 | Copy, paste and clear keys | Ghostty's defaults for the browser's platform: Ctrl+Shift+C and Ctrl+Insert copy and Shift+Insert pastes outside macOS (Ctrl+C stays the interrupt; Ctrl+Shift+C with no selection goes to the app), Cmd+K clears the screen and scrollback on macOS (at an OSC 133 prompt with FF for the shell to redraw; the app's key on the alternate screen); `keyboardBindings` win | [ADR 054](../adrs/054.client.copy-paste-clear-keys.md) | ✅ |
 | Find in the scrollback | Cmd+F (macOS) or Ctrl+Shift+F opens a find bar; libghostty-vt's search over scrollback and screen (ASCII case-insensitive, across soft wraps), every match highlighted and the selected one distinct in Ghostty's colours, Enter / Shift+Enter (Cmd+G / Cmd+Shift+G) to the next (older) and previous match with Ghostty's `k/n` count, the view jumping to a match out of view and kept on it while output streams, Escape to close; `keyboardBindings` win | [ADR 055](../adrs/055.client.find-in-scrollback.md) | ✅ |
-| Shell prompts (OSC 133) | Cmd+↑ / Cmd+↓ (also with Shift) on macOS, Ctrl+Shift+↑ / Ctrl+Shift+↓ elsewhere jump the view to the previous / next prompt, as Ghostty's `jump_to_prompt` (libghostty-vt's `DELTA_PROMPT`), consumed even with no prompt; Ctrl/Cmd+triple-click selects a command's output; marks from fish 4 natively, or zsh and bash with Ghostty's integration script sourced by hand; no injection yet; `keyboardBindings` win | [ADR 057](../adrs/057.client.shell-integration-prompt-jumps.md) | ✅ |
+| Shell prompts (OSC 133) | Cmd+↑ / Cmd+↓ (also with Shift) on macOS, Ctrl+Shift+↑ / Ctrl+Shift+↓ elsewhere jump the view to the previous / next prompt, as Ghostty's `jump_to_prompt` (libghostty-vt's `DELTA_PROMPT`), consumed even with no prompt; Ctrl/Cmd+triple-click selects a command's output; marks from fish 4 natively, or zsh and bash with webtty's snippet ([ADR 058](../adrs/058.client.zsh-bash-prompt-marks.md)); no injection yet; `keyboardBindings` win | [ADR 057](../adrs/057.client.shell-integration-prompt-jumps.md) | ✅ |
 | Desktop notifications | OSC 9 and OSC 777 `notify`, parsed by Ghostty (ConEmu's `9;<n>` forms excluded), shown as browser notifications while the terminal is not focused, one a second and the same one once in five seconds; permission asked on the next key or click after the first one; the 🔔 title mark without permission; replayed ones ignored; `desktopNotifications: false` turns them off | [ADR 056](../adrs/056.client.desktop-notifications.md) | ✅ |
 | Focus reports, title and bell | Mode 1004 focus reports encoded by Ghostty, sent on each change and when the mode is set; the tab title is the program's OSC 0/2 title (`<title> \| webtty`, the session id while it has none); a bell puts 🔔 in front of it until the terminal is focused or a key is pressed, and bells replayed on connect are ignored; `bellTitle: false` turns the mark off | [ADR 053](../adrs/053.client.focus-reports-title-and-bell.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
