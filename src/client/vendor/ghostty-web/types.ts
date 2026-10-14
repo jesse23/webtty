@@ -298,6 +298,12 @@ export interface GhosttyTerminalConfig {
    */
   cursorStyle?: 'block' | 'underline' | 'bar';
   cursorBlink?: boolean;
+  /**
+   * Whether programs may write the clipboard (OSC 52, OSC 1337 Copy, OSC 5522): the
+   * writes are reported by `readEffects`. Off, Ghostty's clipboard write callback is
+   * left unset and the writes are ignored. Default true. (webtty, ADR 052)
+   */
+  clipboardWrite?: boolean;
 }
 
 /**

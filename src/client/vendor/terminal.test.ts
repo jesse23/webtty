@@ -285,14 +285,18 @@ describe('Terminal bell and title', () => {
   // (ADR 047).
   test('a bell and a title reported by readEffects reach onBell and onTitleChange', () => {
     const term = new Terminal({ ghostty: {} as never });
-    let effects: { bell: boolean; title: string | null } = { bell: true, title: 'vim' };
+    let effects: { bell: boolean; title: string | null; clipboard: string | null } = {
+      bell: true,
+      title: 'vim',
+      clipboard: null,
+    };
     (term as unknown as { wasmTerm: object }).wasmTerm = {
       write: () => {},
       hasResponse: () => false,
       readResponse: () => null,
       readEffects: () => {
         const e = effects;
-        effects = { bell: false, title: null };
+        effects = { bell: false, title: null, clipboard: null };
         return e;
       },
     };
@@ -310,6 +314,37 @@ describe('Terminal bell and title', () => {
     write('\x07\x1b]2;other\x07');
     expect(bells).toBe(1);
     expect(titles).toEqual(['vim']);
+  });
+});
+
+describe('Terminal clipboard writes', () => {
+  // Program clipboard writes come from the engine's readEffects and reach the embedder
+  // through onClipboardWrite (ADR 052).
+  test('OSC 52 output fires onClipboardWrite with the decoded text, once', async () => {
+    const ghostty = await Ghostty.load(WASM);
+    const term = new Terminal({ ghostty: {} as never });
+    (term as unknown as { wasmTerm: unknown }).wasmTerm = ghostty.createTerminal(20, 2);
+    const write = (data: string) =>
+      (term as unknown as { writeInternal(data: string): void }).writeInternal(data);
+    const copied: string[] = [];
+    term.onClipboardWrite((text) => copied.push(text));
+
+    write(`\x1b]52;c;${Buffer.from('héllo 中文').toString('base64')}\x07`);
+    expect(copied).toEqual(['héllo 中文']);
+    write('plain output');
+    write('\x1b]52;c;\x07');
+    expect(copied).toEqual(['héllo 中文', '']);
+  });
+
+  test('passes clipboardWrite to the engine, on by default', () => {
+    const wasmConfig = (options: object) =>
+      (
+        new Terminal({ ghostty: {} as never, ...options }) as unknown as {
+          buildWasmConfig(): GhosttyTerminalConfig;
+        }
+      ).buildWasmConfig();
+    expect(wasmConfig({}).clipboardWrite).toBe(true);
+    expect(wasmConfig({ clipboardWrite: false }).clipboardWrite).toBe(false);
   });
 });
 

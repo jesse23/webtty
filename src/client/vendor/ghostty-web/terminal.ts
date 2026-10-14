@@ -207,6 +207,7 @@ export class Terminal implements ITerminalCore {
   private titleChangeEmitter = new EventEmitter<string>();
   private scrollEmitter = new EventEmitter<number>();
   private pasteRequestEmitter = new EventEmitter<void>();
+  private clipboardWriteEmitter = new EventEmitter<string>();
   // Public event accessors (xterm.js compatibility)
   public readonly onData: IEvent<string> = this.dataEmitter.event;
   public readonly onResize: IEvent<{ cols: number; rows: number }> = this.resizeEmitter.event;
@@ -218,6 +219,12 @@ export class Terminal implements ITerminalCore {
    * embedder reads the clipboard, as for Ctrl+V. (webtty, ADR 051)
    */
   public readonly onPasteRequest: IEvent<void> = this.pasteRequestEmitter.event;
+  /**
+   * The program wrote the clipboard (OSC 52, OSC 1337 Copy, OSC 5522), with the text to
+   * write, `''` to clear it. Fires only while the `clipboardWrite` option is on; the
+   * embedder writes the browser clipboard. (webtty, ADR 052)
+   */
+  public readonly onClipboardWrite: IEvent<string> = this.clipboardWriteEmitter.event;
 
   // Lifecycle state
   private isOpen = false;
@@ -274,6 +281,7 @@ export class Terminal implements ITerminalCore {
       mouseScrollSpeed: options.mouseScrollSpeed ?? 1,
       copyOnSelect: options.copyOnSelect ?? true,
       rightClickBehavior: options.rightClickBehavior ?? 'contextMenu',
+      clipboardWrite: options.clipboardWrite ?? true,
     };
 
     // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)
@@ -445,6 +453,7 @@ export class Terminal implements ITerminalCore {
       palette: paletteColors,
       cursorStyle: this.options.cursorStyle,
       cursorBlink: this.options.cursorBlink,
+      clipboardWrite: this.options.clipboardWrite,
     };
   }
 
@@ -691,10 +700,12 @@ export class Terminal implements ITerminalCore {
     // These need to be sent back to the PTY via onData
     this.processTerminalResponses();
 
-    // Bell and title (OSC 0/2) as Ghostty reported them (webtty, ADR 042)
+    // Bell, title (OSC 0/2) and clipboard writes (OSC 52) as Ghostty reported them
+    // (webtty, ADR 042, ADR 052)
     const effects = this.wasmTerm!.readEffects();
     if (effects.bell) this.bellEmitter.fire();
     if (effects.title !== null) this.setTitle(effects.title);
+    if (effects.clipboard !== null) this.clipboardWriteEmitter.fire(effects.clipboard);
 
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();

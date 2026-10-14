@@ -630,10 +630,10 @@ describe('official engine: effects and replies', () => {
   test('reports the title and the bell once', () => {
     const t = term();
     t.write('\x1b]2;first\x07');
-    expect(t.readEffects()).toEqual({ bell: false, title: 'first' });
+    expect(t.readEffects()).toEqual({ bell: false, title: 'first', clipboard: null });
     t.write('\x07\x1b]0;second\x1b\\');
-    expect(t.readEffects()).toEqual({ bell: true, title: 'second' });
-    expect(t.readEffects()).toEqual({ bell: false, title: null });
+    expect(t.readEffects()).toEqual({ bell: true, title: 'second', clipboard: null });
+    expect(t.readEffects()).toEqual({ bell: false, title: null, clipboard: null });
     t.free();
   });
 
@@ -716,6 +716,87 @@ describe('official engine: effects and replies', () => {
     t.setCellPixelSize(11, 22);
     expect(resizes).toBe(3);
     t.free();
+  });
+});
+
+describe('official engine: clipboard writes (ADR 052)', () => {
+  const b64 = (bytes: string | Uint8Array) => Buffer.from(bytes).toString('base64');
+  /** The clipboard text one write reports, or null for none. */
+  function copied(seq: string, config: object = THEME): string | null {
+    const t = term(80, 24, config);
+    t.write(seq);
+    const { clipboard } = t.readEffects();
+    expect(t.readEffects().clipboard).toBeNull();
+    // OSC 52 has no reply: nothing is ever sent back, query or write.
+    expect(t.readResponse()).toBeNull();
+    t.free();
+    return clipboard;
+  }
+
+  test('OSC 52 to the clipboard, ended by BEL or ST, decoded as UTF-8', () => {
+    expect(copied(`\x1b]52;c;${b64('hello')}\x07`)).toBe('hello');
+    expect(copied(`\x1b]52;c;${b64('héllo 中文 🎉\nline 2')}\x1b\\`)).toBe('héllo 中文 🎉\nline 2');
+  });
+
+  test('an empty or unknown selection is the clipboard, as in Ghostty', () => {
+    expect(copied(`\x1b]52;;${b64('x')}\x07`)).toBe('x');
+    expect(copied(`\x1b]52;0;${b64('zero')}\x07`)).toBe('zero');
+  });
+
+  test('the selection and primary clipboards are not written', () => {
+    expect(copied(`\x1b]52;s;${b64('sel')}\x07`)).toBeNull();
+    expect(copied(`\x1b]52;p;${b64('pri')}\x07`)).toBeNull();
+    // Ghostty takes one selection character only.
+    expect(copied(`\x1b]52;pc;${b64('both')}\x07`)).toBeNull();
+  });
+
+  test('an empty payload clears the clipboard', () => {
+    expect(copied('\x1b]52;c;\x07')).toBe('');
+  });
+
+  test('a query is never answered', () => {
+    expect(copied('\x1b]52;c;?\x07')).toBeNull();
+  });
+
+  test('invalid base64 is ignored whole; missing padding is accepted', () => {
+    expect(copied('\x1b]52;c;!!!!\x07')).toBeNull();
+    expect(copied(`\x1b]52;c;${b64('ok').slice(0, 3)}?\x07`)).toBeNull();
+    expect(copied('\x1b]52;c;aGk\x07')).toBe('hi');
+  });
+
+  test('bytes that are not UTF-8 become U+FFFD', () => {
+    expect(copied(`\x1b]52;c;${b64(new Uint8Array([0x61, 0xff, 0x62]))}\x07`)).toBe('a\ufffdb');
+  });
+
+  test('iTerm2 OSC 1337 Copy reaches the clipboard too', () => {
+    expect(copied(`\x1b]1337;Copy=:${b64('iterm')}\x07`)).toBe('iterm');
+  });
+
+  test('a sequence split across writes is reported when it ends; the last write wins', () => {
+    const t = term();
+    t.write(`\x1b]52;c;${b64('split')}`);
+    expect(t.readEffects().clipboard).toBeNull();
+    t.write(`\x07\x1b]52;c;${b64('first')}\x07\x1b]52;c;${b64('last')}\x07`);
+    expect(t.readEffects().clipboard).toBe('last');
+    t.free();
+  });
+
+  test('a sequence over 8 MiB is dropped, and the terminal carries on', () => {
+    const t = term();
+    const fits = 'a'.repeat(5 * 1024 * 1024);
+    t.write(`\x1b]52;c;${b64(fits)}\x07`);
+    expect(t.readEffects().clipboard?.length).toBe(fits.length);
+    t.write(`\x1b]52;c;${b64('a'.repeat(6 * 1024 * 1024))}\x07after`);
+    expect(t.readEffects().clipboard).toBeNull();
+    expect(rowText(t, 0)).toBe('after');
+    t.free();
+  });
+
+  test('with clipboardWrite off, nothing is reported', () => {
+    const off = { ...THEME, clipboardWrite: false };
+    expect(copied(`\x1b]52;c;${b64('hello')}\x07`, off)).toBeNull();
+    expect(copied('\x1b]52;c;\x07', off)).toBeNull();
+    expect(copied(`\x1b]1337;Copy=:${b64('iterm')}\x07`, off)).toBeNull();
   });
 });
 

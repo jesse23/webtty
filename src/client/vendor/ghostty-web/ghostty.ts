@@ -81,10 +81,16 @@ export interface ScreenRange {
   end: ScreenCell;
 }
 
-/** Bell and title changes since the last `readEffects` (ADR 042). */
+/** Bell, title and clipboard writes since the last `readEffects` (ADR 042, ADR 052). */
 export interface TerminalEffects {
   bell: boolean;
   title: string | null;
+  /**
+   * The text of the last clipboard write the program made (OSC 52, OSC 1337 Copy or
+   * OSC 5522) to the standard clipboard, `''` for a clear, or null for none. Only set
+   * while the terminal was created with `clipboardWrite` on. (webtty, ADR 052)
+   */
+  clipboard: string | null;
 }
 
 /**
@@ -172,7 +178,7 @@ export interface GhosttyTerminal {
   // Replies and effects
   hasResponse(): boolean;
   readResponse(): string | null;
-  /** Bell and title changes since the last call. */
+  /** Bell, title and clipboard writes since the last call. */
   readEffects(): TerminalEffects;
 }
 
@@ -494,6 +500,7 @@ function resolveOfficialLayout(layout: VtLayout) {
       MODE: opt('MODE'),
       DEFAULT_CURSOR_STYLE: opt('DEFAULT_CURSOR_STYLE'),
       DEFAULT_CURSOR_BLINK: opt('DEFAULT_CURSOR_BLINK'),
+      CLIPBOARD_WRITE: opt('CLIPBOARD_WRITE'),
     },
     defaultCursorStyle: {
       bar: layout.value('GhosttyTerminalCursorStyle', 'BAR'),
@@ -727,6 +734,21 @@ function resolveOfficialLayout(layout: VtLayout) {
       writerUserdata: layout.offset('GhosttyWriter', 'userdata'),
       STANDARD: layout.value('GhosttyClipboardLocation', 'STANDARD'),
       CLIPBOARD: layout.value('GhosttyPasteSource', 'CLIPBOARD'),
+    },
+    clipboardWrite: {
+      location: layout.offset('GhosttyClipboardWrite', 'location'),
+      contents: layout.offset('GhosttyClipboardWrite', 'contents'),
+      contentsLen: layout.offset('GhosttyClipboardWrite', 'contents_len'),
+      reply: layout.offset('GhosttyClipboardWrite', 'reply'),
+      contentSize: layout.size('GhosttyClipboardContent'),
+      mime: layout.offset('GhosttyClipboardContent', 'mime'),
+      data: layout.offset('GhosttyClipboardContent', 'data'),
+      replySize: layout.size('GhosttyClipboardWriteReply'),
+      replySizeField: layout.offset('GhosttyClipboardWriteReply', 'size'),
+      replyResult: layout.offset('GhosttyClipboardWriteReply', 'result'),
+      STANDARD: layout.value('GhosttyClipboardLocation', 'STANDARD'),
+      SUCCESS: layout.value('GhosttyClipboardWriteResult', 'SUCCESS'),
+      UNSUPPORTED: layout.value('GhosttyClipboardWriteResult', 'UNSUPPORTED'),
     },
     result: {
       SUCCESS: layout.value('GhosttyResult', 'SUCCESS'),
@@ -1024,6 +1046,23 @@ function setRgb(cell: GhosttyCell, fg: number, bg: number): void {
   cell.bg_b = bg & 0xff;
 }
 
+const TEXT_MIMES = new Set([
+  'text/plain',
+  'text/plain;charset=utf-8',
+  'UTF8_STRING',
+  'TEXT',
+  'STRING',
+]);
+
+/**
+ * Whether a clipboard MIME type names plain text: Ghostty's `isTextMime` list
+ * (`src/terminal/clipboard.zig`), the names text goes by on every platform. (webtty,
+ * ADR 052)
+ */
+export function isTextMime(mime: string): boolean {
+  return TEXT_MIMES.has(mime);
+}
+
 /**
  * Whether one `WRITE_PTY` reply is the kitty keyboard query reply `ESC [ ? <flags> u`
  * (`queryKittyKeyboard` in Ghostty's `stream_terminal.zig`). No other reply has
@@ -1099,7 +1138,8 @@ export class OfficialTerminal implements GhosttyTerminal {
     | 'palette'
     | 'mouseSize'
     | 'mousePos'
-    | 'mouseOut',
+    | 'mouseOut'
+    | 'clipReply',
     number
   >;
   private readonly callbacks: InstalledFn[] = [];
@@ -1168,6 +1208,7 @@ export class OfficialTerminal implements GhosttyTerminal {
   private bell = false;
   private titleChanged = false;
   private pendingTitle: string | null = null;
+  private pendingClipboard: string | null = null;
 
   constructor(vt: Ghostty, cols: number, rows: number, config?: GhosttyTerminalConfig) {
     this.vt = vt;
@@ -1228,6 +1269,7 @@ export class OfficialTerminal implements GhosttyTerminal {
       mouseSize: [L.mouse.size, 8],
       mousePos: [L.mouse.positionSize, 8],
       mouseOut: [MOUSE_REPORT_MAX, 8],
+      clipReply: [L.clipboardWrite.replySize, 8],
     } as const);
     this.scratch = scratch;
     this.at = at;
@@ -1248,7 +1290,7 @@ export class OfficialTerminal implements GhosttyTerminal {
     ]);
     this.setU32s(at.tVals, [at.curX, at.curY, at.sbRows, at.screen]);
 
-    this.installCallbacks();
+    this.installCallbacks(config?.clipboardWrite ?? true);
     this.applyConfig(config);
     this.allocView();
   }
@@ -1753,9 +1795,10 @@ export class OfficialTerminal implements GhosttyTerminal {
   }
 
   readEffects(): TerminalEffects {
-    const effects = { bell: this.bell, title: this.pendingTitle };
+    const effects = { bell: this.bell, title: this.pendingTitle, clipboard: this.pendingClipboard };
     this.bell = false;
     this.pendingTitle = null;
+    this.pendingClipboard = null;
     return effects;
   }
 
@@ -1830,7 +1873,7 @@ export class OfficialTerminal implements GhosttyTerminal {
   // Private: setup
   // ==========================================================================
 
-  private installCallbacks(): void {
+  private installCallbacks(clipboardWrite: boolean): void {
     const L = this.L;
     const table = this.vt.fnTable;
     const install = (
@@ -1923,6 +1966,70 @@ export class OfficialTerminal implements GhosttyTerminal {
       3,
       true
     );
+    // CLIPBOARD_WRITE(terminal, userdata, write): left NULL with clipboardWrite off, so
+    // Ghostty ignores OSC 52 and OSC 1337 Copy and refuses OSC 5522 writes (ADR 052).
+    if (clipboardWrite) {
+      install(
+        L.opt.CLIPBOARD_WRITE,
+        'CLIPBOARD_WRITE',
+        (_t, _u, write) => {
+          this.clipboardWrite(write);
+          return undefined;
+        },
+        3,
+        false
+      );
+    }
+  }
+
+  /**
+   * Takes one clipboard write (`GhosttyClipboardWrite`, already base64-decoded by
+   * Ghostty) and answers it before returning, as the API requires. Only the standard
+   * clipboard is written: the browser has no other, and Ghostty on macOS keeps `s` in
+   * a private pasteboard and drops `p`. The text is the first plain-text
+   * representation, decoded as UTF-8 with invalid bytes replaced (U+FFFD); no
+   * representations is a clear, kept as `''`. The browser write happens later, after
+   * `readEffects`, so success here means the write was accepted. (webtty, ADR 052)
+   */
+  private clipboardWrite(write: number): void {
+    const C = this.L.clipboardWrite;
+    const dv = this.dv();
+    let result = C.UNSUPPORTED;
+    if (dv.getInt32(write + C.location, true) === C.STANDARD) {
+      const contents = dv.getUint32(write + C.contents, true);
+      const count = dv.getUint32(write + C.contentsLen, true);
+      if (count === 0) {
+        this.pendingClipboard = '';
+        result = C.SUCCESS;
+      }
+      for (let i = 0; i < count; i++) {
+        const content = contents + i * C.contentSize;
+        const mime = this.stringAt(content + C.mime);
+        if (!isTextMime(new TextDecoder().decode(mime))) continue;
+        this.pendingClipboard = new TextDecoder().decode(this.stringAt(content + C.data));
+        result = C.SUCCESS;
+        break;
+      }
+    }
+    const reply = this.at.clipReply;
+    const out = this.dv();
+    new Uint8Array(this.ex.memory.buffer, reply, C.replySize).fill(0);
+    out.setUint32(reply + C.replySizeField, C.replySize, true);
+    out.setInt32(reply + C.replyResult, result, true);
+    const fn = this.ex.__indirect_function_table.get(out.getUint32(write + C.reply, true)) as (
+      write: number,
+      reply: number
+    ) => void;
+    fn(write, reply);
+  }
+
+  /** A copy of the bytes a `GhosttyString` at `ptr` points to. */
+  private stringAt(ptr: number): Uint8Array {
+    const S = this.L.string;
+    const dv = this.dv();
+    const data = dv.getUint32(ptr + S.ptr, true);
+    const len = dv.getUint32(ptr + S.len, true);
+    return len === 0 ? new Uint8Array(0) : this.u8().slice(data, data + len);
   }
 
   private applyConfig(config: GhosttyTerminalConfig | undefined): void {

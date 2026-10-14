@@ -27,6 +27,9 @@ export interface ITerminalOptions {
   copyOnSelect?: boolean; // Copy a mouse selection to the clipboard when it is made (default: true) (webtty)
   rightClickBehavior?: RightClickBehavior; // What a right-click the app does not take does (default: 'contextMenu') (webtty, ADR 051)
 
+  // Clipboard options
+  clipboardWrite?: boolean; // Report program clipboard writes (OSC 52) through onClipboardWrite; read when the terminal is created (default: true) (webtty, ADR 052)
+
   // The Ghostty WASM instance, from Ghostty.load() (webtty: upstream's init() and its
   // module-level instance are removed)
   ghostty: Ghostty;
