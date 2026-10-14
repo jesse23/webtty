@@ -204,6 +204,11 @@ export class KittyGraphics {
     this.assembler = new ChunkAssembler(this.limits.maxTransmissionBytes);
     this.overlay = document.createElement('canvas');
     this.overlay.dataset.kitty = '';
+    // A new canvas is 300x150, which the tick reads as something to draw. At
+    // 0x0 the overlay holds no backing store and costs no layout read per
+    // frame until an image is placed.
+    this.overlay.width = 0;
+    this.overlay.height = 0;
     this.overlay.style.cssText = 'position:absolute;pointer-events:none;';
     container.appendChild(this.overlay);
     requestAnimationFrame(this.tick);
@@ -603,6 +608,13 @@ export class KittyGraphics {
     const w = canvas.offsetWidth;
     const h = canvas.offsetHeight;
     const o = this.overlay;
+    if (this.placements.size === 0) {
+      // Nothing left to draw: free the backing store, which at full size is
+      // the size of the terminal's canvas, and let the tick go idle.
+      o.width = 0;
+      o.height = 0;
+      return;
+    }
     if (o.width !== Math.round(w * dpr) || o.height !== Math.round(h * dpr)) {
       o.width = Math.round(w * dpr);
       o.height = Math.round(h * dpr);

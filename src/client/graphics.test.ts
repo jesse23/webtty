@@ -5,7 +5,7 @@ import { deviceCellSize } from './kitty';
 
 // KittyGraphics needs a DOM, a canvas and image decoding. These tests stub just
 // enough of them to drive its state handling: what is placed, what is answered,
-// and what is freed. Drawing is not exercised.
+// and what is freed. Drawing is exercised only as far as the overlay's size.
 
 const ESC = '\x1b';
 const apc = (keys: string, payload = ''): string => `${ESC}_G${keys};${payload}${ESC}\\`;
@@ -32,6 +32,9 @@ interface FakeBitmap {
 let bitmaps: FakeBitmap[] = [];
 let listeners = new Map<string, () => void>();
 let visibility = 'visible';
+// The overlay canvas the last KittyGraphics created, and its frame callback.
+let overlay: { width: number; height: number } | null = null;
+let frame: (() => void) | null = null;
 let gate: Promise<void> | null = null;
 // Gates for the next decodes, in the order they start: lets a test finish them in any order.
 let gates: Array<Promise<void>> = [];
@@ -80,10 +83,19 @@ beforeEach(() => {
     get visibilityState() {
       return visibility;
     },
-    createElement: () => ({ dataset: {}, style: {}, width: 0, height: 0, getContext: () => null }),
+    // A new canvas is 300x150, as in a browser
+    createElement: () => {
+      const ctx = { setTransform() {}, clearRect() {}, drawImage() {} };
+      overlay = { dataset: {}, style: {}, width: 300, height: 150, getContext: () => ctx } as never;
+      return overlay;
+    },
   };
   g.window = { devicePixelRatio: 1 };
-  g.requestAnimationFrame = () => 0;
+  frame = null;
+  g.requestAnimationFrame = (cb: () => void) => {
+    frame = cb;
+    return 0;
+  };
   g.ImageData = class {
     constructor(
       readonly data: Uint8ClampedArray,
@@ -125,6 +137,7 @@ interface Harness {
 function harness(
   limits: Partial<Limits> = {},
   cell: { width: number; height: number } = { width: 10, height: 20 },
+  canvas: object | null = null,
 ): Harness {
   const written: string[] = [];
   const sent: string[] = [];
@@ -147,7 +160,7 @@ function harness(
     wasmTerm: { isAlternateScreen: () => false, getScrollbackLength: () => 0 },
     renderer: { getMetrics: () => cell },
   };
-  const container = { appendChild: () => {}, querySelector: () => null };
+  const container = { appendChild: () => {}, querySelector: () => canvas };
   const g = new KittyGraphics(term as never, container as never, (d) => sent.push(d), limits);
   const internals = g as unknown as {
     placements: Map<string, unknown>;
@@ -719,6 +732,50 @@ describe('overlay repaint when the tab is shown again', () => {
     h.g.invalidate();
     expect(h.dirty()).toBe(true);
     expect((h.g as unknown as { lastSignature: string }).lastSignature).toBe('');
+  });
+});
+
+describe('overlay backing store', () => {
+  // The terminal's canvas, counting the layout reads the tick makes of it.
+  function terminalCanvas(): { reads: number } {
+    const box = { reads: 0, offsetLeft: 0, offsetTop: 0 };
+    for (const [key, value] of [
+      ['offsetWidth', 800],
+      ['offsetHeight', 600],
+    ] as const) {
+      Object.defineProperty(box, key, {
+        get: () => {
+          box.reads++;
+          return value;
+        },
+      });
+    }
+    return box;
+  }
+
+  test('a new overlay is empty and reads no layout while there is no image', () => {
+    const canvas = terminalCanvas();
+    harness({}, undefined, canvas);
+    expect(overlay).toMatchObject({ width: 0, height: 0 });
+    frame?.();
+    frame?.();
+    expect(canvas.reads).toBe(0);
+    expect(overlay).toMatchObject({ width: 0, height: 0 });
+  });
+
+  test('the overlay grows for an image and shrinks back to empty when the last one goes', async () => {
+    const canvas = terminalCanvas();
+    const h = harness({}, undefined, canvas);
+    h.g.feed(apc('a=T,f=32,s=1,v=1,i=1,C=1', zeros(4)));
+    await flush();
+    frame?.();
+    expect(overlay).toMatchObject({ width: 800, height: 600 });
+    h.g.feed(apc('a=d,d=I,i=1'));
+    frame?.();
+    expect(overlay).toMatchObject({ width: 0, height: 0 });
+    canvas.reads = 0;
+    frame?.();
+    expect(canvas.reads).toBe(0);
   });
 });
 
