@@ -54,12 +54,13 @@ Not from upstream; each starts with, or will start with when it is next touched,
 
 - `glide.ts`, `wheel.ts` (ADR 045), `mouse-route.ts` (ADR 051), `search.ts` (ADR 055).
 - `lifecycle/disposable-store.ts` (ADR 060, ADR 065): `DisposableStore`, `listen` and `toDisposable`, the one teardown primitive of the app and, from ADR 065, of this layer.
+- `engine/wasm-exports.ts`, `engine/vt-layout.ts`, `engine/official-layout.ts`, `engine/key-tables.ts`, `engine/scratch.ts` (ADR 041, ADR 042), `engine/cursor-blink.ts` (ADR 049), `engine/text-mime.ts` (ADR 052), `engine/kitty-keyboard-reply.ts` (ADR 042): webtty's binding to the official wasm, moved out of `ghostty.ts` (ADR 061). Upstream's `ghostty.ts` ran the Coder wasm at fixed offsets and had none of them.
 
 ## Layout
 
 - `lifecycle/`: teardown (`disposable-store.ts`). webtty-original.
 - `input/`: keyboard and mouse input (`key-types.ts`).
-- `engine/`: the binding to the official wasm (`cell-types.ts`, `engine-types.ts`).
+- `engine/`: the binding to the official wasm: its interfaces (`cell-types.ts`, `engine-types.ts`), the export typing (`wasm-exports.ts`), the manifest reader and layout table (`vt-layout.ts`, `official-layout.ts`), the key name tables (`key-tables.ts`), the scratch allocator (`scratch.ts`) and pure helpers (`cursor-blink.ts`, `text-mime.ts`, `kitty-keyboard-reply.ts`).
 - `link-types.ts`: the link detection contract, beside `link-detector.ts` and `providers/`.
 - `types.ts`: a re-export shim for the files above until its importers move (ADR 061).
 
@@ -73,3 +74,12 @@ Each commit that moves code out of an upstream-derived file appends its rows her
 | `types.ts`: `DirtyState`, `RenderStateCursor`, `GhosttyCell`, `CellFlags` | `engine/cell-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
 | `types.ts`: `GhosttyTerminalConfig` | `engine/engine-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
 | `types.ts`: `IBufferCellPosition`, `IBufferRange`, `ILink`, `ILinkProvider` | `link-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
+| `ghostty.ts`: `MouseButton`, `MouseInput`, `MouseGeometry`, `ScreenCell`, `ScreenRange`, `SearchState`, `DesktopNotification`, `TerminalEffects`, `GhosttyTerminal`, `KeyEncoder` (re-exported by `ghostty.ts`) | `engine/engine-types.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `OfficialWasmExports` (webtty) | `engine/wasm-exports.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `ManifestBits`, `ManifestType`, `BitField`, `readBits`, `VtLayout`, and the manifest read of the `Ghostty` constructor as `readVtLayout` (webtty) | `engine/vt-layout.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `resolveOfficialLayout`, `OfficialLayout`, now with a named type per feature (webtty) | `engine/official-layout.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `OFFICIAL_KEY_NAMES`, `OFFICIAL_ENCODER_OPTION_NAMES`, `translateEnum` (webtty) | `engine/key-tables.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `Scratch` (webtty) | `engine/scratch.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `CURSOR_BLINK_SEQ`, `CURSOR_BLINK_PREFIX`, `scanCursorBlink` (webtty, re-exported by `ghostty.ts`) | `engine/cursor-blink.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `TEXT_MIMES`, `isTextMime` (webtty, re-exported by `ghostty.ts`) | `engine/text-mime.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
+| `ghostty.ts`: `isKittyKeyboardReply` (webtty) | `engine/kitty-keyboard-reply.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |

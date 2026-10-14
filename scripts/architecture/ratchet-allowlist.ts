@@ -17,7 +17,7 @@ export const RATCHET_ALLOWLIST: Allowlist = {
   sizes: {
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
-    'src/client/vendor/ghostty-web/ghostty.ts': { lines: 3061, step: ENGINE_SPLIT },
+    'src/client/vendor/ghostty-web/ghostty.ts': { lines: 2160, step: ENGINE_SPLIT },
     'src/client/vendor/ghostty-web/input-handler.ts': {
       lines: 856,
       step: 'vendor input split into input/ (ADR 061)',

@@ -198,7 +198,7 @@ ghostty-web/
     wasm-loader.ts  engine-context.ts  official-terminal.ts  render-state.ts  scrollback-pages.ts
     selection-binding.ts  search-binding.ts  mouse-encoder-binding.ts  paste-focus-binding.ts  key-encoder-binding.ts
     engine-effects.ts (FnTable callbacks, clipboard write, readTitle)  grid-refs.ts (grid and screen refs, hyperlinkAt, graphemes)
-    engine-config.ts (applyConfig, colour reads and writes)  cursor-blink.ts  text-mime.ts
+    engine-config.ts (applyConfig, colour reads and writes)  cursor-blink.ts  text-mime.ts  kitty-keyboard-reply.ts
   core/                 Terminal's collaborators; import core/host-types.ts, never terminal.ts
     host-types.ts  terminal-constants.ts  terminal-geometry.ts  options-proxy.ts  dom-setup.ts
     viewport.ts  focus-tracker.ts  find-controller.ts  write-pipeline.ts  render-loop.ts
