@@ -245,9 +245,30 @@ describe('loadConfig — reads and merges', () => {
     expect(loadConfig().rightClickBehavior).toBe('copyPaste');
   });
 
-  test('falls back rightClickBehavior to default for invalid value', () => {
-    writeConfig(JSON.stringify({ rightClickBehavior: 'bogus' }));
-    expect(loadConfig().rightClickBehavior).toBe('default');
+  test('defaults rightClickBehavior to contextMenu', () => {
+    writeConfig(JSON.stringify({}));
+    expect(loadConfig().rightClickBehavior).toBe('contextMenu');
+  });
+
+  test('accepts each rightClickBehavior value', () => {
+    for (const value of ['contextMenu', 'copyPaste', 'paste', 'none'] as const) {
+      writeConfig(JSON.stringify({ rightClickBehavior: value }));
+      expect(loadConfig().rightClickBehavior).toBe(value);
+    }
+  });
+
+  test('reads the old rightClickBehavior "default" as contextMenu', () => {
+    writeConfig(JSON.stringify({ rightClickBehavior: 'default' }));
+    expect(loadConfig().rightClickBehavior).toBe('contextMenu');
+  });
+
+  test('falls back rightClickBehavior to contextMenu for an invalid value', () => {
+    for (const value of ['bogus', 'webtty', 'Paste', 'nothing']) {
+      writeConfig(JSON.stringify({ rightClickBehavior: value }));
+      expect(loadConfig().rightClickBehavior).toBe('contextMenu');
+    }
+    writeConfig(JSON.stringify({ rightClickBehavior: 3 }));
+    expect(loadConfig().rightClickBehavior).toBe('contextMenu');
   });
 
   test('throws on invalid JSON', () => {

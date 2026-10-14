@@ -60,8 +60,20 @@ export interface Theme {
   brightWhite?: string;
 }
 
-/** Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. */
-export type RightClickBehavior = 'default' | 'copyPaste';
+/**
+ * What a right-click does when the app does not take it (it takes it while it tracks the
+ * mouse, unless Shift is held): `"contextMenu"` shows the browser menu; `"copyPaste"`
+ * copies and clears a selection, or shows the menu without one; `"paste"` pastes the
+ * clipboard; `"none"` does nothing. See ADR 051.
+ */
+export type RightClickBehavior = 'contextMenu' | 'copyPaste' | 'paste' | 'none';
+
+const RIGHT_CLICK_BEHAVIORS: readonly string[] = ['contextMenu', 'copyPaste', 'paste', 'none'];
+
+/** A configured `rightClickBehavior`: `"default"` is the old name of `"contextMenu"`, and anything unknown is `"contextMenu"`. */
+export function parseRightClickBehavior(value: string): RightClickBehavior {
+  return RIGHT_CLICK_BEHAVIORS.includes(value) ? (value as RightClickBehavior) : 'contextMenu';
+}
 
 /** Full webtty configuration. All keys are optional in the config file; missing keys fall back to {@link DEFAULT_CONFIG}. */
 export interface Config {
@@ -91,9 +103,9 @@ export interface Config {
   cursorStyle: 'block' | 'bar' | 'underline';
   /** Default blink state. Apps override at runtime via DECSCUSR — this is the startup default only. */
   cursorStyleBlink: boolean;
-  /** Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style). */
+  /** Copy a mouse selection to the clipboard when the button is released (kitty / Windows Terminal style). A drag the app receives is not a selection. */
   copyOnSelect: boolean;
-  /** `"copyPaste"` copies selection + clears it on right-click if selection exists; `"default"` always shows native context menu. */
+  /** What a right-click does when the app does not take it; see {@link RightClickBehavior}. */
   rightClickBehavior: RightClickBehavior;
   /** Mouse wheel scroll speed multiplier for apps with mouse tracking. `1` = one SGR per tick. Values `< 1` reduce rate; values `> 1` send multiple SGRs per tick. Must be `> 0`. */
   mouseScrollSpeed: number;
@@ -172,7 +184,7 @@ export const DEFAULT_CONFIG: Config = {
   cursorStyle: 'bar',
   cursorStyleBlink: true,
   copyOnSelect: true,
-  rightClickBehavior: 'default' as RightClickBehavior,
+  rightClickBehavior: 'contextMenu' as RightClickBehavior,
   mouseScrollSpeed: 1,
   padding: 0,
   logs: false,
@@ -287,9 +299,7 @@ export function loadConfig(): Config {
     ...(typeof p.cursorStyleBlink === 'boolean' && { cursorStyleBlink: p.cursorStyleBlink }),
     ...(typeof p.copyOnSelect === 'boolean' && { copyOnSelect: p.copyOnSelect }),
     ...(typeof p.rightClickBehavior === 'string' && {
-      rightClickBehavior: (p.rightClickBehavior === 'copyPaste'
-        ? 'copyPaste'
-        : 'default') as RightClickBehavior,
+      rightClickBehavior: parseRightClickBehavior(p.rightClickBehavior),
     }),
     ...(typeof p.mouseScrollSpeed === 'number' &&
       p.mouseScrollSpeed > 0 && { mouseScrollSpeed: p.mouseScrollSpeed }),
