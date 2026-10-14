@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { isWindows, runningUnderBun } from '../runtime';
 import { spawnForSession } from './index';
 
 function waitForData(received: string[], content: string, timeout = 3000): Promise<void> {
@@ -25,9 +26,7 @@ const TEST_SHELL = process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.e
 // the first PTY write. The server always runs under Node on Windows (see http.ts),
 // so skip the interactive data test under Bun on Windows — it passes in CI (Linux)
 // and under Node on Windows.
-const isBunOnWindows =
-  process.platform === 'win32' &&
-  typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+const isBunOnWindows = isWindows() && runningUnderBun();
 
 describe('spawnForSession', () => {
   test('returns a PtyProcess with the expected interface', () => {

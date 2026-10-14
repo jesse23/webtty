@@ -3,6 +3,7 @@ import type { WebSocket as WS } from 'ws';
 import { WebSocketServer } from 'ws';
 import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
+import { packageRunner } from '../runtime';
 import { FELL_BEHIND } from './flow';
 import type { Session } from './session';
 import { sessionRegistry, setLastUsedId } from './session';
@@ -68,8 +69,7 @@ const ITALIC = '\x1b[3m';
 const YELLOW = '\x1b[1;33m';
 const CYAN = '\x1b[1;36m';
 
-const isBun = process.execPath.includes('bun');
-const PKG_RUNNER = isBun ? 'bunx' : 'npx';
+const PKG_RUNNER = packageRunner();
 
 function sessionBanner(): string {
   const W = 48;

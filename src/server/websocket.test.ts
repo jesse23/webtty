@@ -3,6 +3,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
+import { isWindows, runningUnderBun } from '../runtime';
 import {
   cleanupTmpHome,
   getFreePort,
@@ -20,8 +21,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // On Windows, Bun's ConPTY/net.Socket integration doesn't support the pipe
 // handles node-pty requires. Mirror the same workaround as http.ts: run the
 // server under Node when on Windows+Bun so node-pty works correctly.
-const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
-const useNode = process.platform === 'win32' && isBun;
+const useNode = isWindows() && runningUnderBun();
 const SERVER_EXEC = useNode ? 'node' : process.execPath;
 const SERVER_ENTRY = useNode
   ? path.resolve(__dirname, '../../dist/server/index.js')

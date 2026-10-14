@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { configDir, loadConfig } from '../config';
+import { isWindows, runningUnderBun } from '../runtime';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -42,13 +43,11 @@ export async function isServerRunning(): Promise<boolean> {
  * @throws Exits the process with code 1 if the server entry is not found or fails to start in time.
  */
 export async function startServer(timeoutMs = 10000, _spawn = childProcess.spawn): Promise<void> {
-  const isBun = typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
-
   // On Windows, Bun's net.Socket doesn't support the fd-based named-pipe
   // wrapping that node-pty's ConPTY backend requires, so node-pty fails under
   // Bun on Windows. bunx works because its #!/usr/bin/env node shim runs the
   // server with Node.js instead. Mirror that here explicitly.
-  const useNode = process.platform === 'win32' && isBun;
+  const useNode = isWindows() && runningUnderBun();
   const serverExec = useNode ? 'node' : process.execPath;
 
   // Resolve the server entry. When useNode is true the executor is Node.js,
