@@ -329,6 +329,30 @@ describe('websocket', () => {
     expect(res.headers.get('location')).toBe('/s/ws-test-pid-route');
   });
 
+  test('GET / redirects to the last-used session, through a rename and until it is deleted', async () => {
+    const redirect = async () =>
+      (await fetch(`${baseUrl}/`, { redirect: 'manual' })).headers.get('location');
+    await fetch(`${baseUrl}/api/sessions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'ws-test-last-used' }),
+    });
+    const { ws, messages } = await connectWs(`${wsBase}/ws/ws-test-last-used/pty?cols=80&rows=24`);
+    await waitForMessages(messages, 1);
+    await closeWs(ws);
+    expect(await redirect()).toBe('/s/ws-test-last-used');
+
+    await fetch(`${baseUrl}/api/sessions/ws-test-last-used`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'ws-test-last-renamed' }),
+    });
+    expect(await redirect()).toBe('/s/ws-test-last-renamed');
+
+    await fetch(`${baseUrl}/api/sessions/ws-test-last-renamed`, { method: 'DELETE' });
+    expect(await redirect()).toBe('/s/main');
+  });
+
   test('GET /ws/:id/events rejects with 4001 for non-existent session', async () => {
     const ws = new WebSocket(`${wsBase}/ws/no-such-session/events`);
     const code = await new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));

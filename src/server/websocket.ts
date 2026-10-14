@@ -5,8 +5,8 @@ import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
 import { packageRunner } from '../runtime';
 import type { Session } from './session';
-import { sessionRegistry, setLastUsedId } from './session';
 import { sessionBanner } from './sessions/session-banner';
+import type { SessionStore } from './sessions/session-store';
 import { parseClientMessage, sizeFromQuery } from './ws/client-message';
 import { WS_CLOSE } from './ws/close-codes';
 
@@ -26,9 +26,14 @@ export function closeSession(session: Session): void {
   closeClients(session, WS_CLOSE.SESSION_GONE, 'session deleted');
 }
 
-/** Closes all WebSocket clients across every active session with the SERVER_STOPPED close code. */
-export function closeAllSessions(): void {
-  for (const session of sessionRegistry.values()) {
+/**
+ * Closes all WebSocket clients across every session in `store` with the SERVER_STOPPED
+ * close code.
+ *
+ * @param store - The server's sessions.
+ */
+export function closeAllSessions(store: SessionStore): void {
+  for (const session of store.list()) {
     closeClients(session, WS_CLOSE.SERVER_STOPPED, 'server stopped');
   }
 }
@@ -45,21 +50,10 @@ export function broadcastToSubscribers(session: Session, line: string): void {
   }
 }
 
-let onLastSessionClosed: (() => void) | null = null;
-
-/**
- * Registers a callback invoked once the last session closes (e.g. to stop the HTTP server).
- *
- * @param handler - Callback to invoke when the last session closes.
- */
-export function setLastSessionClosedHandler(handler: () => void): void {
-  onLastSessionClosed = handler;
-}
-
 const PKG_RUNNER = packageRunner();
 
-function handleSubscribe(ws: WS, id: string): void {
-  const session = sessionRegistry.get(id);
+function handleSubscribe(store: SessionStore, ws: WS, id: string): void {
+  const session = store.get(id);
   if (!session) {
     ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
     return;
@@ -81,9 +75,13 @@ function handleSubscribe(ws: WS, id: string): void {
  * and event subscriptions for `/ws/:id/events` connections.
  *
  * @param httpServer - The HTTP server to attach the WebSocket server to.
+ * @param store - The server's sessions; its `onEmpty` runs once the last shell has exited.
  * @returns The configured {@link WebSocketServer}.
  */
-export function createWebSocketServer(httpServer: http.Server): WebSocketServer {
+export function createWebSocketServer(
+  httpServer: http.Server,
+  store: SessionStore,
+): WebSocketServer {
   const wss = new WebSocketServer({ noServer: true });
 
   httpServer.on('upgrade', (req, socket, head) => {
@@ -118,18 +116,18 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
     }
 
     if (eventsMatch) {
-      handleSubscribe(ws, id);
+      handleSubscribe(store, ws, id);
       return;
     }
 
     const { cols, rows } = sizeFromQuery(url.searchParams);
 
-    if (!sessionRegistry.has(id)) {
+    if (!store.has(id)) {
       ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
       return;
     }
 
-    const session = sessionRegistry.get(id);
+    const session = store.get(id);
     if (!session) {
       ws.close(WS_CLOSE.SESSION_GONE, 'session deleted');
       return;
@@ -138,7 +136,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
     // A client that acknowledges output says so in the URL; one without it predates
     // ADR 048 (a tab loaded before an upgrade) and is sent output unpaced.
     session.output.add(ws, url.searchParams.get('flow') === '1');
-    setLastUsedId(id);
+    store.markUsed(id);
 
     if (!session.pty) {
       const config = loadConfig();
@@ -158,7 +156,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       });
 
       session.pty.onExit(() => {
-        sessionRegistry.delete(session.id);
+        store.removeExited(session.id);
         for (const sub of session.subscribers) {
           if (sub.readyState === sub.OPEN) {
             sub.close(WS_CLOSE.SESSION_GONE, 'shell exited');
@@ -169,7 +167,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
         // A client behind the output is sent what is queued for it before it is closed,
         // so the last lines the shell wrote are not lost (ADR 048).
         session.output.end(WS_CLOSE.SESSION_GONE, 'shell exited').then(() => {
-          if (sessionRegistry.size === 0) onLastSessionClosed?.();
+          store.notifyIfEmpty();
         });
       });
 

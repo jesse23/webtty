@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config';
 import { findGhosttyWasm } from './http/static-files';
 import { handleRequest } from './routes';
-import { closeAllSessions, createWebSocketServer, setLastSessionClosedHandler } from './websocket';
+import { SessionStore } from './sessions/session-store';
+import { closeAllSessions, createWebSocketServer } from './websocket';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -28,8 +29,11 @@ const clientDistPath = fs.existsSync(path.join(builtDistPath, 'client.html'))
   ? builtDistPath
   : srcClientPath;
 
+// The one registry of sessions. Once the last shell exits the server stops itself.
+const store = new SessionStore({ onEmpty: shutdown });
+
 function shutdown() {
-  closeAllSessions();
+  closeAllSessions(store);
   wss.close();
   const exit = () => process.exit(0);
   const shutdownTimeout = setTimeout(exit, 1000);
@@ -47,7 +51,7 @@ process.on('unhandledRejection', (reason) => {
 });
 
 const httpServer = http.createServer((req, res) => {
-  handleRequest(req, res, wasmPath, clientDistPath, shutdown).catch((err) => {
+  handleRequest(req, res, store, wasmPath, clientDistPath, shutdown).catch((err) => {
     console.error('[webtty] unhandled route error:', err);
     if (!res.headersSent) {
       res.writeHead(500);
@@ -56,8 +60,7 @@ const httpServer = http.createServer((req, res) => {
   });
 });
 
-const wss = createWebSocketServer(httpServer);
-setLastSessionClosedHandler(shutdown);
+const wss = createWebSocketServer(httpServer, store);
 
 process.on('SIGINT', () => {
   console.log('\n\nShutting down...');

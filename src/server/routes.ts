@@ -6,14 +6,9 @@ import path from 'node:path';
 import { loadConfig, toClientConfig } from '../config';
 import { getVersion } from '../version';
 import { GHOSTTY_WASM, serveFile } from './http/static-files';
-import {
-  createSession,
-  lastUsedId,
-  sessionRegistry,
-  sessionToJson,
-  setLastUsedId,
-} from './session';
+import { sessionToJson } from './session';
 import { generateId, isValidId } from './sessions/session-id';
+import type { SessionStore } from './sessions/session-store';
 import { broadcastToSubscribers, closeSession } from './websocket';
 
 const MAX_BODY = 64 * 1024;
@@ -71,6 +66,7 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
  *
  * @param req - The incoming HTTP request.
  * @param res - The HTTP response object.
+ * @param store - The server's sessions.
  * @param wasmPath - Path to the wasm served at `/ghostty-vt-small.wasm`.
  * @param clientDistPath - Path to the client dist directory.
  * @param onStop - Callback invoked when `POST /api/server/stop` is received.
@@ -78,6 +74,7 @@ export function readJson(req: http.IncomingMessage): Promise<unknown> {
 export async function handleRequest(
   req: http.IncomingMessage,
   res: http.ServerResponse,
+  store: SessionStore,
   wasmPath: string,
   clientDistPath: string,
   onStop: () => void,
@@ -116,7 +113,7 @@ export async function handleRequest(
 
   if (pathname === '/api/sessions') {
     if (req.method === 'GET') {
-      const list = [...sessionRegistry.values()].map(sessionToJson);
+      const list = store.list().map(sessionToJson);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(list));
       return;
@@ -139,7 +136,7 @@ export async function handleRequest(
         res.end(JSON.stringify({ error: `invalid id: ${id}` }));
         return;
       }
-      if (sessionRegistry.has(id)) {
+      if (store.has(id)) {
         res.writeHead(409, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `session already exists: ${id}` }));
         return;
@@ -160,7 +157,7 @@ export async function handleRequest(
         res.end(JSON.stringify({ error: `baseDir is not a directory: ${baseDir}` }));
         return;
       }
-      const session = createSession(id, baseDir);
+      const session = store.create(id, baseDir);
       res.writeHead(201, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessionToJson(session)));
       return;
@@ -177,7 +174,7 @@ export async function handleRequest(
     }
 
     if (req.method === 'GET') {
-      const session = sessionRegistry.get(id);
+      const session = store.get(id);
       if (!session) {
         res.writeHead(404);
         res.end('Not Found');
@@ -199,7 +196,7 @@ export async function handleRequest(
         return;
       }
 
-      const session = sessionRegistry.get(id);
+      const session = store.get(id);
       if (!session) {
         res.writeHead(404);
         res.end('Not Found');
@@ -217,40 +214,35 @@ export async function handleRequest(
         res.end(JSON.stringify({ error: `invalid id: ${newId}` }));
         return;
       }
-      if (sessionRegistry.has(newId)) {
+      if (store.has(newId)) {
         res.writeHead(409, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: `session already exists: ${newId}` }));
         return;
       }
-      sessionRegistry.delete(id);
-      session.id = newId;
-      sessionRegistry.set(newId, session);
-      if (lastUsedId === id) setLastUsedId(newId);
+      store.rename(id, newId);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(sessionToJson(session)));
       return;
     }
 
     if (req.method === 'DELETE') {
-      const session = sessionRegistry.get(id);
+      const session = store.remove(id);
       if (!session) {
         res.writeHead(404);
         res.end('Not Found');
         return;
       }
-      sessionRegistry.delete(id);
-      if (lastUsedId === id) setLastUsedId(null);
       closeSession(session);
-      res.writeHead(204, { 'X-Sessions-Remaining': String(sessionRegistry.size) });
+      res.writeHead(204, { 'X-Sessions-Remaining': String(store.size) });
       res.end();
       return;
     }
   }
 
   if (req.method === 'GET' && (pathname === '/' || pathname === '/index.html')) {
-    let targetId = lastUsedId ?? null;
-    if (!targetId || !sessionRegistry.has(targetId)) {
-      if (!sessionRegistry.has('main')) createSession('main');
+    let targetId = store.lastUsedId;
+    if (!targetId || !store.has(targetId)) {
+      if (!store.has('main')) store.create('main');
       targetId = 'main';
     }
     res.writeHead(302, { Location: `/s/${targetId}` });
@@ -261,7 +253,7 @@ export async function handleRequest(
   const clientMatch = pathname.match(/^\/s\/([^/]+)$/);
   if (req.method === 'GET' && clientMatch) {
     const id = decodeId(clientMatch[1]);
-    if (!id || !isValidId(id) || !sessionRegistry.has(id)) {
+    if (!id || !isValidId(id) || !store.has(id)) {
       res.writeHead(404);
       res.end('Not Found');
       return;
@@ -284,7 +276,7 @@ export async function handleRequest(
       res.end('Bad Request');
       return;
     }
-    const session = sessionRegistry.get(id);
+    const session = store.get(id);
     if (!session) {
       res.writeHead(404);
       res.end('Not Found');
@@ -345,7 +337,7 @@ export async function handleRequest(
       res.end('Bad Request');
       return;
     }
-    const session = sessionRegistry.get(id);
+    const session = store.get(id);
     if (!session) {
       res.writeHead(404);
       res.end('Not Found');
@@ -433,7 +425,7 @@ export async function handleRequest(
       res.end('Not Found');
       return;
     }
-    const session = [...sessionRegistry.values()].find((s) => s.pty?.pid === pid);
+    const session = store.findByPid(pid);
     if (!session) {
       res.writeHead(404);
       res.end('Not Found');

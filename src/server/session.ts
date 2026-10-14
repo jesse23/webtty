@@ -1,3 +1,6 @@
+// The Session record: one terminal session's PTY, clients, subscribers, scrollback and
+// output pacer, plus its JSON view for the API. Types and pure factories; the registry
+// of sessions is SessionStore in sessions/session-store.ts (ADR 062).
 import { homedir } from 'node:os';
 import type { WebSocket as WS } from 'ws';
 import type { PtyProcess } from '../pty';
@@ -23,25 +26,14 @@ export interface Session {
   output: OutputPacer;
 }
 
-/** All active sessions, keyed by session ID. */
-export const sessionRegistry = new Map<string, Session>();
-
-/** ID of the most recently opened session, used for `GET /` redirect. */
-export let lastUsedId: string | null = null;
-
-/** Updates {@link lastUsedId}. */
-export function setLastUsedId(id: string | null): void {
-  lastUsedId = id;
-}
-
 /**
- * Creates a new session, registers it in {@link sessionRegistry}, and returns it.
+ * Builds a session that has no shell yet; `SessionStore.create` registers it.
  *
  * @param id - The session ID.
  * @param baseDir - Working directory for the PTY shell (default: `homedir()`).
- * @returns The newly created {@link Session}.
+ * @returns The new, unregistered {@link Session}.
  */
-export function createSession(id: string, baseDir = homedir()): Session {
+export function newSession(id: string, baseDir = homedir()): Session {
   const session: Session = {
     id,
     createdAt: Date.now(),
@@ -52,7 +44,6 @@ export function createSession(id: string, baseDir = homedir()): Session {
     scrollback: '',
     output: new OutputPacer(() => session.pty),
   };
-  sessionRegistry.set(id, session);
   return session;
 }
 
