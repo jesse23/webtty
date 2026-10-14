@@ -973,3 +973,65 @@ describe('official engine: paste (ADR 049)', () => {
     t.free();
   });
 });
+
+describe('official engine: selection (ADR 050)', () => {
+  test('selectWord uses Ghostty word boundaries and follows soft wraps', () => {
+    const t = term(10, 4);
+    t.write('a=b?c&d x\r\nab "cd" e\r\nx foo/bar/baz');
+    const at = (col: number, row: number) => t.selectWord({ col, row });
+    expect(at(2, 0)).toEqual({ start: { col: 0, row: 0 }, end: { col: 6, row: 0 } });
+    expect(at(4, 1)).toEqual({ start: { col: 4, row: 1 }, end: { col: 5, row: 1 } });
+    // "foo/bar/baz" wraps after column 9: the word runs on into the next row
+    expect(at(3, 2)).toEqual({ start: { col: 2, row: 2 }, end: { col: 2, row: 3 } });
+    expect(at(1, 3)).toEqual({ start: { col: 2, row: 2 }, end: { col: 2, row: 3 } });
+    expect(at(9, 3)).toBeNull();
+    t.free();
+  });
+
+  test('selectWord and selectLine take screen rows, scrollback included', () => {
+    const t = term(10, 2);
+    t.write('first one\r\nsecond\r\nthird');
+    expect(t.getScrollbackLength()).toBe(1);
+    expect(t.selectWord({ col: 1, row: 0 })).toEqual({
+      start: { col: 0, row: 0 },
+      end: { col: 4, row: 0 },
+    });
+    expect(t.selectLine({ col: 0, row: 2 })).toEqual({
+      start: { col: 0, row: 2 },
+      end: { col: 4, row: 2 },
+    });
+    expect(t.selectionText({ col: 0, row: 0 }, { col: 9, row: 2 })).toBe(
+      'first one\nsecond\nthird',
+    );
+    t.free();
+  });
+
+  test('selectLine follows soft wraps and leaves out outer whitespace; a blank line is null', () => {
+    const t = term(6, 4);
+    t.write('  abcdefgh  \r\n\r\nx');
+    expect(t.selectLine({ col: 1, row: 1 })).toEqual({
+      start: { col: 2, row: 0 },
+      end: { col: 3, row: 1 },
+    });
+    expect(t.selectLine({ col: 0, row: 2 })).toBeNull();
+    t.free();
+  });
+
+  test('selectionText joins soft-wrapped rows, trims, takes either order and clamps', () => {
+    const t = term(5, 3);
+    t.write('abcdefg\r\nhi   ');
+    expect(t.selectionText({ col: 0, row: 0 }, { col: 4, row: 2 })).toBe('abcdefg\nhi');
+    expect(t.selectionText({ col: 4, row: 2 }, { col: 0, row: 0 })).toBe('abcdefg\nhi');
+    expect(t.selectionText({ col: -3, row: -1 }, { col: 99, row: 99 })).toBe('abcdefg\nhi');
+    expect(t.selectionText({ col: 3, row: 1 }, { col: 4, row: 1 })).toBe('');
+    t.free();
+  });
+
+  test('selectionText reads the alternate screen while it is active', () => {
+    const t = term(10, 2);
+    t.write('a\r\nb\r\nc\x1b[?1049h\x1b[Halt');
+    expect(t.getScrollbackLength()).toBe(0);
+    expect(t.selectionText({ col: 0, row: 0 }, { col: 9, row: 0 })).toBe('alt');
+    t.free();
+  });
+});

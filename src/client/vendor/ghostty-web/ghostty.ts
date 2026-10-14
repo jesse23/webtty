@@ -66,6 +66,21 @@ export interface MouseGeometry {
   paddingLeft: number;
 }
 
+/**
+ * A cell by screen row (ADR 050): row 0 is the oldest scrollback row and
+ * `getScrollbackLength()` the top row of the active screen, as Ghostty's `SCREEN` points.
+ */
+export interface ScreenCell {
+  col: number;
+  row: number;
+}
+
+/** A range of cells in screen rows, both ends inclusive. */
+export interface ScreenRange {
+  start: ScreenCell;
+  end: ScreenCell;
+}
+
 /** Bell and title changes since the last `readEffects` (ADR 042). */
 export interface TerminalEffects {
   bell: boolean;
@@ -124,6 +139,17 @@ export interface GhosttyTerminal {
   getScrollbackHyperlinkUri(offset: number, col: number): string | null;
   getGraphemeString(row: number, col: number): string;
   getScrollbackGraphemeString(offset: number, col: number): string;
+
+  // Selection (ADR 050), in screen rows on the active screen
+  /** The word at a cell by Ghostty's word boundaries, soft wraps followed; null if empty. */
+  selectWord(cell: ScreenCell): ScreenRange | null;
+  /** The line at a cell, soft wraps followed and outer whitespace left out; null when blank. */
+  selectLine(cell: ScreenCell): ScreenRange | null;
+  /**
+   * The text from `start` to `end` (inclusive, in either order) as Ghostty copies it:
+   * soft-wrapped rows joined, trailing whitespace trimmed, spacer cells skipped.
+   */
+  selectionText(start: ScreenCell, end: ScreenCell): string;
 
   // Mouse reports (ADR 049)
   /** The geometry `encodeMouse` positions are in. */
@@ -209,6 +235,18 @@ interface OfficialWasmExports {
   /** The GhosttyPoint struct is passed by value, i.e. by pointer on wasm32. */
   ghostty_terminal_grid_ref(term: number, point: number, outRef: number): number;
   ghostty_grid_ref_row(ref: number, outRow: number): number;
+  ghostty_terminal_point_from_grid_ref(term: number, ref: number, tag: number, out: number): number;
+  ghostty_terminal_select_word(term: number, options: number, outSelection: number): number;
+  ghostty_terminal_select_line(term: number, options: number, outSelection: number): number;
+  /** GhosttyTerminalSelectionFormatOptions is passed by value, i.e. by pointer on wasm32. */
+  ghostty_terminal_selection_format_alloc(
+    term: number,
+    allocator: number,
+    options: number,
+    outPtr: number,
+    outLen: number
+  ): number;
+  ghostty_free(allocator: number, ptr: number, len: number): void;
   ghostty_grid_ref_hyperlink_uri(ref: number, buf: number, len: number, outLen: number): number;
   /** GhosttyRow is a u64 passed by value (a BigInt on the JS side). */
   ghostty_row_get(row: bigint, data: number, out: number): number;
@@ -584,10 +622,36 @@ function resolveOfficialLayout(layout: VtLayout) {
       y: layout.offset('GhosttyPointCoordinate', 'y'),
       ACTIVE: layout.value('GhosttyPointTag', 'ACTIVE'),
       HISTORY: layout.value('GhosttyPointTag', 'HISTORY'),
+      SCREEN: layout.value('GhosttyPointTag', 'SCREEN'),
     },
     gridRef: {
       size: layout.size('GhosttyGridRef'),
       sizeField: layout.offset('GhosttyGridRef', 'size'),
+    },
+    selection: {
+      size: layout.size('GhosttySelection'),
+      sizeField: layout.offset('GhosttySelection', 'size'),
+      start: layout.offset('GhosttySelection', 'start'),
+      end: layout.offset('GhosttySelection', 'end'),
+      word: {
+        size: layout.size('GhosttyTerminalSelectWordOptions'),
+        sizeField: layout.offset('GhosttyTerminalSelectWordOptions', 'size'),
+        ref: layout.offset('GhosttyTerminalSelectWordOptions', 'ref'),
+      },
+      line: {
+        size: layout.size('GhosttyTerminalSelectLineOptions'),
+        sizeField: layout.offset('GhosttyTerminalSelectLineOptions', 'size'),
+        ref: layout.offset('GhosttyTerminalSelectLineOptions', 'ref'),
+      },
+      format: {
+        size: layout.size('GhosttyTerminalSelectionFormatOptions'),
+        sizeField: layout.offset('GhosttyTerminalSelectionFormatOptions', 'size'),
+        emit: layout.offset('GhosttyTerminalSelectionFormatOptions', 'emit'),
+        unwrap: layout.offset('GhosttyTerminalSelectionFormatOptions', 'unwrap'),
+        trim: layout.offset('GhosttyTerminalSelectionFormatOptions', 'trim'),
+        selection: layout.offset('GhosttyTerminalSelectionFormatOptions', 'selection'),
+      },
+      PLAIN: layout.value('GhosttyFormatterFormat', 'PLAIN'),
     },
     string: {
       size: layout.size('GhosttyString'),
@@ -1021,6 +1085,11 @@ export class OfficialTerminal implements GhosttyTerminal {
     | 'scroll'
     | 'point'
     | 'gridRef'
+    | 'sel'
+    | 'selOpts'
+    | 'coord'
+    | 'outPtr'
+    | 'outLen'
     | 'row64'
     | 'str'
     | 'mode'
@@ -1141,6 +1210,14 @@ export class OfficialTerminal implements GhosttyTerminal {
       scroll: [L.scroll.size, 8],
       point: [L.point.size, 8],
       gridRef: [L.gridRef.size, 8],
+      sel: [L.selection.size, 8],
+      selOpts: [
+        Math.max(L.selection.word.size, L.selection.line.size, L.selection.format.size),
+        8,
+      ],
+      coord: [8, 8],
+      outPtr: [4, 4],
+      outLen: [4, 4],
       row64: [8, 8],
       str: [L.string.size, 8],
       mode: [L.mode.size, 8],
@@ -1435,6 +1512,64 @@ export class OfficialTerminal implements GhosttyTerminal {
     this.refresh();
     if (offset < 0 || offset >= this.sbRows || col < 0 || col >= this._cols) return ' ';
     return this.graphemeOf(this.rowAt(offset), col);
+  }
+
+  // ==========================================================================
+  // Selection (ADR 050)
+  // ==========================================================================
+
+  selectWord(cell: ScreenCell): ScreenRange | null {
+    const W = this.L.selection.word;
+    return this.selectAt(W, cell, (opts, out) =>
+      this.ex.ghostty_terminal_select_word(this.term, opts, out)
+    );
+  }
+
+  selectLine(cell: ScreenCell): ScreenRange | null {
+    const W = this.L.selection.line;
+    return this.selectAt(W, cell, (opts, out) =>
+      this.ex.ghostty_terminal_select_line(this.term, opts, out)
+    );
+  }
+
+  selectionText(start: ScreenCell, end: ScreenCell): string {
+    const ex = this.ex;
+    const at = this.at;
+    const S = this.L.selection;
+    const F = S.format;
+    this.info();
+    // Rows that left history, or a selection made before a resize, are clamped.
+    const last = this.sbRows + this._rows - 1;
+    const clamp = (c: ScreenCell): ScreenCell => ({
+      col: Math.max(0, Math.min(c.col, this._cols - 1)),
+      row: Math.max(0, Math.min(c.row, last)),
+    });
+    this.clearSelectionStruct();
+    if (!this.screenRef(clamp(start), at.sel + S.start)) return '';
+    if (!this.screenRef(clamp(end), at.sel + S.end)) return '';
+    this.u8().fill(0, at.selOpts, at.selOpts + F.size);
+    const dv = this.dv();
+    dv.setUint32(at.selOpts + F.sizeField, F.size, true);
+    dv.setInt32(at.selOpts + F.emit, S.PLAIN, true);
+    // Ghostty's copy: soft-wrapped rows joined, trailing whitespace trimmed.
+    dv.setUint8(at.selOpts + F.unwrap, 1);
+    dv.setUint8(at.selOpts + F.trim, 1);
+    dv.setUint32(at.selOpts + F.selection, at.sel, true);
+    dv.setUint32(at.outPtr, 0, true);
+    dv.setUint32(at.outLen, 0, true);
+    const rc = ex.ghostty_terminal_selection_format_alloc(
+      this.term,
+      0,
+      at.selOpts,
+      at.outPtr,
+      at.outLen
+    );
+    const ptr = this.dv().getUint32(at.outPtr, true);
+    const len = this.dv().getUint32(at.outLen, true);
+    if (rc !== 0 || !ptr) return '';
+    const text = new TextDecoder().decode(this.u8().slice(ptr, ptr + len));
+    ex.ghostty_free(0, ptr, len);
+    return text;
   }
 
   // ==========================================================================
@@ -2255,8 +2390,8 @@ export class OfficialTerminal implements GhosttyTerminal {
   // Private: single-cell lookups (grid_ref)
   // ==========================================================================
 
-  /** Resolves a point to a grid reference at `at.gridRef`. */
-  private gridRef(tag: number, x: number, y: number): boolean {
+  /** Resolves a point to a grid reference at `out` (by default `at.gridRef`). */
+  private gridRef(tag: number, x: number, y: number, out: number = this.at.gridRef): boolean {
     const L = this.L;
     const at = this.at;
     const P = L.point;
@@ -2265,9 +2400,57 @@ export class OfficialTerminal implements GhosttyTerminal {
     dv.setInt32(at.point + P.tag, tag, true);
     dv.setUint16(at.point + P.value + P.x, x, true);
     dv.setUint32(at.point + P.value + P.y, y, true);
-    this.u8().fill(0, at.gridRef, at.gridRef + L.gridRef.size);
-    dv.setUint32(at.gridRef + L.gridRef.sizeField, L.gridRef.size, true);
-    return this.ex.ghostty_terminal_grid_ref(this.term, at.point, at.gridRef) === 0;
+    this.u8().fill(0, out, out + L.gridRef.size);
+    dv.setUint32(out + L.gridRef.sizeField, L.gridRef.size, true);
+    return this.ex.ghostty_terminal_grid_ref(this.term, at.point, out) === 0;
+  }
+
+  // ==========================================================================
+  // Private: selection (ADR 050)
+  // ==========================================================================
+
+  private screenRef(cell: ScreenCell, out: number): boolean {
+    if (cell.col < 0 || cell.col >= this._cols || cell.row < 0) return false;
+    return this.gridRef(this.L.point.SCREEN, cell.col, cell.row, out);
+  }
+
+  /** The screen cell of the grid reference at `ref`, or null if it has none. */
+  private screenCellOf(ref: number): ScreenCell | null {
+    const at = this.at;
+    const P = this.L.point;
+    const rc = this.ex.ghostty_terminal_point_from_grid_ref(this.term, ref, P.SCREEN, at.coord);
+    if (rc !== 0) return null;
+    const dv = this.dv();
+    return { col: dv.getUint16(at.coord + P.x, true), row: dv.getUint32(at.coord + P.y, true) };
+  }
+
+  /** Zeroes the GhosttySelection at `at.sel` and sets its size field. */
+  private clearSelectionStruct(): void {
+    const S = this.L.selection;
+    this.u8().fill(0, this.at.sel, this.at.sel + S.size);
+    this.dv().setUint32(this.at.sel + S.sizeField, S.size, true);
+  }
+
+  /**
+   * Runs a `select_*` call whose options are a sized struct with one grid reference,
+   * set to `cell`, and returns the selection it derives in screen cells.
+   */
+  private selectAt(
+    options: { size: number; sizeField: number; ref: number },
+    cell: ScreenCell,
+    call: (options: number, outSelection: number) => number
+  ): ScreenRange | null {
+    const at = this.at;
+    const S = this.L.selection;
+    this.info();
+    this.u8().fill(0, at.selOpts, at.selOpts + options.size);
+    this.dv().setUint32(at.selOpts + options.sizeField, options.size, true);
+    if (!this.screenRef(cell, at.selOpts + options.ref)) return null;
+    this.clearSelectionStruct();
+    if (call(at.selOpts, at.sel) !== 0) return null;
+    const start = this.screenCellOf(at.sel + S.start);
+    const end = this.screenCellOf(at.sel + S.end);
+    return start && end ? { start, end } : null;
   }
 
   private hyperlinkAt(tag: number, x: number, y: number): string | null {
