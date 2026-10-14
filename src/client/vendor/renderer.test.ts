@@ -728,6 +728,25 @@ describe('overscan and copied scrolls (ADR 043)', () => {
     term.free();
   });
 
+  test('visibleArea.version moves when the canvas is drawn on and not on an idle frame', async () => {
+    const t = await terminal();
+    const live = renderer(2);
+    live.r.render(t.term, true, 0, t.provider, 0);
+    live.r.render(t.term, false, 0, t.provider, 0);
+    const idle = live.r.visibleArea.version;
+    // Nothing changed: the edge strips may skip their copy.
+    live.r.render(t.term, false, 0, t.provider, 0);
+    expect(live.r.visibleArea.version).toBe(idle);
+    // Output, and a scroll, draw on the canvas.
+    t.term.write('more output\r\n');
+    live.r.render(t.term, false, 0, t.provider, 0);
+    const afterOutput = live.r.visibleArea.version;
+    expect(afterOutput).toBeGreaterThan(idle);
+    live.r.render(t.term, false, 3, t.provider, 0);
+    expect(live.r.visibleArea.version).toBeGreaterThan(afterOutput);
+    t.term.free();
+  });
+
   test(`a hovered OSC 8 link underlines and repaints only its own range`, async () => {
     const ghostty = await Ghostty.load(WASM);
     const term = ghostty.createTerminal(cols, rows);

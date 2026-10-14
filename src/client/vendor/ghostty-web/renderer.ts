@@ -428,6 +428,7 @@ export class CanvasRenderer {
    * Resize canvas to fit terminal dimensions
    */
   public resize(cols: number, rows: number): void {
+    this.drawCount++;
     const cssWidth = cols * this.metrics.width;
     const cssHeight = rows * this.metrics.height;
 
@@ -780,6 +781,7 @@ export class CanvasRenderer {
     cols: number,
     rowAt: (k: number) => { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
   ): void {
+    this.drawCount++;
     const state = this.rowState;
     const total = state.length;
     const free = (k: number) => k < 0 || k >= total || state[k] === ROW_INVALID;
@@ -838,6 +840,7 @@ export class CanvasRenderer {
     cols: number,
     { line, grapheme }: { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
   ): void {
+    this.drawCount++;
     if (line) {
       this.renderLine(line, k, cols, grapheme);
       return;
@@ -878,6 +881,7 @@ export class CanvasRenderer {
    * the canvas: the rows that came in, which are invalid. (webtty, ADR 043)
    */
   private shiftRows(rows: number): void {
+    this.drawCount++;
     const { width, height } = this.canvas;
     const dy = rows * this.metrics.height * this.devicePixelRatio;
     const kept = height - Math.abs(dy);
@@ -918,6 +922,7 @@ export class CanvasRenderer {
     cols: number,
     grapheme: GraphemeLookup = this.screenGraphemes(this.currentBuffer, y)
   ): void {
+    this.drawCount++;
     const lineY = y * this.metrics.height;
     const lineWidth = cols * this.metrics.width;
 
@@ -1122,6 +1127,7 @@ export class CanvasRenderer {
    * Render cursor at canvas row `y`, which shows screen row `screenRow` (webtty)
    */
   private renderCursor(x: number, y: number, screenRow: number): void {
+    this.drawCount++;
     const cursorX = x * this.metrics.width;
     const cursorY = y * this.metrics.height;
 
@@ -1252,6 +1258,7 @@ export class CanvasRenderer {
     opacity: number = 1,
     row: number = 0
   ): void {
+    this.drawCount++;
     const ctx = this.ctx;
     const top = row * this.metrics.height;
     const canvasHeight = visibleRows * this.metrics.height;
@@ -1313,6 +1320,9 @@ export class CanvasRenderer {
    * The offset the viewport is shown at, in CSS pixels: viewport row 0 starts
    * this far below the element's top. Hit testing adds it. (webtty, ADR 043)
    */
+  /** Counts the calls that draw on the canvas: `visibleArea.version`. (webtty) */
+  private drawCount = 0;
+
   public get scrollOffset(): number {
     return this.shownScrollOffset;
   }
@@ -1320,13 +1330,15 @@ export class CanvasRenderer {
   /**
    * The canvas the rows are drawn on and the part of it in view, in canvas pixels; the
    * rest is overscan. `lastLine` is the bottom pixel line of the viewport's last row,
-   * which at a fraction of a line is below the part in view. (webtty, ADR 043)
+   * which at a fraction of a line is below the part in view. `version` changes whenever
+   * the canvas is drawn on, so a copy of its pixels can tell it is stale. (webtty, ADR 043)
    */
   public get visibleArea(): {
     canvas: HTMLCanvasElement;
     y: number;
     height: number;
     lastLine: number;
+    version: number;
   } {
     const dpr = this.devicePixelRatio;
     const bottom = this.shownTop + this.shownScrollOffset + this.shownRows * this.metrics.height;
@@ -1335,6 +1347,7 @@ export class CanvasRenderer {
       y: Math.round(this.shownTop * dpr),
       height: this.shownRows * this.metrics.height * dpr,
       lastLine: Math.round(bottom * dpr) - 1,
+      version: this.drawCount,
     };
   }
 
@@ -1408,6 +1421,7 @@ export class CanvasRenderer {
    * Clear entire canvas
    */
   public clear(): void {
+    this.drawCount++;
     // clearRect first because fillRect composites rather than replaces,
     // so transparent/translucent backgrounds wouldn't clear previous content.
     this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);

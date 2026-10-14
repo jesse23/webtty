@@ -57,6 +57,8 @@ export interface VisibleArea {
    * view ends inside that row, through its glyphs; its own last line is the background.
    */
   lastLine: number;
+  /** Changes whenever the canvas is drawn on; absent: assume it changed every frame. */
+  version?: number;
 }
 
 interface Strip {
@@ -97,6 +99,8 @@ export class EdgeExtender {
   private readonly bottom = createStrip();
   private readonly right = createStrip();
   private frame: number | null = null;
+  /** What the strips were last copied from, so an unchanged frame copies nothing. */
+  private painted = '';
 
   constructor(
     private readonly container: HTMLElement,
@@ -130,6 +134,7 @@ export class EdgeExtender {
     const dpr = window.devicePixelRatio || 1;
     if (this.bottom) place(this.bottom, rects.bottom, dpr);
     if (this.right) place(this.right, rects.right, dpr);
+    this.painted = '';
     if (this.frame === null && (this.bottom?.visible || this.right?.visible)) {
       this.frame = window.requestAnimationFrame(this.paint);
     }
@@ -149,6 +154,17 @@ export class EdgeExtender {
         : null);
     const src = area?.canvas;
     if (!area || !src || src.width === 0 || area.height === 0) return;
+    // Copying every frame kept the compositor from ever idling; copy only on a change.
+    const from =
+      area.version === undefined
+        ? ''
+        : `${area.version} ${area.y} ${area.height} ${area.lastLine} ${src.width}`;
+    const unchanged = from !== '' && from === this.painted;
+    this.painted = from;
+    if (unchanged) {
+      this.frame = window.requestAnimationFrame(this.paint);
+      return;
+    }
     if (this.bottom?.visible) {
       const { ctx, el } = this.bottom;
       ctx.drawImage(src, 0, area.lastLine, src.width, 1, 0, 0, el.width, el.height);
