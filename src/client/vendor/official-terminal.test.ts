@@ -1260,6 +1260,80 @@ describe('official engine: selection (ADR 050)', () => {
   });
 });
 
+describe('official engine: OSC 133 prompts (ADR 057)', () => {
+  /** A command as fish 4 marks it: prompt, command line, output, end. */
+  const command = (name: string, lines: number) =>
+    `\x1b]133;A\x07$ \x1b]133;B\x07${name}\r\n\x1b]133;C\x07` +
+    Array.from({ length: lines }, (_, i) => `${name} ${i}`).join('\r\n') +
+    '\r\n\x1b]133;D;0\x07';
+  /** Prompts on rows 0, 7 and 14, and the current one on row 21 of 22. */
+  const session = () => {
+    const t = term(20, 5);
+    t.write(`${command('one', 6)}${command('two', 6)}${command('three', 6)}\x1b]133;A\x07$ `);
+    return t;
+  };
+
+  test('promptJumpRow moves the top row by prompts, as Ghostty, and stops at either end', () => {
+    const t = session();
+    expect(t.getScrollbackLength()).toBe(17);
+    // Up from the bottom: the nearest prompt above the top row
+    expect(t.promptJumpRow(17, -1)).toBe(14);
+    expect(t.promptJumpRow(14, -1)).toBe(7);
+    expect(t.promptJumpRow(17, -2)).toBe(7);
+    expect(t.promptJumpRow(7, -5)).toBe(0);
+    expect(t.promptJumpRow(0, -1)).toBe(0);
+    expect(t.promptJumpRow(10, -1)).toBe(7);
+    // Down past the last prompt in the scrollback: the bottom
+    expect(t.promptJumpRow(0, 1)).toBe(7);
+    expect(t.promptJumpRow(14, 1)).toBe(17);
+    expect(t.promptJumpRow(17, 1)).toBe(17);
+    expect(t.promptJumpRow(10, 0)).toBe(10);
+    t.free();
+  });
+
+  test('promptJumpRow leaves the viewport at the bottom, so output and reads are unchanged', () => {
+    const t = session();
+    t.promptJumpRow(17, -2);
+    expect(rowText(t, 4)).toBe('$');
+    expect(scrollbackText(t, 7)).toBe('$ two');
+    t.write('ls');
+    expect(rowText(t, 4)).toBe('$ ls');
+    t.free();
+  });
+
+  test('promptJumpRow does nothing without marks or on the alternate screen', () => {
+    const t = term(20, 5);
+    t.write(Array.from({ length: 30 }, (_, i) => `line ${i}`).join('\r\n'));
+    expect(t.getScrollbackLength()).toBe(25);
+    expect(t.promptJumpRow(25, -1)).toBe(25);
+    expect(t.promptJumpRow(10, 1)).toBe(10);
+    t.free();
+    const alt = session();
+    alt.write('\x1b[?1049h');
+    expect(alt.promptJumpRow(0, -1)).toBe(0);
+    alt.free();
+  });
+
+  test('selectOutput selects the output of the command at a cell, null elsewhere', () => {
+    const t = session();
+    const one = { start: { col: 0, row: 1 }, end: { col: 4, row: 6 } };
+    expect(t.selectOutput({ col: 0, row: 1 })).toEqual(one);
+    expect(t.selectOutput({ col: 3, row: 4 })).toEqual(one);
+    expect(t.selectionText(one.start, one.end)).toBe('one 0\none 1\none 2\none 3\none 4\none 5');
+    expect(t.selectOutput({ col: 0, row: 10 })).toEqual({
+      start: { col: 0, row: 8 },
+      end: { col: 4, row: 13 },
+    });
+    // The prompt row, and a terminal with no marks
+    expect(t.selectOutput({ col: 0, row: 21 })).toBeNull();
+    t.free();
+    const plain = term(20, 5);
+    plain.write('a\r\nb');
+    expect(plain.selectOutput({ col: 0, row: 0 })).toBeNull();
+    plain.free();
+  });
+});
+
 describe('official engine: search (ADR 055)', () => {
   /** Runs the search to completion and returns its matches as [col, row, col, row] tuples. */
   function run(t: OfficialTerminal): number[][] {

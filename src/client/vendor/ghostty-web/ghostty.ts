@@ -169,6 +169,12 @@ export interface GhosttyTerminal {
    * without them and on the alternate screen. (ADR 054)
    */
   cursorAtPrompt(): boolean;
+  /**
+   * Ghostty's `jump_to_prompt`: the top row (a screen row, 0 = oldest scrollback row) of
+   * a view whose top row is `top` after moving it by `delta` OSC 133 prompts (negative
+   * is up). Ghostty's own viewport is left at the bottom. (ADR 057)
+   */
+  promptJumpRow(top: number, delta: number): number;
 
   // Scrollback, graphemes, hyperlinks
   getScrollbackLength(): number;
@@ -184,6 +190,11 @@ export interface GhosttyTerminal {
   selectWord(cell: ScreenCell): ScreenRange | null;
   /** The line at a cell, soft wraps followed and outer whitespace left out; null when blank. */
   selectLine(cell: ScreenCell): ScreenRange | null;
+  /**
+   * The output of the command at a cell, from OSC 133 marks (Ghostty's `selectOutput`);
+   * null outside command output or without marks. (ADR 057)
+   */
+  selectOutput(cell: ScreenCell): ScreenRange | null;
   /**
    * The text from `start` to `end` (inclusive, in either order) as Ghostty copies it:
    * soft-wrapped rows joined, trailing whitespace trimmed, spacer cells skipped.
@@ -309,6 +320,8 @@ interface OfficialWasmExports {
   ghostty_terminal_point_from_grid_ref(term: number, ref: number, tag: number, out: number): number;
   ghostty_terminal_select_word(term: number, options: number, outSelection: number): number;
   ghostty_terminal_select_line(term: number, options: number, outSelection: number): number;
+  /** The GhosttyGridRef struct is passed by value, i.e. by pointer on wasm32. */
+  ghostty_terminal_select_output(term: number, ref: number, outSelection: number): number;
   /** GhosttyTerminalSelectionFormatOptions is passed by value, i.e. by pointer on wasm32. */
   ghostty_terminal_selection_format_alloc(
     term: number,
@@ -586,6 +599,7 @@ function resolveOfficialLayout(layout: VtLayout) {
       ACTIVE_SCREEN: tdata('ACTIVE_SCREEN'),
       MOUSE_TRACKING: tdata('MOUSE_TRACKING'),
       CURSOR_AT_PROMPT: tdata('CURSOR_AT_PROMPT'),
+      SCROLLBAR: tdata('SCROLLBAR'),
       TITLE: tdata('TITLE'),
       SCROLLBACK_ROWS: tdata('SCROLLBACK_ROWS'),
       COLOR_PALETTE_DEFAULT: tdata('COLOR_PALETTE_DEFAULT'),
@@ -694,6 +708,11 @@ function resolveOfficialLayout(layout: VtLayout) {
       value: layout.offset('GhosttyTerminalScrollViewport', 'value'),
       BOTTOM: layout.value('GhosttyTerminalScrollViewportTag', 'BOTTOM'),
       ROW: layout.value('GhosttyTerminalScrollViewportTag', 'ROW'),
+      DELTA_PROMPT: layout.value('GhosttyTerminalScrollViewportTag', 'DELTA_PROMPT'),
+    },
+    scrollbar: {
+      size: layout.size('GhosttyTerminalScrollbar'),
+      offset: layout.offset('GhosttyTerminalScrollbar', 'offset'),
     },
     point: {
       size: layout.size('GhosttyPoint'),
@@ -1226,6 +1245,7 @@ export class OfficialTerminal implements GhosttyTerminal {
     | 'sbRows'
     | 'screen'
     | 'scroll'
+    | 'scrollbar'
     | 'point'
     | 'gridRef'
     | 'sel'
@@ -1363,6 +1383,7 @@ export class OfficialTerminal implements GhosttyTerminal {
       sbRows: [4, 4],
       screen: [4, 4],
       scroll: [L.scroll.size, 8],
+      scrollbar: [L.scrollbar.size, 8],
       point: [L.point.size, 8],
       gridRef: [L.gridRef.size, 8],
       sel: [L.selection.size, 8],
@@ -1641,6 +1662,23 @@ export class OfficialTerminal implements GhosttyTerminal {
     return rc === 0 && this.u8()[at.u8] !== 0;
   }
 
+  promptJumpRow(top: number, delta: number): number {
+    const at = this.at;
+    const S = this.L.scroll;
+    this.info();
+    // Ghostty moves its viewport from its top row, so it is put on webtty's for the move
+    this.scrollViewport(S.ROW, top);
+    try {
+      this.scrollViewport(S.DELTA_PROMPT, delta);
+      const rc = this.ex.ghostty_terminal_get(this.term, this.L.tdata.SCROLLBAR, at.scrollbar);
+      if (rc !== 0) return top;
+      // The offset is a u64; a screen row fits in the low 32 bits
+      return this.dv().getUint32(at.scrollbar + this.L.scrollbar.offset, true);
+    } finally {
+      this.scrollViewport(S.BOTTOM, 0);
+    }
+  }
+
   getMode(mode: number, isAnsi: boolean = false): boolean {
     const at = this.at;
     const M = this.L.mode;
@@ -1716,6 +1754,18 @@ export class OfficialTerminal implements GhosttyTerminal {
     return this.selectAt(W, cell, (opts, out) =>
       this.ex.ghostty_terminal_select_line(this.term, opts, out)
     );
+  }
+
+  selectOutput(cell: ScreenCell): ScreenRange | null {
+    const at = this.at;
+    const S = this.L.selection;
+    this.info();
+    if (!this.screenRef(cell, at.gridRef)) return null;
+    this.clearSelectionStruct();
+    if (this.ex.ghostty_terminal_select_output(this.term, at.gridRef, at.sel) !== 0) return null;
+    const start = this.screenCellOf(at.sel + S.start);
+    const end = this.screenCellOf(at.sel + S.end);
+    return start && end ? { start, end } : null;
   }
 
   selectionText(start: ScreenCell, end: ScreenCell): string {
@@ -2163,15 +2213,16 @@ export class OfficialTerminal implements GhosttyTerminal {
     if (rc !== 0) throw new Error(`libghostty-vt terminal_set ${what} failed: ${rc}`);
   }
 
-  private scrollViewport(tag: number, row: number): void {
+  private scrollViewport(tag: number, value: number): void {
     const at = this.at;
     const S = this.L.scroll;
     const u8 = this.u8();
     u8.fill(0, at.scroll, at.scroll + S.size);
     const dv = this.dv();
     dv.setInt32(at.scroll + S.tag, tag, true);
-    // The ROW arm is a usize (u32 on wasm32); the 8-byte union is zeroed above.
-    dv.setUint32(at.scroll + S.value, row, true);
+    // The ROW arm is a usize and DELTA_PROMPT an isize (32 bits on wasm32); the union is
+    // zeroed above.
+    dv.setInt32(at.scroll + S.value, value, true);
     this.ex.ghostty_terminal_scroll_viewport(this.term, at.scroll);
   }
 
