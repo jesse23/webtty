@@ -24,6 +24,14 @@ export interface Theme {
   selection?: string;
   /** Text colour inside the selection. Defaults to `background`. */
   selectionForeground?: string;
+  /** Background of find matches (ADR 055). Defaults to Ghostty's `#FFE082`. */
+  searchBackground?: string;
+  /** Text colour of find matches. Defaults to `#000000`. */
+  searchForeground?: string;
+  /** Background of the selected find match. Defaults to Ghostty's `#F2A57E`. */
+  searchSelectedBackground?: string;
+  /** Text colour of the selected find match. Defaults to `#000000`. */
+  searchSelectedForeground?: string;
   /** Colour of the padding set by the `padding` setting. Defaults to `background`. The sub-cell leftover from fitting is not coloured by this: the client extends the edge cells' own background into it. */
   padding?: string;
   /** ANSI 0. */
