@@ -181,17 +181,20 @@ describe('SelectionManager text of wide characters', () => {
     t.free();
   });
 
-  test('copies no space for a spacer at the last column', () => {
-    // A wide character that does not fit wraps, leaving a spacer at the last column
+  test('copies no space for a spacer at the last column, and joins the soft wrap', () => {
+    // A wide character that does not fit wraps, leaving a spacer at the last column.
+    // Ghostty joins soft-wrapped rows without a newline (ADR 050).
     const wrapped = ghostty.createTerminal(5, 4);
     wrapped.write('abcd中ef');
-    expect(selected(wrapped, [0, 0], [4, 1])).toBe('abcd\n中ef');
-    expect(selected(wrapped, [2, 0], [4, 0])).toBe('cd');
+    expect(selected(wrapped, [0, 0], [4, 1])).toBe('abcd中ef');
+    expect(selected(wrapped, [2, 0], [3, 0])).toBe('cd');
+    // Ending on the spacer takes the wide character it stands for (Ghostty's formatter)
+    expect(selected(wrapped, [2, 0], [4, 0])).toBe('cd中');
     wrapped.free();
     // A wide character ending at the last column
     const fits = ghostty.createTerminal(6, 4);
     fits.write('abcd中ef');
-    expect(selected(fits, [3, 0], [1, 1])).toBe('d中\nef');
+    expect(selected(fits, [3, 0], [1, 1])).toBe('d中ef');
     fits.free();
   });
 
@@ -360,6 +363,50 @@ describe('SelectionManager gestures', () => {
     const { m, canvas } = manager(t, () => 1);
     click(canvas, 3, 2, 0);
     expect(m.getSelection()).toBe('first');
+    t.free();
+  });
+
+  // Ghostty's selection rules (ADR 050)
+
+  test('a selection across a soft wrap copies one line; a hard newline stays', () => {
+    const t = ghostty.createTerminal(10, 4);
+    t.write('0123456789abcdef\r\nnext');
+    const { m, canvas } = manager(t);
+    drag(canvas, 0, 0, 3, 2);
+    expect(m.getSelection()).toBe('0123456789abcdef\nnext');
+    t.free();
+  });
+
+  test('a double click selects a word that wraps onto the next row', () => {
+    const t = ghostty.createTerminal(10, 3);
+    t.write('cd /usr/local/bin');
+    const { m, canvas } = manager(t);
+    click(canvas, 2, 1, 1);
+    expect(m.getSelection()).toBe('/usr/local/bin');
+    expect(m.getSelectionRange()).toEqual({ startCol: 3, startRow: 0, endCol: 6, endRow: 1 });
+    t.free();
+  });
+
+  test("a double click selects a URL query and non-ASCII words by Ghostty's word characters", () => {
+    const t = ghostty.createTerminal(40, 2);
+    t.write('see //x.io/a?b=c&d#e or café 中文字');
+    const { m, canvas } = manager(t);
+    click(canvas, 2, 8, 0);
+    expect(m.getSelection()).toBe('//x.io/a?b=c&d#e');
+    click(canvas, 2, 24, 0);
+    expect(m.getSelection()).toBe('café');
+    click(canvas, 2, 30, 0);
+    expect(m.getSelection()).toBe('中文字');
+    t.free();
+  });
+
+  test('a triple click selects a soft-wrapped line whole, without its indent', () => {
+    const t = ghostty.createTerminal(8, 3);
+    t.write('  wrapped line\r\nx');
+    const { m, canvas } = manager(t);
+    click(canvas, 3, 0, 1);
+    expect(m.getSelection()).toBe('wrapped line');
+    expect(m.getSelectionRange()).toEqual({ startCol: 2, startRow: 0, endCol: 5, endRow: 1 });
     t.free();
   });
 });

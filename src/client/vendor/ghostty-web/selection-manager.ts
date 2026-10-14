@@ -3,8 +3,8 @@
  *
  * Features:
  * - Mouse drag selection
- * - Double-click word selection
- * - Text extraction from terminal buffer
+ * - Double-click word and triple-click line selection (Ghostty's, ADR 050)
+ * - Text extraction (Ghostty's, ADR 050)
  * - Clipboard copy on select (the terminal's copyOnSelect option)
  * - Visual selection highlighting (integrated into CanvasRenderer cell rendering)
  * - Auto-scroll during drag selection
@@ -15,7 +15,6 @@ import type { GhosttyTerminal } from './ghostty';
 import type { IEvent } from './interfaces';
 import type { CanvasRenderer } from './renderer';
 import type { Terminal } from './terminal';
-import type { GhosttyCell } from './types';
 
 // ============================================================================
 // Type Definitions
@@ -118,95 +117,14 @@ export class SelectionManager {
    */
   getSelection(): string {
     if (!this.selectionStart || !this.selectionEnd) return '';
-
-    // Get absolute row coordinates (not clamped to viewport)
-    let { col: startCol, absoluteRow: startAbsRow } = this.selectionStart;
-    let { col: endCol, absoluteRow: endAbsRow } = this.selectionEnd;
-
-    // Swap if selection goes backwards
-    if (startAbsRow > endAbsRow || (startAbsRow === endAbsRow && startCol > endCol)) {
-      [startCol, endCol] = [endCol, startCol];
-      [startAbsRow, endAbsRow] = [endAbsRow, startAbsRow];
-    }
-
-    const scrollbackLength = this.wasmTerm.getScrollbackLength();
-    let text = '';
-
-    for (let absRow = startAbsRow; absRow <= endAbsRow; absRow++) {
-      // Fetch line based on absolute row position
-      // Absolute row < scrollbackLength means it's in scrollback
-      // Absolute row >= scrollbackLength means it's in the screen buffer
-      let line: GhosttyCell[] | null = null;
-
-      if (absRow < scrollbackLength) {
-        // Row is in scrollback
-        line = this.wasmTerm.getScrollbackLine(absRow);
-      } else {
-        // Row is in screen buffer
-        const screenRow = absRow - scrollbackLength;
-        line = this.wasmTerm.getLine(screenRow);
-      }
-
-      if (!line) continue;
-
-      // Track the last non-empty column for trimming trailing spaces
-      let lastNonEmpty = -1;
-
-      // Determine column range for this row
-      let colStart = absRow === startAbsRow ? startCol : 0;
-      const colEnd = absRow === endAbsRow ? endCol : line.length - 1;
-      // A selection that starts on the right half of a wide character takes all of it
-      if (colStart > 0 && line[colStart]?.width === 0 && line[colStart - 1]?.width === 2) {
-        colStart--;
-      }
-
-      // Build the line text
-      let lineText = '';
-      for (let col = colStart; col <= colEnd; col++) {
-        const cell = line[col];
-        // A spacer (width 0) holds nothing: the cell after a wide character, or the
-        // last column when a wide character wrapped to the next row. (webtty: upstream
-        // copied it as a space, so "中文" came out as "中 文".)
-        if (cell && cell.width === 0) continue;
-        if (cell && cell.codepoint !== 0) {
-          // Use grapheme lookup for cells with multi-codepoint characters
-          let char: string;
-          if (cell.grapheme_len > 0) {
-            // Row is in scrollback or screen - determine which and use appropriate method
-            if (absRow < scrollbackLength) {
-              char = this.wasmTerm.getScrollbackGraphemeString(absRow, col);
-            } else {
-              const screenRow = absRow - scrollbackLength;
-              char = this.wasmTerm.getGraphemeString(screenRow, col);
-            }
-          } else {
-            char = String.fromCodePoint(cell.codepoint);
-          }
-          lineText += char;
-          if (char.trim()) {
-            lastNonEmpty = lineText.length;
-          }
-        } else {
-          lineText += ' ';
-        }
-      }
-
-      // Trim trailing spaces from each line
-      if (lastNonEmpty >= 0) {
-        lineText = lineText.substring(0, lastNonEmpty);
-      } else {
-        lineText = '';
-      }
-
-      text += lineText;
-
-      // Add newline between rows (but not after the last row)
-      if (absRow < endAbsRow) {
-        text += '\n';
-      }
-    }
-
-    return text;
+    // Absolute rows are Ghostty's screen rows. Ghostty builds the text as it copies:
+    // soft-wrapped rows joined, trailing spaces trimmed, spacer cells skipped. (ADR 050)
+    const { col: startCol, absoluteRow: startRow } = this.selectionStart;
+    const { col: endCol, absoluteRow: endRow } = this.selectionEnd;
+    return this.wasmTerm.selectionText(
+      { col: startCol, row: startRow },
+      { col: endCol, row: endRow }
+    );
   }
 
   /**
@@ -479,59 +397,18 @@ export class SelectionManager {
     };
     document.addEventListener('mouseup', this.boundMouseUpHandler);
 
-    // Handle click events for double-click (word) and triple-click (line) selection
-    // Use event.detail which browsers set to click count (1, 2, 3, etc.)
+    // Double click selects a word and triple click a line, by Ghostty's rules (ADR 050).
+    // event.detail is the browser's click count.
     canvas.addEventListener('click', (e: MouseEvent) => {
-      // event.detail: 1 = single, 2 = double, 3 = triple click
-      if (e.detail === 2) {
-        // Double-click - select word
-        const cell = this.pixelToCell(e.offsetX, e.offsetY);
-        const word = this.getWordAtCell(cell.col, cell.row);
-
-        if (word) {
-          const absoluteRow = this.viewportRowToAbsolute(cell.row);
-          this.selectionStart = { col: word.startCol, absoluteRow };
-          this.selectionEnd = { col: word.endCol, absoluteRow };
-          this.requestRender();
-          this.selectionMade();
-        }
-      } else if (e.detail >= 3) {
-        // Triple-click (or more) - select line content (like native Ghostty)
-        const cell = this.pixelToCell(e.offsetX, e.offsetY);
-        const absoluteRow = this.viewportRowToAbsolute(cell.row);
-
-        // Find actual line length (exclude trailing empty cells)
-        // Use scrollback-aware line retrieval (like getSelection does)
-        const scrollbackLength = this.wasmTerm.getScrollbackLength();
-        let line: GhosttyCell[] | null = null;
-        if (absoluteRow < scrollbackLength) {
-          // Row is in scrollback
-          line = this.wasmTerm.getScrollbackLine(absoluteRow);
-        } else {
-          // Row is in screen buffer
-          const screenRow = absoluteRow - scrollbackLength;
-          line = this.wasmTerm.getLine(screenRow);
-        }
-        // Find last non-empty cell (-1 means empty line)
-        let endCol = -1;
-        if (line) {
-          for (let i = line.length - 1; i >= 0; i--) {
-            if (line[i] && line[i].codepoint !== 0 && line[i].codepoint !== 32) {
-              endCol = i;
-              break;
-            }
-          }
-        }
-
-        // Only select if line has content (endCol >= 0)
-        if (endCol >= 0) {
-          // Select line content only (not trailing whitespace)
-          this.selectionStart = { col: 0, absoluteRow };
-          this.selectionEnd = { col: endCol, absoluteRow };
-          this.requestRender();
-          this.selectionMade();
-        }
-      }
+      if (e.detail < 2) return;
+      const cell = this.pixelToCell(e.offsetX, e.offsetY);
+      const at = { col: cell.col, row: this.viewportRowToAbsolute(cell.row) };
+      const range = e.detail === 2 ? this.wasmTerm.selectWord(at) : this.wasmTerm.selectLine(at);
+      if (!range) return;
+      this.selectionStart = { col: range.start.col, absoluteRow: range.start.row };
+      this.selectionEnd = { col: range.end.col, absoluteRow: range.end.row };
+      this.requestRender();
+      this.selectionMade();
     });
 
     // Right-click (context menu) - position textarea to show browser's native menu
@@ -723,48 +600,6 @@ export class SelectionManager {
       col: Math.max(0, Math.min(col, this.terminal.cols - 1)),
       row: Math.max(0, Math.min(row, this.terminal.rows - 1)),
     };
-  }
-
-  /**
-   * Get word boundaries at a cell position
-   */
-  private getWordAtCell(col: number, row: number): { startCol: number; endCol: number } | null {
-    const absoluteRow = this.viewportRowToAbsolute(row);
-    const scrollbackLength = this.wasmTerm.getScrollbackLength();
-    let line: GhosttyCell[] | null;
-    if (absoluteRow < scrollbackLength) {
-      line = this.wasmTerm.getScrollbackLine(absoluteRow);
-    } else {
-      const screenRow = absoluteRow - scrollbackLength;
-      line = this.wasmTerm.getLine(screenRow);
-    }
-    if (!line) return null;
-
-    // Word characters: letters, numbers, and common path/URL characters
-    // Matches native Ghostty behavior where double-click selects entire paths
-    // Includes: / (path sep), . (extensions), ~ (home), @ (emails), + (encodings)
-    const isWordChar = (cell: GhosttyCell) => {
-      if (!cell || cell.codepoint === 0) return false;
-      const char = String.fromCodePoint(cell.codepoint);
-      return /[\w\-./~@+]/.test(char);
-    };
-
-    // Only return if we're actually on a word character
-    if (!isWordChar(line[col])) return null;
-
-    // Find start of word
-    let startCol = col;
-    while (startCol > 0 && isWordChar(line[startCol - 1])) {
-      startCol--;
-    }
-
-    // Find end of word
-    let endCol = col;
-    while (endCol < line.length - 1 && isWordChar(line[endCol + 1])) {
-      endCol++;
-    }
-
-    return { startCol, endCol };
   }
 
   /**
