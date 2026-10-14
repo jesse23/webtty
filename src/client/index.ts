@@ -1,5 +1,5 @@
 import { browserEnv } from './app/browser-env';
-import { type KeyboardBinding, loadClientConfig } from './app/client-config';
+import { loadClientConfig } from './app/client-config';
 import type { ClientContext } from './app/client-context';
 import { detectMac } from './app/platform';
 import { toTerminalOptions } from './app/terminal-options';
@@ -9,12 +9,15 @@ import { PtyConnection } from './connection/pty-connection';
 import { ReplayWindow } from './connection/replay-window';
 import { installClipboard } from './features/clipboard/clipboard-feature';
 import { Composer } from './features/compose/composer';
-import { FindBar } from './features/find/find-bar';
+import { installFind } from './features/find/find-feature';
+import { installFontZoom } from './features/keyboard/font-zoom-feature';
+import { findBinding } from './features/keyboard/key-bindings';
 import { shortcutFor } from './features/keyboard/shortcut-map';
 import { KittyGraphics } from './features/kitty/graphics/kitty-graphics';
 import { browserNotifications } from './features/notifications/browser-notifications';
 import { installNotifications } from './features/notifications/notifications-feature';
-import { nonTextPaste } from './features/paste/non-text-paste';
+import { installPaste } from './features/paste/paste-feature';
+import { PasteService } from './features/paste/paste-service';
 import { SmoothScroll } from './features/scroll/smooth-scroll';
 import { WheelStream } from './features/scroll/wheel-stream';
 import { TabTitle } from './features/tab-title/tab-title';
@@ -148,33 +151,12 @@ term.attachCustomWheelEventHandler(
 term.attachWheelPace((e: WheelEvent) => wheelStream.forApp(e));
 term.attachBeforeRender((now: number) => smoothScroll.frame(now));
 
-// Shared by the configured-binding listener below and the Ctrl+V paste
-// listener further down, so the latter can tell whether a user has already
-// claimed the combo (including an intentional no-op binding meant to
-// suppress default behavior) before adding its own handling on top.
-function findBinding(e: KeyboardEvent): KeyboardBinding | undefined {
-  const key = e.key.toLowerCase();
-  const active = new Set([
-    ...(e.shiftKey ? ['shift'] : []),
-    ...(e.ctrlKey ? ['ctrl'] : []),
-    ...(e.altKey ? ['alt'] : []),
-    ...(e.metaKey ? ['meta'] : []),
-  ]);
-  return config.keyboardBindings.find((b) => {
-    if (b.key.toLowerCase() !== key) return false;
-    const required = new Set((Array.isArray(b.mods) ? b.mods : []).map((m) => m.toLowerCase()));
-    if (required.size !== active.size) return false;
-    for (const m of required) if (!active.has(m)) return false;
-    return true;
-  });
-}
-
 // Intercept configured key+mods combos before ghostty-web sees them and send
 // the bound chars directly to the PTY. See ADR 018.
 container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
-    const binding = findBinding(e);
+    const binding = findBinding(e, config.keyboardBindings);
     if (!binding) return;
     e.preventDefault();
     e.stopPropagation();
@@ -187,32 +169,8 @@ container.addEventListener(
   { capture: true },
 );
 
-// Intercept Ctrl/Cmd +/- to resize the font without Shift, matching VS Code.
-// Uses window so it fires regardless of focus, and preventDefault stops the
-// browser's own page-zoom from triggering at the same time. stopPropagation
-// prevents ghostty-web from forwarding the key as literal PTY input.
-// e.code is used for physical key identity, independent of keyboard layout.
-// currentFontSize is clamped to [6, 32] on init so a config value outside
-// that range never inverts the zoom direction on the first keypress.
-let currentFontSize = Math.min(32, Math.max(6, config.fontSize));
-window.addEventListener(
-  'keydown',
-  (e: KeyboardEvent) => {
-    if (!e.ctrlKey && !e.metaKey) return;
-    const zoomIn = e.code === 'Equal' || e.code === 'NumpadAdd';
-    const zoomOut = (e.code === 'Minus' && !e.shiftKey) || e.code === 'NumpadSubtract';
-    const zoomReset = (e.code === 'Digit0' && !e.shiftKey) || e.code === 'Numpad0';
-    if (!zoomIn && !zoomOut && !zoomReset) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (zoomIn) currentFontSize = Math.min(32, currentFontSize + 1);
-    else if (zoomOut) currentFontSize = Math.max(6, currentFontSize - 1);
-    else currentFontSize = Math.min(32, Math.max(6, config.fontSize));
-    term.options.fontSize = currentFontSize;
-    layout.fit();
-  },
-  { capture: true },
-);
+// Font zoom: the last window capture keydown listener, fitting at once (ADR 033).
+installFontZoom(ctx, { fit: () => layout.fit() });
 
 // Forward terminal keystrokes and input to the PTY over WebSocket.
 term.onData((data: string) => connection.send(data));
@@ -222,45 +180,12 @@ term.onResize(({ cols, rows }: { cols: number; rows: number }) =>
   connection.sendResize(cols, rows),
 );
 
-// ghostty-web swallows Ctrl+V without sending \x16 to the PTY (unlike
-// xterm.js), relying entirely on the browser 'paste' event. On macOS that
-// event only fires for Cmd+V (the OS paste gesture) - Ctrl+V produces no
-// event at all. See ADR 014.
-function sendCtrlV(): void {
-  if (!connection.isOpen()) return;
-  term.scrollToBottom();
-  connection.send('\x16');
-}
-
-// Text goes through the terminal, which encodes it as Ghostty does: bracketed
-// while mode 2004 is on, control bytes stripped, and without 2004 newlines sent
-// as CR (they may act as Enter). Ctrl+V is not a text fallback (remote TUIs can
-// interpret it as an image-paste shortcut). See ADR 037 and ADR 049.
-function sendPaste(text: string): void {
-  if (!connection.isOpen()) return;
-  const ctrlV = nonTextPaste(text);
-  if (ctrlV) {
-    term.scrollToBottom();
-    connection.send(ctrlV);
-  } else term.paste(text);
-}
-
-// Reads the clipboard and pastes it, as Cmd+V does; a failed read sends Ctrl+V.
-// Returns false when the browser cannot read the clipboard.
-function pasteFromClipboard(): boolean {
-  if (!navigator.clipboard?.readText) return false;
-  navigator.clipboard.readText().then(sendPaste, sendCtrlV);
-  return true;
-}
-
-// rightClickBehavior "paste" (ADR 051)
-term.onPasteRequest(() => {
-  pasteFromClipboard();
-});
+// Pastes: text through the terminal, a non-text paste as Ctrl+V (ADR 014, ADR 037, ADR 049).
+const paste = new PasteService(term, connection, env.navigator);
 
 // Copy, paste, clear-screen, find and jump-to-prompt keys as Ghostty binds them for this
 // platform (ADR 054, ADR 055, ADR 057).
-// Ctrl+V never reaches us as a 'paste' event on macOS (see above), so the clipboard is
+// Ctrl+V never reaches us as a 'paste' event on macOS (ADR 014), so the clipboard is
 // read on keydown to make it behave like Cmd+V. Both keydown listeners are capture
 // listeners on `container`, so they run in registration order - this one runs after the
 // configured-binding listener above, so skip a combo the user has already bound
@@ -271,15 +196,15 @@ container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
     const shortcut = shortcutFor(e, mac);
-    if (!shortcut || findBinding(e)) return;
+    if (!shortcut || findBinding(e, config.keyboardBindings)) return;
     if (shortcut.action.startsWith('find')) {
       // Escape, closing and moving are the app's while the bar is closed (ADR 055)
-      if (shortcut.action !== 'find' && !findBar.isOpen) return;
+      if (shortcut.action !== 'find' && !find.isOpen) return;
       e.preventDefault();
       e.stopImmediatePropagation();
-      if (shortcut.action === 'find') findBar.open();
-      else if (shortcut.action === 'findClose') findBar.close();
-      else findBar.go(shortcut.action === 'findNext' ? 'next' : 'previous');
+      if (shortcut.action === 'find') find.open();
+      else if (shortcut.action === 'findClose') find.close();
+      else find.go(shortcut.action === 'findNext' ? 'next' : 'previous');
       return;
     }
     if (shortcut.action === 'promptPrevious' || shortcut.action === 'promptNext') {
@@ -291,7 +216,7 @@ container.addEventListener(
     }
     if (shortcut.action === 'paste') {
       // Without the clipboard API the browser's own paste may still fire 'paste'
-      if (pasteFromClipboard()) e.preventDefault();
+      if (paste.pasteFromClipboard()) e.preventDefault();
       e.stopImmediatePropagation();
       return;
     }
@@ -304,18 +229,11 @@ container.addEventListener(
   { capture: true },
 );
 
-// Find in the scrollback with libghostty-vt's search (ADR 055). The bar is outside the
-// container: its keys are its own. Closing it ends the search and refocuses the terminal.
-const findBar = new FindBar(document.body, terminalTheme, (e) => shortcutFor(e, mac)?.action, {
-  find: (needle) => term.find(needle),
-  next: () => term.findNext(),
-  previous: () => term.findPrevious(),
-  close: () => {
-    term.endFind();
-    term.focus();
-  },
+// Find in the scrollback (ADR 055); the shortcut listener above reads it only on a key.
+const find = installFind(ctx, {
+  ...env,
+  shortcutActionOf: (e) => shortcutFor(e, mac)?.action,
 });
-term.onFindChange((state) => findBar.update(state));
 
 // Cmd+K: nothing on the alternate screen; the clear is this tab's own, and a reload
 // replays the session's output again (ADR 054)
@@ -326,14 +244,5 @@ function clearScreen(): boolean {
   return true;
 }
 
-container.addEventListener(
-  'paste',
-  (e: ClipboardEvent) => {
-    const cd = e.clipboardData;
-    if (!cd) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-    sendPaste(cd.getData('text/plain'));
-  },
-  { capture: true },
-);
+// The right click set to paste, then the container capture paste listener (ADR 051).
+installPaste(ctx, { paste });
