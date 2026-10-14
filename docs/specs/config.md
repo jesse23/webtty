@@ -113,8 +113,8 @@ All keys are optional — omit any key to use the default value.
 | `rows` | number | `24` | Initial terminal height in rows |
 | `cursorStyle` | string | `"bar"` | Default cursor shape: `"bar"` (vertical line), `"block"`, or `"underline"`. Apps override at runtime via DECSCUSR; `CSI 0 SP q` and a terminal reset restore it. |
 | `cursorStyleBlink` | boolean | `true` | Default blink state. Apps override at runtime via DECSCUSR; `CSI 0 SP q` and a terminal reset restore it. DEC mode 12 (`CSI ? 12 h/l`) is ignored, as in Ghostty when `cursor-style-blink` is set, so an app that turns blinking off that way (vim's `t_ve`) does not leave the cursor steady. |
-| `copyOnSelect` | boolean | `true` | Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style) |
-| `rightClickBehavior` | string | `"default"` | Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. Invalid values fall back to `"default"` |
+| `copyOnSelect` | boolean | `true` | Copy a mouse selection (drag, double or triple click) to the clipboard when the button is released (kitty / Windows Terminal style). While the app tracks the mouse (vim `set mouse=a`, htop, Claude Code fullscreen), a drag goes to the app and is not a selection, so nothing is copied; hold Shift to select and copy in webtty instead. See [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md). |
+| `rightClickBehavior` | string | `"contextMenu"` | What a right-click does when the app does not take it: `"contextMenu"` shows the browser menu; `"copyPaste"` copies and clears an existing selection, otherwise shows the menu; `"paste"` pastes the clipboard as Ctrl+V does; `"none"` does nothing and shows no menu. While the app tracks the mouse, a right-click goes only to the app and no menu is shown; Shift+right-click applies this setting instead and sends nothing to the app. `"default"`, the old name of `"contextMenu"`, is still accepted; invalid values fall back to `"contextMenu"`. Windows Terminal users may prefer `"copyPaste"`. See [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md). |
 | `mouseScrollSpeed` | number | `1` | Mouse wheel scroll speed multiplier for apps with mouse tracking (e.g. vim `set mouse=a`). `1` = one scroll report (SGR 64/65 under mode 1006) per wheel tick (default). Applies to line/page wheel deltas only: pixel deltas (trackpads, macOS Chromium/Safari wheels) always send one SGR event per cell height scrolled, 1:1 with the OS. Values `< 1` reduce rate (e.g. `0.5` fires every other tick); values `> 1` send multiple SGRs per tick. Must be `> 0`. |
 | `padding` | number | `0` | Padding in px around the terminal canvas, on all four sides. The canvas is fitted to whole cells, so a few extra pixels can remain on top of this: on the right and at the bottom. The top and left gap is exactly `padding`. The padding is coloured by `theme.padding`, or `theme.background` if that is unset. |
 | `logs` | boolean | `false` | Write server stdout/stderr to `~/.config/webtty/server.log`. Appends on each start. Default `false` — server runs silently. |
@@ -176,7 +176,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
   "cursorStyle": "bar",
   "cursorStyleBlink": true,
   "copyOnSelect": true,
-  "rightClickBehavior": "default",
+  "rightClickBehavior": "contextMenu",
   "fontSize": 13,
   "fontFamily": "Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'",
 
@@ -218,6 +218,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Terminal appearance | `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `theme` — re-read on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Hot config reload | Appearance re-read on tab reload; shell/PTY settings re-read on new PTY spawn; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — configurable clipboard copy matching VS Code / kitty conventions | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Mouse follows app tracking | While the app tracks the mouse, drags, double clicks and right-clicks go only to the app (no selection, copy or menu), Shift to bypass; `rightClickBehavior` gains `"contextMenu"` (default, was `"default"`), `"paste"` and `"none"` | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime, and Ps 0 restores it | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
 | Padding | `padding` (px, default `0`) around the terminal canvas, coloured by `theme.padding` or `theme.background` | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |

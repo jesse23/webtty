@@ -152,10 +152,20 @@ Controlled by two config keys from `GET /api/config`:
 
 | Config | Default | Behavior |
 |--------|---------|----------|
-| `copyOnSelect: true` | on | Auto-copies a mouse selection (drag, double or triple click) to clipboard once, on mouseup, through the Terminal's `copyOnSelect` option; off, nothing is copied. Context menu untouched. |
-| `rightClickBehavior: "copyPaste"` | off | Right-click with selection copies + clears selection. `e.preventDefault()` only fires when selection exists. |
+| `copyOnSelect` | `true` | Copies a mouse selection (drag, double or triple click) to the clipboard once, on mouseup, through the Terminal's `copyOnSelect` option; off, nothing is copied. |
+| `rightClickBehavior` | `"contextMenu"` | What a right-click the app does not take does: `"contextMenu"` the browser menu (over the textarea, so it offers Copy and Paste); `"copyPaste"` copy and clear a selection, else the menu; `"paste"` paste the clipboard (the Ctrl+V path, ADR 037); `"none"` nothing, no menu. `"default"` is read as `"contextMenu"`. |
 
 Both can be active simultaneously. The canvas-based terminal has no DOM text selection — these are the only reliable copy paths.
+
+**The app's mouse comes first** ([ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md)). While the app tracks the mouse (any DEC mouse tracking mode), a press is the app's unless Shift is held, as in Ghostty, kitty, WezTerm, xterm, Windows Terminal and VS Code. `mouse-route.ts` holds the rule (`pressToApp`, `rightClickAction`), and the input handler, the selection manager and the terminal all ask it:
+
+| | Left drag, double/triple click | Right-click |
+|---|---|---|
+| App does not track the mouse | webtty selects; copied on release with `copyOnSelect` | `rightClickBehavior` |
+| App tracks the mouse | only the app gets press, motion and release; no highlight, no copy | only the app gets it; browser menu cancelled |
+| App tracks the mouse, Shift held | webtty selects and copies; the app gets nothing for that button until it is released | `rightClickBehavior`; the app gets nothing |
+
+The terminal has the one `contextmenu` listener (`handleContextMenu`). A menu not preceded by a right press (or macOS Ctrl+click) since the last key is a keyboard menu and follows `rightClickBehavior` even while the app tracks the mouse. While the terminal has focus, the Menu key and Shift+F10 are sent to the app as keys, so the browser opens no keyboard menu there. `"paste"` fires `Terminal.onPasteRequest`, which `index.ts` answers with the same clipboard read as Ctrl+V.
 
 What a double or triple click selects, and the text either path copies, is Ghostty's (`ghostty_terminal_select_word`, `ghostty_terminal_select_line`, `ghostty_terminal_selection_format_alloc`): soft-wrapped rows are joined without a newline ([ADR 050](../adrs/050.client.selection-from-libghostty-vt.md)).
 
@@ -182,6 +192,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Output acknowledgements | Output is acknowledged as it is parsed, so the server sends it in order at the tab's pace; a tab closed with `4003` for falling behind resets and reconnects to the replay | [ADR 048](../adrs/048.webtty.output-flow-control.md) | ✅ |
 | Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` are Ghostty's default cursor; Ghostty applies DECSCUSR from the PTY (Ps 0 and RIS restore the default); mode 12 is ignored, as in Ghostty with `cursor-style-blink` set; and the renderer draws the shape and blink from its state, repainting the cursor cell so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
 | Multiline text paste | Text is encoded by Ghostty's `ghostty_terminal_paste`: bracketed whenever mode 2004 is enabled (single lines too), control bytes replaced with spaces, and without 2004 sent with newlines as CR (they may act as Enter in apps without bracketed paste), never Ctrl+V | [ADR 037](../adrs/037.client.multiline-text-paste.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
