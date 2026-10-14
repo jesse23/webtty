@@ -1,7 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Ghostty } from '../ghostty-web/ghostty';
 import {
   CanvasRenderer,
   frameLines,
@@ -10,11 +7,7 @@ import {
   wholeDevicePixelRatio,
 } from '../ghostty-web/renderer';
 import type { GhosttyCell } from '../ghostty-web/types';
-
-const WASM = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../ghostty-vt/ghostty-vt-small.wasm',
-);
+import { loadGhostty } from './support/wasm';
 
 describe('wholeDevicePixelRatio', () => {
   test('keeps a whole ratio', () => {
@@ -161,7 +154,7 @@ describe('frameLines', () => {
   });
 
   test('serves the same rows as getLine from a real terminal', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = ghostty.createTerminal(20, 5);
     term.write('\x1b[31mred\x1b[0m \x1b[1;44mbold\x1b[0m\r\n中文 ✓\r\n\x1b[7mrev\x1b[0m');
     term.update();
@@ -204,7 +197,7 @@ describe('graphemes while scrolled', () => {
     const { canvas, drawn } = recordingCanvas(15);
     globalThis.document = { createElement: () => canvas } as unknown as Document;
     try {
-      const ghostty = await Ghostty.load(WASM);
+      const ghostty = await loadGhostty();
       const term = ghostty.createTerminal(30, 6, { scrollbackLines: 10000 });
       // A grapheme at a different column on every line, so a lookup on the wrong
       // row finds something else.
@@ -466,7 +459,7 @@ describe('overscan and copied scrolls (ADR 043)', () => {
   }
 
   async function terminal() {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = ghostty.createTerminal(cols, rows, { scrollbackLines: 10000 });
     // Colours, backgrounds, a wide character, combining marks and descenders that
     // overflow into the rows above and below.
@@ -687,7 +680,7 @@ describe('overscan and copied scrolls (ADR 043)', () => {
 
   test(`long runs are repainted in chunks on a small scratch canvas, as a full redraw`, async () => {
     const tall = 3 * REPAINT_CHUNK_ROWS + 5;
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = ghostty.createTerminal(cols, tall, { scrollbackLines: 10000 });
     const provider = {
       getScrollbackLine: (o: number) => term.getScrollbackLine(o),
@@ -748,7 +741,7 @@ describe('overscan and copied scrolls (ADR 043)', () => {
   });
 
   test(`a hovered OSC 8 link underlines and repaints only its own range`, async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = ghostty.createTerminal(cols, rows);
     // Two links, on rows 1 and 4: the engine gives every link cell the same hyperlink_id
     term.write('a\r\n\x1b]8;;https://a/\x1b\\first\x1b]8;;\x1b\\\r\nb\r\nc\r\n');
@@ -1044,7 +1037,7 @@ describe('overscan and copied scrolls (ADR 043)', () => {
   });
 
   test(`the block cursor redraws the grapheme of its own screen row`, async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = ghostty.createTerminal(cols, rows, { scrollbackLines: 10000 });
     // Every row starts with a cluster of its own, the cursor on a combining one
     term.write(

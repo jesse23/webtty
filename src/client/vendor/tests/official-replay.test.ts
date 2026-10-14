@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Ghostty, type GhosttyTerminal } from '../ghostty-web/ghostty';
+import type { Ghostty, GhosttyTerminal } from '../ghostty-web/ghostty';
+import { FIXTURES_DIR, loadGhostty } from './support/wasm';
 
 // The official engine (ADR 042, ADR 047) replaying the same input two ways, cell
 // for cell. A terminal that was scrolled, paged and cached while the input arrived
@@ -16,9 +16,6 @@ import { Ghostty, type GhosttyTerminal } from '../ghostty-web/ghostty';
 // in less, `ls -laG /usr/bin | head -80`, `top` showing one `sleep` process,
 // `seq 5000`, an SGR/256-colour/truecolor test and a Unicode test.
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-const OFFICIAL_WASM = path.join(HERE, '../ghostty-vt/ghostty-vt-small.wasm');
-const FIXTURES = path.join(HERE, 'fixtures');
 const COLS = 120;
 const ROWS = 40;
 const THEME = { fgColor: 0xd4d4d4, bgColor: 0x1e1e1e };
@@ -26,7 +23,7 @@ const THEME = { fgColor: 0xd4d4d4, bgColor: 0x1e1e1e };
 let vt: Ghostty;
 
 beforeAll(async () => {
-  vt = await Ghostty.load(OFFICIAL_WASM);
+  vt = await loadGhostty();
 });
 
 interface Cell {
@@ -184,7 +181,7 @@ const CAPTURES = ['ls', 'vim', 'nvim', 'less', 'top', 'sgr', 'uni', 'seq'];
 describe('PTY captures at 120x40: 1-byte writes match 512-byte writes', () => {
   for (const name of CAPTURES) {
     test(name, () => {
-      const data = new Uint8Array(fs.readFileSync(path.join(FIXTURES, `${name}.bin`)));
+      const data = new Uint8Array(fs.readFileSync(path.join(FIXTURES_DIR, `${name}.bin`)));
       const whole = vt.createTerminal(COLS, ROWS, THEME);
       const bytes = vt.createTerminal(COLS, ROWS, THEME);
       let checkpoints = 0;

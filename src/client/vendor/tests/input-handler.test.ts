@@ -1,7 +1,4 @@
 import { describe, expect, test } from 'bun:test';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Ghostty } from '../ghostty-web/ghostty';
 import {
   InputHandler,
   type MouseEventReport,
@@ -10,11 +7,7 @@ import {
   plainKeySequence,
 } from '../ghostty-web/input-handler';
 import { Key, Mods } from '../ghostty-web/types';
-
-const WASM = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../ghostty-vt/ghostty-vt-small.wasm',
-);
+import { loadGhostty } from './support/wasm';
 
 describe('motionButton', () => {
   test('no button held is none, which Ghostty reports as hover (35)', () => {
@@ -61,7 +54,7 @@ describe('InputHandler mouse', () => {
   };
 
   async function setup() {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const doc = target();
     const outside = {};
     const container = {
@@ -197,7 +190,7 @@ describe('InputHandler wheel', () => {
   // for a wheel over the padding, where the container is the target, and sent the tick
   // twice.
   test('sends nothing for a wheel event on the container, even with mouse tracking', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const listeners = new Map<string, ((e: object) => void)[]>();
     const container = {
       addEventListener: (type: string, listener: (e: object) => void) =>
@@ -228,7 +221,7 @@ describe('InputHandler paste', () => {
   // webtty's capture listener on the container takes every paste and stops it (ADR 037),
   // so the handler's own paste path never ran.
   test('sends nothing for a paste or an insertFromPaste beforeinput', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const listeners = new Map<string, ((e: object) => void)[]>();
     const element = {
       addEventListener: (type: string, listener: (e: object) => void) =>
@@ -283,7 +276,7 @@ describe('plainKeySequence', () => {
 describe('InputHandler keys', () => {
   /** Sends a keydown through a handler and returns what it wrote, under DECCKM if asked. */
   async function keys(appCursor = false) {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const listeners = new Map<string, ((e: object) => void)[]>();
     const container = {
       addEventListener: (type: string, listener: (e: object) => void) =>

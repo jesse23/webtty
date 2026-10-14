@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Ghostty, type TerminalEffects } from '../ghostty-web/ghostty';
+import type { TerminalEffects } from '../ghostty-web/ghostty';
 import { InputHandler } from '../ghostty-web/input-handler';
 import { LinkDetector } from '../ghostty-web/link-detector';
 import { OSC8LinkProvider } from '../ghostty-web/providers/osc8-link-provider';
@@ -14,11 +12,7 @@ import {
   Terminal,
 } from '../ghostty-web/terminal';
 import type { GhosttyTerminalConfig, ILink } from '../ghostty-web/types';
-
-const WASM = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../ghostty-vt/ghostty-vt-small.wasm',
-);
+import { loadGhostty } from './support/wasm';
 
 describe('mouseCursorFor', () => {
   const link: ILink = {
@@ -135,7 +129,7 @@ describe('mouseReportText', () => {
 describe('Terminal wheel in mouse-tracking apps', () => {
   // A 10 px x 20 px CSS cell at DPR 1, the grid at (5, 5) in a container at (0, 0).
   async function wheelTerm(modes: string) {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(40, 10);
     wasmTerm.write(modes);
     const term = new Terminal({ ghostty: {} as never, cols: 40, rows: 10 });
@@ -252,7 +246,7 @@ describe('Terminal cursor style', () => {
 describe('Terminal paste', () => {
   // Pastes are encoded by ghostty_terminal_paste and leave through onData (ADR 049).
   async function pasteTerm(options: object = {}) {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(40, 10);
     const term = new Terminal({ ghostty: {} as never, ...options });
     const internals = term as unknown as { isOpen: boolean; wasmTerm: unknown };
@@ -285,7 +279,7 @@ describe('Terminal clearScreen', () => {
   // Ghostty's clear_screen with what libghostty-vt has: the erasing is written to the
   // terminal, and only FF, at a prompt, goes to the app (ADR 054).
   async function clearTerm(options: object = {}) {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(20, 5);
     const term = new Terminal({ ghostty: {} as never, ...options });
     const internals = term as unknown as { isOpen: boolean; wasmTerm: unknown };
@@ -445,7 +439,7 @@ describe('Terminal clearScreen', () => {
 describe('Terminal find', () => {
   // Find with libghostty-vt's search, run in the render loop (ADR 055).
   async function findTerm() {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = new Terminal({ ghostty, cols: 20, rows: 4, scrollbackLines: 1000 });
     const highlights: unknown[] = [];
     const renderer = {
@@ -674,7 +668,7 @@ describe('Terminal focus reports', () => {
   // on a focus change while the mode is on, and the current state when it is set
   // (ADR 053).
   async function focusTerm(options: object = {}) {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(20, 2);
     const term = new Terminal({ ghostty: {} as never, ...options });
     const element = { contains: (node: unknown) => node === inside };
@@ -809,7 +803,7 @@ describe('Terminal clipboard writes', () => {
   // Program clipboard writes come from the engine's readEffects and reach the embedder
   // through onClipboardWrite (ADR 052).
   test('OSC 52 output fires onClipboardWrite with the decoded text, once', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = new Terminal({ ghostty: {} as never });
     (term as unknown as { wasmTerm: unknown }).wasmTerm = ghostty.createTerminal(20, 2);
     const write = (data: string) =>
@@ -851,7 +845,7 @@ describe('Terminal desktop notifications', () => {
   // OSC 9 and OSC 777 come from the engine's readEffects and reach the embedder through
   // onDesktopNotification (ADR 056).
   test('OSC 9 and OSC 777 output fire onDesktopNotification, each once, in order', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = new Terminal({ ghostty: {} as never });
     (term as unknown as { wasmTerm: unknown }).wasmTerm = ghostty.createTerminal(20, 2);
     const write = (data: string) =>
@@ -884,7 +878,7 @@ describe('Terminal input and the selection', () => {
   // Keys and text clear the selection; mouse reports leave it, so a Shift selection in an
   // app with any-motion mode 1003 survives the next hover or click (ADR 051).
   test('a mouse report keeps the selection, a key clears it', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = new Terminal({ ghostty: {} as never });
     const internals = term as unknown as { selectionManager: unknown };
     let selection = 'hello';
@@ -945,7 +939,7 @@ describe('Terminal link hover', () => {
   // The engine's hyperlink_id is a 1-bit "has a link" flag, so every OSC 8 cell carries
   // the same value: the hover is the hovered link's range, never an id.
   test('hovering an OSC 8 link gives the renderer that link range only', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(30, 4);
     wasmTerm.write('\x1b]8;;https://a/\x1b\\first\x1b]8;;\x1b\\\r\n');
     wasmTerm.write('xx \x1b]8;;https://b/\x1b\\second\x1b]8;;\x1b\\');
@@ -1014,7 +1008,7 @@ describe('Terminal right-click', () => {
   // Every contextmenu goes through one handler: the app's right button cancels the menu,
   // and otherwise rightClickBehavior decides (ADR 051).
   async function setup(rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none') {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(20, 2);
     wasmTerm.write('hello');
     const term = new Terminal({ ghostty: {} as never, rightClickBehavior });
@@ -1115,7 +1109,7 @@ describe('Terminal right-click', () => {
 describe('Terminal jumpToPrompt', () => {
   // Ghostty's jump_to_prompt on libghostty-vt's DELTA_PROMPT, in webtty's view (ADR 057).
   async function promptTerm() {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const term = new Terminal({ ghostty, cols: 20, rows: 5 });
     const internals = term as unknown as {
       isOpen: boolean;

@@ -1,15 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Ghostty, type GhosttyTerminal } from '../ghostty-web/ghostty';
+import type { Ghostty, GhosttyTerminal } from '../ghostty-web/ghostty';
 import type { CanvasRenderer } from '../ghostty-web/renderer';
 import { SelectionManager } from '../ghostty-web/selection-manager';
 import type { Terminal } from '../ghostty-web/terminal';
-
-const WASM = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../ghostty-vt/ghostty-vt-small.wasm',
-);
+import { loadGhostty } from './support/wasm';
 
 type Listener = (e: object) => void;
 
@@ -48,7 +42,7 @@ describe('SelectionManager copy on select', () => {
         },
       },
     });
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     wasmTerm = ghostty.createTerminal(20, 4);
     wasmTerm.write('hello world\r\nsecond line');
   });
@@ -187,7 +181,7 @@ describe('SelectionManager text of wide characters', () => {
 
   beforeEach(async () => {
     globalThis.document = target() as unknown as Document;
-    ghostty = await Ghostty.load(WASM);
+    ghostty = await loadGhostty();
   });
 
   afterEach(() => {
@@ -269,7 +263,7 @@ describe('SelectionManager gestures', () => {
       configurable: true,
       value: { clipboard: { writeText: async (text: string) => void writes.push(text) } },
     });
-    ghostty = await Ghostty.load(WASM);
+    ghostty = await loadGhostty();
   });
 
   afterEach(() => {

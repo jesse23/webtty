@@ -1,6 +1,4 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   DirtyState,
   Ghostty,
@@ -9,13 +7,9 @@ import {
   type OfficialTerminal,
 } from '../ghostty-web/ghostty';
 import { CellFlags, Key, KeyAction, KeyEncoderOption, Mods } from '../ghostty-web/types';
+import { instantiateWasm, loadGhostty } from './support/wasm';
 
 // The official libghostty-vt binding (ADR 042) on the vendored wasm, loaded from disk.
-
-const OFFICIAL_WASM = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../ghostty-vt/ghostty-vt-small.wasm',
-);
 
 const FG = 0xd4d4d4;
 const BG = 0x1e1e1e;
@@ -30,7 +24,7 @@ const THEME = {
 let vt: Ghostty;
 
 beforeAll(async () => {
-  vt = await Ghostty.load(OFFICIAL_WASM);
+  vt = await loadGhostty();
 });
 
 function term(cols = 40, rows = 10, config: object = THEME): OfficialTerminal {
@@ -409,8 +403,7 @@ describe('official engine: scrollback, resize and the viewport', () => {
   });
 
   test('a scroll step decodes nothing and moves no viewport once its page is cached', async () => {
-    const wasm = await WebAssembly.instantiate(await Bun.file(OFFICIAL_WASM).arrayBuffer(), {});
-    const real = wasm.instance.exports as Record<string, (...args: number[]) => number>;
+    const real = (await instantiateWasm()).exports as Record<string, (...args: number[]) => number>;
     const calls = { update: 0, rows: 0, scroll: 0 };
     const counted =
       (name: string, key: keyof typeof calls) =>
@@ -702,8 +695,7 @@ describe('official engine: effects and replies', () => {
   });
 
   test('makes one ghostty_terminal_resize call per grid or pixel change', async () => {
-    const wasm = await WebAssembly.instantiate(await Bun.file(OFFICIAL_WASM).arrayBuffer(), {});
-    const real = wasm.instance.exports as Record<string, unknown>;
+    const real = (await instantiateWasm()).exports as Record<string, unknown>;
     let resizes = 0;
     const resize = real.ghostty_terminal_resize as (...args: number[]) => number;
     const spy = {

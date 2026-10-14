@@ -2,15 +2,13 @@ import { describe, expect, test } from 'bun:test';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import {
   GHOSTTY_MINISIGN_PUBKEY,
   type Sidecar,
   verifyMinisign,
   verifyPinned,
 } from '../../../../scripts/update-ghostty-vt';
-
-const VENDOR_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../ghostty-vt');
+import { GHOSTTY_VT_DIR } from './support/wasm';
 
 // Ghostty's minisign release key, copied from Ghostty's PACKAGING.md (ADR 042). Kept here
 // rather than imported so a changed key in the script or the sidecar fails this test.
@@ -19,10 +17,10 @@ const GHOSTTY_KEY_ID = 'F5787DDB42320225';
 
 describe('vendored official ghostty-vt-small.wasm', () => {
   const sidecar = JSON.parse(
-    fs.readFileSync(path.join(VENDOR_DIR, 'ghostty-vt-small.wasm.json'), 'utf8'),
+    fs.readFileSync(path.join(GHOSTTY_VT_DIR, 'ghostty-vt-small.wasm.json'), 'utf8'),
   ) as Sidecar;
-  const wasm = new Uint8Array(fs.readFileSync(path.join(VENDOR_DIR, sidecar.file)));
-  const minisig = fs.readFileSync(path.join(VENDOR_DIR, sidecar.minisig), 'utf8');
+  const wasm = new Uint8Array(fs.readFileSync(path.join(GHOSTTY_VT_DIR, sidecar.file)));
+  const minisig = fs.readFileSync(path.join(GHOSTTY_VT_DIR, sidecar.minisig), 'utf8');
 
   test('is the ReleaseSmall build the sidecar names', () => {
     expect(sidecar.file).toBe('ghostty-vt-small.wasm');
@@ -57,11 +55,11 @@ describe('vendored official ghostty-vt-small.wasm', () => {
   });
 
   test('passes the same offline check as `update-ghostty-vt.ts --verify`', () => {
-    expect(() => verifyPinned(VENDOR_DIR, GHOSTTY_PUBLIC_KEY)).not.toThrow();
+    expect(() => verifyPinned(GHOSTTY_VT_DIR, GHOSTTY_PUBLIC_KEY)).not.toThrow();
   });
 
   test('ships with the Ghostty MIT licence', () => {
-    const license = fs.readFileSync(path.join(VENDOR_DIR, 'LICENSE'), 'utf8');
+    const license = fs.readFileSync(path.join(GHOSTTY_VT_DIR, 'LICENSE'), 'utf8');
     expect(license).toStartWith('MIT License');
     expect(license).toContain('Mitchell Hashimoto, Ghostty contributors');
   });
@@ -69,10 +67,10 @@ describe('vendored official ghostty-vt-small.wasm', () => {
 
 describe('verifyMinisign rejects', () => {
   const sidecar = JSON.parse(
-    fs.readFileSync(path.join(VENDOR_DIR, 'ghostty-vt-small.wasm.json'), 'utf8'),
+    fs.readFileSync(path.join(GHOSTTY_VT_DIR, 'ghostty-vt-small.wasm.json'), 'utf8'),
   ) as Sidecar;
-  const wasm = new Uint8Array(fs.readFileSync(path.join(VENDOR_DIR, sidecar.file)));
-  const minisig = fs.readFileSync(path.join(VENDOR_DIR, sidecar.minisig), 'utf8');
+  const wasm = new Uint8Array(fs.readFileSync(path.join(GHOSTTY_VT_DIR, sidecar.file)));
+  const minisig = fs.readFileSync(path.join(GHOSTTY_VT_DIR, sidecar.minisig), 'utf8');
 
   test('a wasm with one byte changed', () => {
     const tampered = wasm.slice();

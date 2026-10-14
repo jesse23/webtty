@@ -55,8 +55,9 @@ src/client/
     ghostty-vt/        ← official ghostty-vt-small.wasm (Ghostty 05dcf887, ReleaseSmall) + .minisig + sidecar
                           (commit, URL, size, sha256, signature, key, licence), Ghostty LICENSE, PROVENANCE.md;
                           checked offline by vendor/tests/ghostty-vt.test.ts (size, sha256, minisign signature)
-    tests/             ← the vendored layer's tests (Biome-linted); fixtures/ holds PTY captures replayed in
-                          1-byte and 512-byte writes by vendor/tests/official-replay.test.ts
+    tests/             ← the vendored layer's tests (Biome-linted); support/wasm.ts is the one wasm path and
+                          compiles it once; fixtures/ holds PTY captures replayed in 1-byte and 512-byte writes
+                          by vendor/tests/official-replay.test.ts
 scripts/update-ghostty-vt.ts ← fetches and verifies a new pin (the only networked step); --verify re-checks offline
 ```
 

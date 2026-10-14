@@ -1,20 +1,13 @@
 import { describe, expect, test } from 'bun:test';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { BufferNamespace } from '../ghostty-web/buffer';
-import { Ghostty } from '../ghostty-web/ghostty';
 import type { Terminal } from '../ghostty-web/terminal';
-
-const WASM = path.join(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '../ghostty-vt/ghostty-vt-small.wasm',
-);
+import { loadGhostty } from './support/wasm';
 
 // The buffer API is what the link providers and the kitty graphics read: the
 // cursor, the line count, and each cell's codepoint and hyperlink id.
 describe('BufferNamespace', () => {
   test('reads the cursor, scrollback and screen lines, codepoints and links', async () => {
-    const ghostty = await Ghostty.load(WASM);
+    const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(10, 2);
     wasmTerm.write('old\r\nmid\r\n\x1b]8;;https://a.b\x1b\\ln\x1b]8;;\x1b\\k');
     const buffer = new BufferNamespace({ wasmTerm } as unknown as Terminal);
