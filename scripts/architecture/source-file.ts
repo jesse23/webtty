@@ -21,6 +21,7 @@ export type RuleId =
   | 'vendor-outside'
   | 'vendor-deep'
   | 'feature-feature'
+  | 'below-feature'
   | 'facade-value-import'
   | 'cycle'
   | 'kebab-case'

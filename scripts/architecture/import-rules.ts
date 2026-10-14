@@ -45,6 +45,9 @@ export const VENDOR_FACADES = new Set(
 
 const VENDOR_PART_RE = /^src\/client\/vendor\/ghostty-web\/(engine|core|render|input|selection)\//;
 const FEATURE_RE = /^src\/client\/features\/([^/]+)\//;
+// The client layers features build on; only the composition root sits above features.
+const BELOW_FEATURES_RE = /^src\/client\/(app|connection|layout)\//;
+const COMPOSITION_ROOT = 'src/client/app/start-client.ts';
 const BROWSER_SIDE: Layer[] = ['client', 'vendor'];
 const NODE_SIDE: Layer[] = ['server', 'cli', 'pty', 'config'];
 
@@ -127,6 +130,14 @@ export const IMPORT_RULES: ImportRule[] = [
       const other = FEATURE_RE.exec(target)?.[1];
       return own && other && own !== other ? `feature '${own}' imports feature '${other}'` : null;
     },
+  },
+  {
+    id: 'below-feature',
+    appliesToTests: false,
+    broken: ({ from, target }) =>
+      BELOW_FEATURES_RE.test(from) && from !== COMPOSITION_ROOT && FEATURE_RE.test(target)
+        ? `imports ${target}; app/, connection/ and layout/ sit below the features`
+        : null,
   },
   {
     id: 'facade-value-import',

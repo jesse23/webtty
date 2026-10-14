@@ -142,6 +142,24 @@ describe('checkImports', () => {
       [],
     ],
     [
+      'app module imports a feature',
+      'src/client/app/platform.ts',
+      "import { FindBar } from '../features/find/find-bar';",
+      ['below-feature'],
+    ],
+    [
+      'connection module imports a feature',
+      'src/client/connection/a.ts',
+      "import type { FindBar } from '../features/find/find-bar';",
+      ['below-feature'],
+    ],
+    [
+      'the composition root imports a feature',
+      'src/client/app/start-client.ts',
+      "import { FindBar } from '../features/find/find-bar';",
+      [],
+    ],
+    [
       'split part imports a facade',
       'src/client/vendor/ghostty-web/core/a.ts',
       "import { Terminal } from '../terminal';",

@@ -45,6 +45,7 @@ src/client:
 | `src/client/vendor/ghostty-web/**` imports nothing outside itself. | same |
 | App code (`src/client/**` outside `vendor/`) imports vendor code only through `vendor/ghostty-web` (the barrel), never a deep path. Tests may deep-import. | same |
 | `src/client/features/<a>/**` never imports `src/client/features/<b>/**`. Features reach each other only through handles the composition root passes in. | same |
+| `src/client/app/**` (except the composition root `app/start-client.ts`), `connection/**` and `layout/**` never import `src/client/features/**`: they sit below the features, so a feature importing them cannot reach another feature through them. | same |
 | Inside the vendored tree, the parts of a split facade (`engine/`, `core/`, `render/`, `input/`, `selection/`) import narrow interfaces (`engine/engine-types.ts`, `core/host-types.ts`, `render/renderable.ts`), never the facade class as a value, so no runtime import cycle can form. | same (a value import of a facade, and any runtime cycle), plus review |
 | A file under a `test-support/` folder is never named `*.test.ts`, and no file imports a `*.test.ts` file. | same |
 | Test files (`*.test.ts`) may cross the client/server line (contract tests); the import rules above apply to source files only. | same |
