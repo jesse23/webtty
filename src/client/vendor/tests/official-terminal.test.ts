@@ -7,14 +7,14 @@ import {
   type GhosttyTerminal,
   type MouseInput,
   type OfficialTerminal,
-} from './ghostty-web/ghostty';
-import { CellFlags, Key, KeyAction, KeyEncoderOption, Mods } from './ghostty-web/types';
+} from '../ghostty-web/ghostty';
+import { CellFlags, Key, KeyAction, KeyEncoderOption, Mods } from '../ghostty-web/types';
 
 // The official libghostty-vt binding (ADR 042) on the vendored wasm, loaded from disk.
 
 const OFFICIAL_WASM = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'ghostty-vt/ghostty-vt-small.wasm',
+  '../ghostty-vt/ghostty-vt-small.wasm',
 );
 
 const FG = 0xd4d4d4;

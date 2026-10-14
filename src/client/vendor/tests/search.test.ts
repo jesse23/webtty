@@ -6,7 +6,7 @@ import {
   matchesInRows,
   spansKey,
   viewportYToShow,
-} from './ghostty-web/search';
+} from '../ghostty-web/search';
 
 // Find (ADR 055): highlights from libghostty-vt's newest-to-oldest matches, and the view.
 

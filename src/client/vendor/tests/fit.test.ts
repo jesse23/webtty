@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { FitAddon, fitDimensions } from './ghostty-web/addons/fit';
-import type { ITerminalCore } from './ghostty-web/interfaces';
+import { FitAddon, fitDimensions } from '../ghostty-web/addons/fit';
+import type { ITerminalCore } from '../ghostty-web/interfaces';
 
 const NONE = { top: 0, right: 0, bottom: 0, left: 0 };
 const pad = (p: number) => ({ top: p, right: p, bottom: p, left: p });

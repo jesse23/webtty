@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Ghostty, type GhosttyTerminal } from './ghostty-web/ghostty';
+import { Ghostty, type GhosttyTerminal } from '../ghostty-web/ghostty';
 
 // The official engine (ADR 042, ADR 047) replaying the same input two ways, cell
 // for cell. A terminal that was scrolled, paged and cached while the input arrived
@@ -17,7 +17,7 @@ import { Ghostty, type GhosttyTerminal } from './ghostty-web/ghostty';
 // `seq 5000`, an SGR/256-colour/truecolor test and a Unicode test.
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const OFFICIAL_WASM = path.join(HERE, 'ghostty-vt/ghostty-vt-small.wasm');
+const OFFICIAL_WASM = path.join(HERE, '../ghostty-vt/ghostty-vt-small.wasm');
 const FIXTURES = path.join(HERE, 'fixtures');
 const COLS = 120;
 const ROWS = 40;

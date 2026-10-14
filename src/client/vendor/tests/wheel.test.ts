@@ -5,7 +5,7 @@ import {
   wheelArrowKey,
   wheelArrows,
   wheelTicks,
-} from './ghostty-web/wheel';
+} from '../ghostty-web/wheel';
 
 describe('wheelTicks', () => {
   const fresh = (): WheelAccumulator => ({ accum: 0, dir: 0 });

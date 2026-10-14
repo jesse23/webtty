@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Ghostty, type TerminalEffects } from './ghostty-web/ghostty';
-import { InputHandler } from './ghostty-web/input-handler';
-import { LinkDetector } from './ghostty-web/link-detector';
-import { OSC8LinkProvider } from './ghostty-web/providers/osc8-link-provider';
+import { Ghostty, type TerminalEffects } from '../ghostty-web/ghostty';
+import { InputHandler } from '../ghostty-web/input-handler';
+import { LinkDetector } from '../ghostty-web/link-detector';
+import { OSC8LinkProvider } from '../ghostty-web/providers/osc8-link-provider';
 import {
   cursorCellOffset,
   deviceCellPixels,
@@ -12,12 +12,12 @@ import {
   mouseReportText,
   mouseSurface,
   Terminal,
-} from './ghostty-web/terminal';
-import type { GhosttyTerminalConfig, ILink } from './ghostty-web/types';
+} from '../ghostty-web/terminal';
+import type { GhosttyTerminalConfig, ILink } from '../ghostty-web/types';
 
 const WASM = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'ghostty-vt/ghostty-vt-small.wasm',
+  '../ghostty-vt/ghostty-vt-small.wasm',
 );
 
 describe('mouseCursorFor', () => {

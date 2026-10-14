@@ -11,7 +11,7 @@ import { inspectWasm } from './ghostty-vt/inspect-wasm';
 import { fetchRelease, type ReleaseFetchDeps, releaseFetchDeps } from './ghostty-vt/release-fetch';
 import { GHOSTTY_MINISIGN_PUBKEY, verifyPinned, WASM_FILE, writePin } from './ghostty-vt/sidecar';
 
-// The vendor test (src/client/vendor/ghostty-vt.test.ts) imports these from here.
+// The vendor test (src/client/vendor/tests/ghostty-vt.test.ts) imports these from here.
 export type { MinisigResult } from './ghostty-vt/minisign';
 export { sha256, verifyMinisign } from './ghostty-vt/minisign';
 export type { Sidecar } from './ghostty-vt/sidecar';

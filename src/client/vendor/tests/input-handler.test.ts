@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Ghostty } from './ghostty-web/ghostty';
+import { Ghostty } from '../ghostty-web/ghostty';
 import {
   InputHandler,
   type MouseEventReport,
   motionButton,
   mouseMods,
   plainKeySequence,
-} from './ghostty-web/input-handler';
-import { Key, Mods } from './ghostty-web/types';
+} from '../ghostty-web/input-handler';
+import { Key, Mods } from '../ghostty-web/types';
 
 const WASM = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'ghostty-vt/ghostty-vt-small.wasm',
+  '../ghostty-vt/ghostty-vt-small.wasm',
 );
 
 describe('motionButton', () => {

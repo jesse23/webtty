@@ -5,7 +5,7 @@ import {
   type RightClickAction,
   type RightClickBehavior,
   rightClickAction,
-} from './ghostty-web/mouse-route';
+} from '../ghostty-web/mouse-route';
 
 describe('pressToApp', () => {
   test('a press is the app’s only while it tracks the mouse and Shift is up', () => {

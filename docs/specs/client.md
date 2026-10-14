@@ -52,10 +52,11 @@ src/client/
                           PROVENANCE.md (upstream pin, local changes, moves and splits);
                           ghostty.ts holds every wasm call, the binding to the official wasm (ADR 042, ADR 047);
                           fn-table.ts is the function-table trampoline borrowed from ghostty-vt-js (LICENSE.ghostty-vt-js)
-    fixtures/          ← PTY captures replayed in 1-byte and 512-byte writes by vendor/official-replay.test.ts
     ghostty-vt/        ← official ghostty-vt-small.wasm (Ghostty 05dcf887, ReleaseSmall) + .minisig + sidecar
                           (commit, URL, size, sha256, signature, key, licence), Ghostty LICENSE, PROVENANCE.md;
-                          checked offline by vendor/ghostty-vt.test.ts (size, sha256, minisign signature)
+                          checked offline by vendor/tests/ghostty-vt.test.ts (size, sha256, minisign signature)
+    tests/             ← the vendored layer's tests (Biome-linted); fixtures/ holds PTY captures replayed in
+                          1-byte and 512-byte writes by vendor/tests/official-replay.test.ts
 scripts/update-ghostty-vt.ts ← fetches and verifies a new pin (the only networked step); --verify re-checks offline
 ```
 

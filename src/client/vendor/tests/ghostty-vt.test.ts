@@ -8,9 +8,9 @@ import {
   type Sidecar,
   verifyMinisign,
   verifyPinned,
-} from '../../../scripts/update-ghostty-vt';
+} from '../../../../scripts/update-ghostty-vt';
 
-const VENDOR_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'ghostty-vt');
+const VENDOR_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../ghostty-vt');
 
 // Ghostty's minisign release key, copied from Ghostty's PACKAGING.md (ADR 042). Kept here
 // rather than imported so a changed key in the script or the sidecar fails this test.

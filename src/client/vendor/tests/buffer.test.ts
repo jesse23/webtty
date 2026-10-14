@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BufferNamespace } from './ghostty-web/buffer';
-import { Ghostty } from './ghostty-web/ghostty';
-import type { Terminal } from './ghostty-web/terminal';
+import { BufferNamespace } from '../ghostty-web/buffer';
+import { Ghostty } from '../ghostty-web/ghostty';
+import type { Terminal } from '../ghostty-web/terminal';
 
 const WASM = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'ghostty-vt/ghostty-vt-small.wasm',
+  '../ghostty-vt/ghostty-vt-small.wasm',
 );
 
 // The buffer API is what the link providers and the kitty graphics read: the

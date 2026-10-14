@@ -1,19 +1,19 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Ghostty } from './ghostty-web/ghostty';
+import { Ghostty } from '../ghostty-web/ghostty';
 import {
   CanvasRenderer,
   frameLines,
   REPAINT_CHUNK_ROWS,
   watchDevicePixelRatio,
   wholeDevicePixelRatio,
-} from './ghostty-web/renderer';
-import type { GhosttyCell } from './ghostty-web/types';
+} from '../ghostty-web/renderer';
+import type { GhosttyCell } from '../ghostty-web/types';
 
 const WASM = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
-  'ghostty-vt/ghostty-vt-small.wasm',
+  '../ghostty-vt/ghostty-vt-small.wasm',
 );
 
 describe('wholeDevicePixelRatio', () => {

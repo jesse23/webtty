@@ -60,7 +60,7 @@ describe('readSourceTree', () => {
       'src/b.ts': 'b',
       'src/a/a.ts': 'a',
       'src/pty/node-pty.d.ts': 'declare',
-      'src/client/vendor/fixtures/ls.bin': 'bytes',
+      'src/client/vendor/tests/fixtures/ls.bin': 'bytes',
       'src/node_modules/x/index.ts': 'skipped',
       'src/.hidden/x.ts': 'skipped',
       'scripts/build.ts': 'build',
