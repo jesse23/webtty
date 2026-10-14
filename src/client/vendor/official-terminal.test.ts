@@ -7,14 +7,7 @@ import {
   type GhosttyTerminal,
   type OfficialTerminal,
 } from './ghostty-web/ghostty';
-import {
-  CellFlags,
-  Key,
-  KeyAction,
-  KeyEncoderOption,
-  KittyKeyFlags,
-  Mods,
-} from './ghostty-web/types';
+import { CellFlags, Key, KeyAction, KeyEncoderOption, Mods } from './ghostty-web/types';
 
 // The official libghostty-vt binding (ADR 042) on the vendored wasm, loaded from disk.
 
@@ -162,7 +155,6 @@ describe('official engine: cells', () => {
 
   test('uses an explicitly black theme background instead of the default', () => {
     const t = term(40, 5, { fgColor: FG, bgColor: 0 });
-    expect(t.getColors().background).toEqual({ r: 0, g: 0, b: 0 });
     t.write('\x1b]11;?\x07');
     expect(t.readResponse()).toBe('\x1b]11;rgb:0000/0000/0000\x07');
     t.free();
@@ -185,21 +177,16 @@ describe('official engine: cells', () => {
 
   // Ghostty's render state copies the default colours only when both are set, so the
   // binding always sets both, falling back to webtty's default 0xcccccc on black.
-  const hex = (c: { r: number; g: number; b: number } | null) =>
-    c ? (c.r << 16) | (c.g << 8) | c.b : null;
   const defaults = (t: GhosttyTerminal) => {
     t.write('\x1b[1;1HA');
     t.update();
     const cell = (t.getLine(0) ?? [])[0];
-    const colors = t.getColors();
     t.readResponse();
     t.write('\x1b]10;?\x07');
     const osc10 = t.readResponse();
     t.write('\x1b]11;?\x07');
     const osc11 = t.readResponse();
     return {
-      fg: hex(colors.foreground),
-      bg: hex(colors.background),
       cellFg: rgb(cell),
       cellBg: bgRgb(cell),
       osc10,
@@ -211,8 +198,6 @@ describe('official engine: cells', () => {
     for (const config of [{ fgColor: FG }, { fgColor: FG, bgColor: undefined }]) {
       const t = term(10, 3, config);
       expect(defaults(t)).toEqual({
-        fg: FG,
-        bg: 0,
         cellFg: FG,
         cellBg: 0,
         osc10: '\x1b]10;rgb:d4d4/d4d4/d4d4\x07',
@@ -225,8 +210,6 @@ describe('official engine: cells', () => {
   test('falls back to the default foreground when only the background is given', () => {
     const t = term(10, 3, { bgColor: 0x202020 });
     expect(defaults(t)).toEqual({
-      fg: 0xcccccc,
-      bg: 0x202020,
       cellFg: 0xcccccc,
       cellBg: 0x202020,
       osc10: '\x1b]10;rgb:cccc/cccc/cccc\x07',
@@ -239,8 +222,6 @@ describe('official engine: cells', () => {
     for (const config of [undefined, { scrollbackLines: 1000 }]) {
       const t = vt.createTerminal(10, 3, config) as OfficialTerminal;
       expect(defaults(t)).toEqual({
-        fg: 0xcccccc,
-        bg: 0,
         cellFg: 0xcccccc,
         cellBg: 0,
         osc10: '\x1b]10;rgb:cccc/cccc/cccc\x07',
@@ -249,7 +230,6 @@ describe('official engine: cells', () => {
       t.write('\x1b]11;rgb:20/40/60\x1b\\');
       t.update();
       expect(bgRgb((t.getLine(0) ?? [])[0])).toBe(0x204060);
-      expect(hex(t.getColors().background)).toBe(0x204060);
       t.write('\x1b]111\x1b\\\x1b[?5h');
       t.update();
       expect(bgRgb((t.getLine(0) ?? [])[0])).toBe(0xcccccc);
@@ -311,8 +291,8 @@ describe('official engine: cursor and modes', () => {
     t.write('\x1b[?1000l\x1b[?1002l\x1b[?1003l');
     expect(t.hasMouseTracking()).toBe(false);
     t.write('\x1b[?2004h\x1b[?1004h\x1b[?1h\x1b[4h');
-    expect(t.hasBracketedPaste()).toBe(true);
-    expect(t.hasFocusEvents()).toBe(true);
+    expect(t.getMode(2004)).toBe(true);
+    expect(t.getMode(1004)).toBe(true);
     expect(t.getMode(1)).toBe(true);
     expect(t.getMode(4, true)).toBe(true);
     expect(t.getMode(4, false)).toBe(false);
@@ -706,8 +686,6 @@ describe('official engine: key encoder', () => {
     expect(encode(Key.PASTE)).toBe('');
     enc.setOption(KeyEncoderOption.CURSOR_KEY_APPLICATION, true);
     expect(encode(Key.UP)).toBe('\x1bOA');
-    enc.setKittyFlags(KittyKeyFlags.DISAMBIGUATE);
-    expect(encode(Key.ESCAPE)).toBe('\x1b[27u');
     enc.dispose();
   });
 });

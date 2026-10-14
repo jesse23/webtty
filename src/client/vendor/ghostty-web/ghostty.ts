@@ -14,7 +14,6 @@
 import { FnTable, type InstalledFn, WasmValType } from './fn-table';
 import {
   CellFlags,
-  type Cursor,
   DirtyState,
   type GhosttyCell,
   type GhosttyTerminalConfig,
@@ -22,22 +21,16 @@ import {
   KeyAction,
   KeyEncoderOption,
   type KeyEvent,
-  type KittyKeyFlags,
-  type RGB,
-  type RenderStateColors,
   type RenderStateCursor,
 } from './types';
 
 // Re-export types for convenience
 export {
   CellFlags,
-  type Cursor,
   DirtyState,
   type GhosttyCell,
   type GhosttyTerminalConfig,
   KeyEncoderOption,
-  type RGB,
-  type RenderStateColors,
   type RenderStateCursor,
 };
 
@@ -73,7 +66,6 @@ export interface GhosttyTerminal {
   // Render state
   update(): DirtyState;
   getCursor(): RenderStateCursor;
-  getColors(): RenderStateColors;
   isRowDirty(y: number): boolean;
   markClean(): void;
   getViewport(): GhosttyCell[];
@@ -84,8 +76,6 @@ export interface GhosttyTerminal {
 
   // Modes
   isAlternateScreen(): boolean;
-  hasBracketedPaste(): boolean;
-  hasFocusEvents(): boolean;
   hasMouseTracking(): boolean;
   getMode(mode: number, isAnsi?: boolean): boolean;
 
@@ -108,7 +98,6 @@ export interface GhosttyTerminal {
 /** Converts keyboard events into terminal escape sequences. */
 export interface KeyEncoder {
   setOption(option: KeyEncoderOption, value: boolean | number): void;
-  setKittyFlags(flags: KittyKeyFlags): void;
   encode(event: KeyEvent): Uint8Array;
   dispose(): void;
 }
@@ -485,8 +474,6 @@ function resolveOfficialLayout(layout: VtLayout) {
       sizeField: layout.offset('GhosttyRenderStateColors', 'size'),
       background: layout.offset('GhosttyRenderStateColors', 'background'),
       foreground: layout.offset('GhosttyRenderStateColors', 'foreground'),
-      cursor: layout.offset('GhosttyRenderStateColors', 'cursor'),
-      cursorHasValue: layout.offset('GhosttyRenderStateColors', 'cursor_has_value'),
       palette: layout.offset('GhosttyRenderStateColors', 'palette'),
       rgbSize: layout.size('GhosttyColorRgb'),
       r: layout.offset('GhosttyColorRgb', 'r'),
@@ -802,10 +789,6 @@ function setRgb(cell: GhosttyCell, fg: number, bg: number): void {
   cell.bg_b = bg & 0xff;
 }
 
-function rgbObject(rgb: number): RGB {
-  return { r: (rgb >>> 16) & 0xff, g: (rgb >>> 8) & 0xff, b: rgb & 0xff };
-}
-
 /**
  * Whether one `WRITE_PTY` reply is the kitty keyboard query reply `ESC [ ? <flags> u`
  * (`queryKittyKeyboard` in Ghostty's `stream_terminal.zig`). No other reply has
@@ -909,7 +892,6 @@ export class OfficialTerminal implements GhosttyTerminal {
   private cursorStyle: RenderStateCursor['style'] = 'block';
   private defFg = 0xffffff;
   private defBg = 0;
-  private cursorColor: number | null = null;
   private readonly palette = new Uint8Array(256 * 3);
 
   // The view's offset: lines scrolled up from the bottom. Ghostty's viewport stays at
@@ -1124,15 +1106,6 @@ export class OfficialTerminal implements GhosttyTerminal {
     };
   }
 
-  getColors(): RenderStateColors {
-    this.refresh();
-    return {
-      background: rgbObject(this.defBg),
-      foreground: rgbObject(this.defFg),
-      cursor: this.cursorColor === null ? null : rgbObject(this.cursorColor),
-    };
-  }
-
   isRowDirty(y: number): boolean {
     this.refresh();
     return this.dirtyMax === DirtyState.FULL || this.dirtyRows.has(y);
@@ -1174,14 +1147,6 @@ export class OfficialTerminal implements GhosttyTerminal {
   isAlternateScreen(): boolean {
     this.info();
     return this.altScreen;
-  }
-
-  hasBracketedPaste(): boolean {
-    return this.getMode(2004, false);
-  }
-
-  hasFocusEvents(): boolean {
-    return this.getMode(1004, false);
   }
 
   hasMouseTracking(): boolean {
@@ -1585,7 +1550,6 @@ export class OfficialTerminal implements GhosttyTerminal {
     let changed = defBg !== this.defBg || defFg !== this.defFg;
     this.defBg = defBg;
     this.defFg = defFg;
-    this.cursorColor = u8[at.colors + K.cursorHasValue] ? this.rgbAt(at.colors + K.cursor) : null;
     const pal = at.colors + K.palette;
     const out = this.palette;
     for (let i = 0; i < 256; i++) {
@@ -1972,10 +1936,6 @@ class OfficialKeyEncoder implements KeyEncoder {
       typeof value === 'boolean' ? (value ? 1 : 0) : value
     );
     this.ex.ghostty_key_encoder_setopt(this.encoder, official, this.value);
-  }
-
-  setKittyFlags(flags: KittyKeyFlags): void {
-    this.setOption(KeyEncoderOption.KITTY_KEYBOARD_FLAGS, flags);
   }
 
   encode(event: KeyEvent): Uint8Array {

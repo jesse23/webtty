@@ -27,7 +27,7 @@ export {
 } from './ghostty';
 export type { GhosttyTerminal, KeyEncoder, TerminalEffects } from './ghostty';
 export { Key, KeyAction, Mods } from './types';
-export type { KeyEvent, GhosttyCell, RGB, Cursor } from './types';
+export type { KeyEvent, GhosttyCell } from './types';
 
 // Low-level components (for custom integrations)
 export { CanvasRenderer } from './renderer';
