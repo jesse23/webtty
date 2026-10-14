@@ -22,11 +22,6 @@ export interface Shortcut {
 
 type Keys = Pick<KeyboardEvent, 'code' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>;
 
-/** Whether the browser's platform takes Ghostty's macOS defaults (iPadOS and iOS too). */
-export function isMacPlatform(platform: string): boolean {
-  return /mac|iphone|ipad|ipod/i.test(platform);
-}
-
 /**
  * The shortcut a `keydown` is, if any. Modifiers match exactly, as in Ghostty, except for
  * Ctrl+V, which pastes with Shift or Alt held too, on every platform (ADR 014). Cmd+C and

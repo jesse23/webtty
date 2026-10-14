@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { isMacPlatform, type Shortcut, shortcutFor } from './shortcut-map';
+import { type Shortcut, shortcutFor } from './shortcut-map';
 
 type Mod = 'ctrl' | 'shift' | 'alt' | 'meta';
 const key = (code: string, mods: Mod[] = []) => ({
@@ -8,23 +8,6 @@ const key = (code: string, mods: Mod[] = []) => ({
   shiftKey: mods.includes('shift'),
   altKey: mods.includes('alt'),
   metaKey: mods.includes('meta'),
-});
-
-describe('isMacPlatform', () => {
-  test('macOS and iOS take the macOS defaults', () => {
-    expect(isMacPlatform('macOS')).toBe(true);
-    expect(isMacPlatform('MacIntel')).toBe(true);
-    expect(isMacPlatform('iPhone')).toBe(true);
-    expect(isMacPlatform('iPad')).toBe(true);
-  });
-
-  test('Windows, Linux and ChromeOS do not', () => {
-    expect(isMacPlatform('Windows')).toBe(false);
-    expect(isMacPlatform('Win32')).toBe(false);
-    expect(isMacPlatform('Linux x86_64')).toBe(false);
-    expect(isMacPlatform('Chrome OS')).toBe(false);
-    expect(isMacPlatform('')).toBe(false);
-  });
 });
 
 describe('shortcutFor outside macOS', () => {

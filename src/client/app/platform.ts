@@ -1,12 +1,15 @@
 // What the client asks of the browser's platform and focus state (util; ADR 053,
 // ADR 054). The navigator and the document come in as arguments.
 
-import { isMacPlatform } from '../features/keyboard/shortcut-map';
-
 /** The navigator fields the platform check reads; `userAgentData` is Chromium-only. */
 export interface PlatformSource {
   readonly platform: string;
   readonly userAgentData?: { readonly platform: string };
+}
+
+/** Whether the browser's platform takes Ghostty's macOS defaults (iPadOS and iOS too). */
+export function isMacPlatform(platform: string): boolean {
+  return /mac|iphone|ipad|ipod/i.test(platform);
 }
 
 /**

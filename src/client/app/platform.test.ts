@@ -1,6 +1,23 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { createDomWindow, type DomWindow } from '../test-support/dom-window';
-import { detectMac, isTerminalFocused } from './platform';
+import { detectMac, isMacPlatform, isTerminalFocused } from './platform';
+
+describe('isMacPlatform', () => {
+  test.each([
+    ['macOS', true],
+    ['MacIntel', true],
+    ['iPhone', true],
+    ['iPad', true],
+    ['iPod touch', true],
+    ['Windows', false],
+    ['Win32', false],
+    ['Linux x86_64', false],
+    ['Chrome OS', false],
+    ['', false],
+  ])('%p takes the macOS defaults: %p', (platform, mac) => {
+    expect(isMacPlatform(platform)).toBe(mac);
+  });
+});
 
 describe('detectMac', () => {
   test.each([
