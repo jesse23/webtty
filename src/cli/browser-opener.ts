@@ -1,6 +1,7 @@
 // Opening a session URL in the user's browser, and turning the configured bind host into one a
 // browser can navigate to. A util over an injected spawn, platform and environment (ADR 063).
 import * as childProcess from 'node:child_process';
+import type { Config } from '../config';
 
 /**
  * Converts a bind host to a browser-navigable host.
@@ -12,6 +13,11 @@ export function toBrowserHost(host: string): string {
   if (host === '0.0.0.0' || host === '::') return 'localhost';
   if (host.includes(':') && !host.startsWith('[')) return `[${host}]`;
   return host;
+}
+
+/** The session page URL `go` and `run` print: the configured host made browsable, and the port. */
+export function sessionPageUrl(config: Pick<Config, 'host' | 'port'>, id: string): string {
+  return `http://${toBrowserHost(config.host)}:${config.port}/s/${id}`;
 }
 
 /** `child_process.spawn` narrowed to the detached, unref'd call openBrowser makes. */

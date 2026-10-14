@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, mock, spyOn, test } from 'bun:test';
+import { describe, expect, mock, spyOn, test } from 'bun:test';
 import os from 'node:os';
 import path from 'node:path';
 import { DEFAULT_CONFIG } from '../config';
+import { type FetchLike, WebttyClient } from './api-client';
 import {
   defaultServerProcessDeps,
   logPath,
@@ -10,12 +11,6 @@ import {
   startServer,
   stopServer,
 } from './server-process';
-
-const realFetch = globalThis.fetch;
-
-afterEach(() => {
-  globalThis.fetch = realFetch;
-});
 
 describe('resolveServerEntry', () => {
   const cases: Array<[string, string, boolean, boolean, string]> = [
@@ -193,40 +188,44 @@ describe('startServer', () => {
 });
 
 describe('stopServer', () => {
-  test('returns true when server stops after POST succeeds', async () => {
-    let callCount = 0;
-    globalThis.fetch = mock(async (_url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return new Response('stopping', { status: 200 });
-      callCount++;
-      if (callCount >= 2) throw new Error('connection refused');
-      return new Response('[]', { status: 200 });
-    }) as unknown as typeof fetch;
+  const client = (fetchFn: FetchLike) => new WebttyClient('http://127.0.0.1:1', fetchFn);
 
-    expect(await stopServer()).toBe(true);
+  test('returns true when server stops after POST succeeds', async () => {
+    let probes = 0;
+    const calls: string[] = [];
+    const stopped = client(async (url, init) => {
+      calls.push(`${init?.method ?? 'GET'} ${url}`);
+      if (init?.method === 'POST') return new Response('stopping', { status: 200 });
+      if (++probes >= 2) throw new Error('connection refused');
+      return new Response('[]', { status: 200 });
+    });
+
+    expect(await stopServer(stopped)).toBe(true);
+    expect(calls).toEqual([
+      'POST http://127.0.0.1:1/api/server/stop',
+      'GET http://127.0.0.1:1/api/sessions',
+      'GET http://127.0.0.1:1/api/sessions',
+    ]);
   });
 
   test('returns false when POST to stop endpoint fails', async () => {
-    globalThis.fetch = mock(async (_url: string, init?: RequestInit) => {
-      if (init?.method === 'POST') return new Response('error', { status: 500 });
-      return new Response('[]', { status: 200 });
-    }) as unknown as typeof fetch;
-
-    expect(await stopServer()).toBe(false);
+    const refused = client(async (_url, init) =>
+      init?.method === 'POST'
+        ? new Response('error', { status: 500 })
+        : new Response('[]', { status: 200 }),
+    );
+    expect(await stopServer(refused)).toBe(false);
   });
 
   test('returns false when fetch throws', async () => {
-    globalThis.fetch = mock(async () => {
+    const down = client(async () => {
       throw new Error('connection refused');
-    }) as unknown as typeof fetch;
-
-    expect(await stopServer()).toBe(false);
+    });
+    expect(await stopServer(down)).toBe(false);
   });
 
   test('returns false when server does not come down within timeout', async () => {
-    globalThis.fetch = mock(
-      async () => new Response('[]', { status: 200 }),
-    ) as unknown as typeof fetch;
-
-    expect(await stopServer('http://127.0.0.1:1', 100)).toBe(false);
+    const stuck = client(async () => new Response('[]', { status: 200 }));
+    expect(await stopServer(stuck, 100)).toBe(false);
   });
 });

@@ -1,13 +1,13 @@
 // Starting and stopping the webtty server as a detached background process. A service over
-// injected deps (spawn, filesystem, config, reachability probe), with the src/dist entry
-// arithmetic split out as the pure resolveServerEntry (ADR 063).
+// injected deps (spawn, filesystem, config, the API client's reachability probe), with the
+// src/dist entry arithmetic split out as the pure resolveServerEntry (ADR 063).
 import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { type Config, configDir, loadConfig } from '../config';
 import { isWindows, runningUnderBun } from '../runtime';
-import { getBaseUrl, isServerRunning } from './http';
+import { configuredClient, type WebttyClient } from './api-client';
 
 /** Where the CLI module runs from, and with which executor the server will run. */
 export interface ServerEntryOptions {
@@ -93,7 +93,7 @@ export function defaultServerProcessDeps(): ServerProcessDeps {
       return fs.openSync(file, 'a');
     },
     closeFd: fs.closeSync,
-    isRunning: isServerRunning,
+    isRunning: () => configuredClient().isRunning(),
     err: (text) => console.error(text),
     exit: (code) => process.exit(code),
     sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
@@ -160,20 +160,19 @@ export async function startServer(
 /**
  * Sends `POST /api/server/stop`, then polls until the server is no longer reachable.
  *
- * @param baseUrl - The server base URL (default: getBaseUrl()).
+ * @param client - The server to stop (default: the configured one).
  * @param timeoutMs - Maximum time to wait for the server to stop (default: 5000 ms).
  * @returns `true` if the server stopped successfully, `false` otherwise.
  */
 export async function stopServer(
-  baseUrl: string = getBaseUrl(),
+  client: WebttyClient = configuredClient(),
   timeoutMs = 5000,
 ): Promise<boolean> {
   try {
-    const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
-    if (!res.ok) return false;
+    if (!(await client.stop())) return false;
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
-      if (!(await isServerRunning())) return true;
+      if (!(await client.isRunning())) return true;
       await new Promise((r) => setTimeout(r, 100));
     }
     return false;

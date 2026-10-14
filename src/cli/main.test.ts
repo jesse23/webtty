@@ -1,24 +1,24 @@
 import { describe, expect, spyOn, test } from 'bun:test';
 import path from 'node:path';
-import { type CliCommands, type CliDeps, createCliDeps } from './cli-deps';
+import { WebttyClient } from './api-client';
+import { createCliDeps } from './cli-deps';
 import { helpText } from './help-text';
-import { main } from './main';
+import { CLI_COMMANDS, type CliCommands, main } from './main';
+import { fakeCliDeps } from './test-support/fake-cli-deps';
 
-/** Deps whose commands record `name(args)` and whose streams and exit record into arrays. */
-function fakeDeps() {
+/** A command table whose entries record `name(args)`, over recording fake deps. */
+function fakeCommands() {
   const calls: Array<[string, ...unknown[]]> = [];
-  const out: string[] = [];
-  const err: string[] = [];
-  const exits: number[] = [];
   const record =
     (name: string) =>
     (...args: unknown[]) => {
-      calls.push([name, ...args]);
+      // Every command's last argument is the deps; only the parsed args are recorded.
+      calls.push([name, ...args.slice(0, -1)]);
     };
   const asyncRecord =
     (name: string) =>
     async (...args: unknown[]) => {
-      calls.push([name, ...args]);
+      record(name)(...args);
     };
   const commands: CliCommands = {
     go: asyncRecord('go'),
@@ -27,49 +27,43 @@ function fakeDeps() {
     rename: asyncRecord('rename'),
     stop: asyncRecord('stop'),
     start: asyncRecord('start'),
-    config: record('config'),
+    editConfig: record('editConfig'),
     run: asyncRecord('run'),
     key: record('key'),
   };
-  const deps: CliDeps = {
-    out: (text) => out.push(text),
-    err: (text) => err.push(text),
-    exit: (code) => exits.push(code),
-    version: () => '9.9.9',
-    commands,
-  };
-  return { deps, calls, out, err, exits };
+  return { commands, calls };
 }
 
 /** Runs main as `webtty ...args` and returns what it recorded. */
 async function run(...args: string[]) {
-  const fake = fakeDeps();
-  await main(['bun', 'webtty', ...args], fake.deps);
-  return fake;
+  const fake = fakeCliDeps();
+  const { commands, calls } = fakeCommands();
+  await main(['bun', 'webtty', ...args], fake.deps, commands);
+  return { ...fake, calls };
 }
 
 describe('main dispatch', () => {
   const cases: Array<[string[], Array<[string, ...unknown[]]>]> = [
-    [[], [['go', 'main', undefined]]],
-    [['go'], [['go', 'main', undefined]]],
-    [['go', 'x'], [['go', 'x', undefined]]],
-    [['a', 'x'], [['go', 'x', undefined]]],
-    [['attach', 'x'], [['go', 'x', undefined]]],
-    [['open'], [['go', 'main', undefined]]],
-    [['--dir', '/tmp/w'], [['go', 'main', path.resolve('/tmp/w')]]],
-    [['go', 'x', '--dir', '/tmp/w'], [['go', 'x', path.resolve('/tmp/w')]]],
-    [['ls'], [['list', undefined]]],
-    [['list', 'ab'], [['list', 'ab']]],
-    [['rm', 'x'], [['remove', 'x']]],
-    [['remove'], [['remove', undefined]]],
-    [['mv', 'a', 'b'], [['rename', 'a', 'b']]],
-    [['move', 'a'], [['rename', 'a', undefined]]],
-    [['rename', 'a', 'b'], [['rename', 'a', 'b']]],
+    [[], [['go', { id: undefined, baseDir: undefined }]]],
+    [['go'], [['go', { id: undefined, baseDir: undefined }]]],
+    [['go', 'x'], [['go', { id: 'x', baseDir: undefined }]]],
+    [['a', 'x'], [['go', { id: 'x', baseDir: undefined }]]],
+    [['attach', 'x'], [['go', { id: 'x', baseDir: undefined }]]],
+    [['open'], [['go', { id: undefined, baseDir: undefined }]]],
+    [['--dir', '/tmp/w'], [['go', { id: undefined, baseDir: path.resolve('/tmp/w') }]]],
+    [['go', 'x', '--dir', '/tmp/w'], [['go', { id: 'x', baseDir: path.resolve('/tmp/w') }]]],
+    [['ls'], [['list', { filter: undefined }]]],
+    [['list', 'ab'], [['list', { filter: 'ab' }]]],
+    [['rm', 'x'], [['remove', { id: 'x' }]]],
+    [['remove'], [['remove', { id: undefined }]]],
+    [['mv', 'a', 'b'], [['rename', { id: 'a', newId: 'b' }]]],
+    [['move', 'a'], [['rename', { id: 'a', newId: undefined }]]],
+    [['rename', 'a', 'b'], [['rename', { id: 'a', newId: 'b' }]]],
     [['stop'], [['stop']]],
     [['start'], [['start']]],
-    [['config'], [['config']]],
-    [['run', 'x'], [['run', 'x', undefined, []]]],
-    [['run', 'x', 'ls', '-la', 'dir'], [['run', 'x', 'ls', ['-la', 'dir']]]],
+    [['config'], [['editConfig']]],
+    [['run', 'x'], [['run', { id: 'x', cmd: undefined, args: [] }]]],
+    [['run', 'x', 'ls', '-la', 'dir'], [['run', { id: 'x', cmd: 'ls', args: ['-la', 'dir'] }]]],
     [['key'], [['key']]],
   ];
   for (const [args, expected] of cases) {
@@ -114,18 +108,27 @@ describe('main dispatch', () => {
   });
 });
 
-describe('createCliDeps', () => {
-  test('wires every command and the package version', async () => {
-    const deps = createCliDeps();
-    const { cmdGo, cmdKey, cmdRun } = await import('./commands');
-    const { getVersion } = await import('../version');
-    expect(deps.commands.go).toBe(cmdGo);
-    expect(deps.commands.key).toBe(cmdKey);
-    expect(deps.commands.run).toBe(cmdRun);
-    expect(Object.keys(deps.commands).sort()).toEqual(
-      ['config', 'go', 'key', 'list', 'remove', 'rename', 'run', 'start', 'stop'].sort(),
+describe('CLI_COMMANDS and createCliDeps', () => {
+  test('CLI_COMMANDS holds one command per module', async () => {
+    const { go } = await import('./commands/go');
+    const { key } = await import('./commands/key');
+    const { run } = await import('./commands/run');
+    expect(CLI_COMMANDS.go).toBe(go);
+    expect(CLI_COMMANDS.key).toBe(key);
+    expect(CLI_COMMANDS.run).toBe(run);
+    expect(Object.keys(CLI_COMMANDS).sort()).toEqual(
+      ['editConfig', 'go', 'key', 'list', 'remove', 'rename', 'run', 'start', 'stop'].sort(),
     );
+  });
+
+  test('wires the configured client, the config loader and the package version', async () => {
+    const deps = createCliDeps();
+    const { loadConfig } = await import('../config');
+    const { getVersion } = await import('../version');
+    expect(deps.client).toBeInstanceOf(WebttyClient);
+    expect(deps.config).toBe(loadConfig);
     expect(deps.version).toBe(getVersion);
+    expect(deps.editor.env).toBe(process.env);
   });
 });
 
@@ -146,6 +149,41 @@ describe('createCliDeps streams', () => {
       log.mockRestore();
       error.mockRestore();
       exit.mockRestore();
+    }
+  });
+
+  test('write goes to process.stdout and process.stderr without a newline', () => {
+    const stdout = spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stderr = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    try {
+      const deps = createCliDeps();
+      deps.write.stdout('out');
+      deps.write.stderr('err');
+      expect(stdout).toHaveBeenCalledWith('out');
+      expect(stderr).toHaveBeenCalledWith('err');
+    } finally {
+      stdout.mockRestore();
+      stderr.mockRestore();
+    }
+  });
+
+  test('server.stop stops the given client and openBrowser honours WEBTTY_NO_OPEN', async () => {
+    const requests: string[] = [];
+    const client = new WebttyClient('http://127.0.0.1:1', async (url, init) => {
+      requests.push(`${init?.method ?? 'GET'} ${url}`);
+      return new Response('no', { status: 500 });
+    });
+    const deps = createCliDeps(client);
+    expect(await deps.server.stop()).toBe(false);
+    expect(requests).toEqual(['POST http://127.0.0.1:1/api/server/stop']);
+
+    const saved = process.env.WEBTTY_NO_OPEN;
+    process.env.WEBTTY_NO_OPEN = '1';
+    try {
+      expect(() => deps.openBrowser('http://localhost:1/s/x')).not.toThrow();
+    } finally {
+      if (saved === undefined) delete process.env.WEBTTY_NO_OPEN;
+      else process.env.WEBTTY_NO_OPEN = saved;
     }
   });
 });
