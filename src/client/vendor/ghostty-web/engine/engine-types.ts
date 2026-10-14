@@ -4,7 +4,10 @@
 // values they take and return. Split parts import these instead of the binding's classes (ADR 061).
 
 import type { DirtyState, GhosttyCell, RenderStateCursor } from './cell-types';
+import type { FnTable } from '../fn-table';
 import type { KeyEncoderOption, KeyEvent } from '../input/key-types';
+import type { OfficialLayout } from './official-layout';
+import type { OfficialWasmExports } from './wasm-exports';
 
 /**
  * Terminal configuration, applied when the terminal is created. Colours are
@@ -264,4 +267,27 @@ export interface KeyEncoder {
   setOption(option: KeyEncoderOption, value: boolean | number): void;
   encode(event: KeyEvent): Uint8Array;
   dispose(): void;
+}
+
+/**
+ * What the engine's bindings need from the loaded wasm instance, `Ghostty`, so they
+ * import this interface instead of the facade (ADR 061).
+ */
+export interface EngineHost {
+  /** The wasm exports. */
+  readonly ex: OfficialWasmExports;
+  /** The manifest's offsets and enum values, resolved per feature. */
+  readonly L: OfficialLayout;
+  /** One function table per instance; terminals install their callbacks in it. */
+  readonly fnTable: FnTable;
+  /** ghostty-web `Key` value → official `GhosttyKey` value. */
+  readonly keys: ReadonlyMap<number, number>;
+  /** ghostty-web `KeyEncoderOption` → official `GhosttyKeyEncoderOption`. */
+  readonly encoderOptions: ReadonlyMap<number, number>;
+  /** ghostty-web `KeyAction` → official `GhosttyKeyAction`. */
+  readonly keyActions: ReadonlyMap<number, number>;
+  /** The official `GhosttyKey` for a key with no translation. */
+  readonly unidentifiedKey: number;
+  /** Creates an object through a `GhosttyFoo* out` slot and returns its handle. */
+  newHandle(what: string, create: (slot: number) => number): number;
 }

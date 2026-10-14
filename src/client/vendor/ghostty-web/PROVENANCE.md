@@ -55,13 +55,13 @@ Not from upstream; each starts with, or will start with when it is next touched,
 
 - `glide.ts`, `wheel.ts` (ADR 045), `mouse-route.ts` (ADR 051), `search.ts` (ADR 055).
 - `lifecycle/disposable-store.ts` (ADR 060, ADR 065): `DisposableStore`, `listen` and `toDisposable`, the one teardown primitive of the app and, from ADR 065, of this layer.
-- `engine/wasm-exports.ts`, `engine/vt-layout.ts`, `engine/official-layout.ts`, `engine/key-tables.ts`, `engine/scratch.ts` (ADR 041, ADR 042), `engine/cursor-blink.ts` (ADR 049), `engine/text-mime.ts` (ADR 052), `engine/kitty-keyboard-reply.ts` (ADR 042): webtty's binding to the official wasm, moved out of `ghostty.ts` (ADR 061). Upstream's `ghostty.ts` ran the Coder wasm at fixed offsets and had none of them.
+- `engine/wasm-exports.ts`, `engine/vt-layout.ts`, `engine/official-layout.ts`, `engine/key-tables.ts`, `engine/scratch.ts` (ADR 041, ADR 042), `engine/cursor-blink.ts` (ADR 049), `engine/text-mime.ts` (ADR 052), `engine/kitty-keyboard-reply.ts` (ADR 042), `engine/key-encoder-binding.ts` (ADR 042): webtty's binding to the official wasm, moved out of `ghostty.ts` (ADR 061). Upstream's `ghostty.ts` ran the Coder wasm at fixed offsets and had none of them.
 
 ## Layout
 
 - `lifecycle/`: teardown (`disposable-store.ts`). webtty-original.
 - `input/`: keyboard and mouse input (`key-types.ts`).
-- `engine/`: the binding to the official wasm: its interfaces (`cell-types.ts`, `engine-types.ts`), the export typing (`wasm-exports.ts`), the manifest reader and layout table (`vt-layout.ts`, `official-layout.ts`), the wasm loader (`wasm-loader.ts`), the key name tables (`key-tables.ts`), the scratch allocator (`scratch.ts`) and pure helpers (`cursor-blink.ts`, `text-mime.ts`, `kitty-keyboard-reply.ts`).
+- `engine/`: the binding to the official wasm: its interfaces (`cell-types.ts`, `engine-types.ts`), the export typing (`wasm-exports.ts`), the manifest reader and layout table (`vt-layout.ts`, `official-layout.ts`), the wasm loader (`wasm-loader.ts`), the key name tables (`key-tables.ts`), the scratch allocator (`scratch.ts`), the key encoder (`key-encoder-binding.ts`) and pure helpers (`cursor-blink.ts`, `text-mime.ts`, `kitty-keyboard-reply.ts`).
 - `link-types.ts`: the link detection contract, beside `link-detector.ts` and `providers/`.
 - `types.ts`: a re-export shim for the files above until its importers move (ADR 061).
 
@@ -85,3 +85,4 @@ Each commit that moves code out of an upstream-derived file appends its rows her
 | `ghostty.ts`: `TEXT_MIMES`, `isTextMime` (webtty, re-exported by `ghostty.ts`) | `engine/text-mime.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
 | `ghostty.ts`: `isKittyKeyboardReply` (webtty) | `engine/kitty-keyboard-reply.ts` | refactor(client): engine split, part 1: pure engine modules out of ghostty.ts |
 | `ghostty.ts`: `Ghostty.load` (the default paths, now `defaultWasmPaths`, and the loop over them, now `loadWasmExports`) and `Ghostty.loadFromPath` (the read, now `readWasm`, and the compile) | `engine/wasm-loader.ts` | refactor(client): engine/wasm-loader.ts, the wasm loading out of Ghostty.load |
+| `ghostty.ts`: `OfficialKeyEncoder` (webtty), now exported and typed on `EngineHost` | `engine/key-encoder-binding.ts` | refactor(client): engine/key-encoder-binding.ts and the EngineHost interface |
