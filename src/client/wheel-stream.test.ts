@@ -108,6 +108,29 @@ describe('WheelClassifier', () => {
   });
 });
 
+describe('WheelStream at the start of a gesture', () => {
+  const at = (deltaY: number, timeStamp: number) =>
+    ({ deltaX: 0, deltaY, deltaMode: 0, timeStamp }) as WheelEvent;
+
+  test("a trackpad gesture's first deltas after a pause move at once", () => {
+    const s = new WheelStream();
+    s.forScrollback(at(-20.5, 1000));
+    s.forScrollback(at(-21.25, 1016));
+    // A pause, then a new gesture: no glide, the view follows the fingers at once.
+    expect(s.forScrollback(at(-3.25, 5000)).duration).toBe(0);
+    expect(s.forScrollback(at(-5.5, 5016)).duration).toBe(0);
+  });
+
+  test('a sparse stream glides from its second long gap', () => {
+    const s = new WheelStream();
+    s.forScrollback(at(-20.5, 1000));
+    s.forScrollback(at(-21.25, 1016));
+    // The pause before the stream is one long gap: still at once.
+    expect(s.forScrollback(at(-23.75, 5000)).duration).toBe(0);
+    expect(s.forScrollback(at(-63.25, 5040)).duration).toBeGreaterThan(0);
+  });
+});
+
 describe('WheelStream with reduced motion', () => {
   function reduced(run: () => void) {
     const g = globalThis as { matchMedia?: unknown };

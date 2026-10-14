@@ -7,8 +7,8 @@
  * - A wheel notch eases out over the wheel glide time, or, soon after one in the
  *   same direction, continues linearly over its gap plus a frame, so a spinning
  *   wheel does not pulse.
- * - A sparse delta, 25 ms or more after the previous one, glides linearly over
- *   that gap plus a frame, so a stream scrolls at the speed it is sent at; the
+ * - A sparse delta, 25 ms or more after the previous one (from the second such gap
+ *   in a row), glides linearly over that gap plus a frame, so a stream scrolls at the speed it is sent at; the
  *   extra frame keeps the glide going when the next delta is a little late. A
  *   stream stays sparse until two short gaps in a row, so one delta that comes a
  *   little early does not snap or flush.
@@ -119,8 +119,9 @@ export class WheelStream {
   /** `timeStamp` and direction of the previous event. */
   private lastWheel: number | null = null;
   private lastDir = 0;
-  /** In a sparse stream, how many short gaps in a row it has had, and its average gap. */
+  /** In a sparse stream, how many long and short gaps in a row there have been, and its average gap. */
   private sparse = false;
+  private longGaps = 0;
   private shortGaps = 0;
   private averageGap = 0;
   /** Following the spring: until the stream pauses, every delta keeps doing so. */
@@ -150,20 +151,28 @@ export class WheelStream {
 
   private next(e: WheelEvent): Classified {
     const gap = this.lastWheel === null ? 0 : e.timeStamp - this.lastWheel;
+    // The very first event comes after a pause too.
+    const long = this.lastWheel === null || gap >= SPARSE_GAP_MS;
     this.lastWheel = e.timeStamp;
     const dir = Math.sign(e.deltaY);
     const sameDir = dir === this.lastDir;
     this.lastDir = dir;
     if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
     const wheel = e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel();
-    if (gap >= SPARSE_GAP_MS) {
-      // A stream's first gap is the pause before it; count it as the slowest gap.
-      const capped = Math.min(gap, WHEEL_GLIDE_MS);
-      this.averageGap = this.sparse ? 0.4 * capped + 0.6 * this.averageGap : WHEEL_GLIDE_MS;
-      this.sparse = true;
+    // A stream turns sparse on its second long gap in a row, as it stops being sparse on
+    // its second short one: the first long gap is the pause before any gesture, and
+    // gliding a trackpad's first deltas put the view behind the fingers at every start.
+    if (long) {
       this.shortGaps = 0;
-    } else if (this.sparse && ++this.shortGaps >= 2) {
-      this.sparse = false;
+      if ((++this.longGaps >= 2 || this.sparse) && gap > 0) {
+        // A stream's first gap is the pause before it; count it as the slowest gap.
+        const capped = Math.min(gap, WHEEL_GLIDE_MS);
+        this.averageGap = this.sparse ? 0.4 * capped + 0.6 * this.averageGap : WHEEL_GLIDE_MS;
+        this.sparse = true;
+      }
+    } else {
+      this.longGaps = 0;
+      if (this.sparse && ++this.shortGaps >= 2) this.sparse = false;
     }
     const spring: Pace = { duration: WHEEL_GLIDE_MS, omega: STREAM_OMEGA };
     // A fast stream stays on the spring until it pauses: leaving it on a short gap
