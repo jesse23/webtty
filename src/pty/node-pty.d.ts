@@ -20,6 +20,8 @@ declare module '@lydell/node-pty' {
     onExit(cb: (e: { exitCode: number; signal?: number }) => void): void;
     write(data: string): void;
     resize(cols: number, rows: number): void;
+    pause(): void;
+    resume(): void;
     kill(signal?: string): void;
   }
 

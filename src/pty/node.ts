@@ -48,6 +48,12 @@ export function spawn(
     resize(cols, rows) {
       ptyProc.resize(cols, rows);
     },
+    pause() {
+      ptyProc.pause();
+    },
+    resume() {
+      ptyProc.resume();
+    },
     kill() {
       ptyProc.kill();
     },

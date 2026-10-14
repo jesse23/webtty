@@ -1,6 +1,7 @@
 import { homedir } from 'node:os';
 import type { WebSocket as WS } from 'ws';
 import type { PtyProcess } from '../pty';
+import { OutputPacer } from './flow';
 
 /** A running (or recently created) terminal session. */
 export interface Session {
@@ -18,6 +19,8 @@ export interface Session {
   subscribers: Set<WS>;
   /** Accumulated PTY output retained for replay when a new client joins. */
   scrollback: string;
+  /** Paces PTY output to the clients by their acknowledgements (ADR 048). */
+  output: OutputPacer;
 }
 
 /** All active sessions, keyed by session ID. */
@@ -70,6 +73,7 @@ export function createSession(id: string, baseDir = homedir()): Session {
     clients: new Set(),
     subscribers: new Set(),
     scrollback: '',
+    output: new OutputPacer(() => session.pty),
   };
   sessionRegistry.set(id, session);
   return session;

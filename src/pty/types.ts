@@ -10,6 +10,13 @@ export interface PtyProcess {
   write(data: string): void;
   /** Notify the PTY of a terminal resize. */
   resize(cols: number, rows: number): void;
+  /**
+   * Stop reading output, so the app blocks on its writes once the PTY's buffer is
+   * full. Only node-pty has it: `Bun.Terminal` cannot pause (ADR 048).
+   */
+  pause?(): void;
+  /** Read output again after {@link PtyProcess.pause}. */
+  resume?(): void;
   /** Terminate the child process. */
   kill(): void;
 }

@@ -1,0 +1,181 @@
+/**
+ * PTY output flow control (ADR 048). Each client acknowledges the characters it has
+ * parsed; the server stops sending to a client that is too far behind, queues its
+ * output in order, and pauses the PTY while every client is behind.
+ */
+
+/** Close code for a client whose queued output passed {@link FlowLimits.maxPending}. */
+export const FELL_BEHIND = 4003;
+
+/** Limits in characters (UTF-16 code units, `string.length`), except `legacyBuffered`. */
+export interface FlowLimits {
+  /** Unacknowledged characters at which a client is blocked and output is queued. */
+  highWater: number;
+  /** Unacknowledged characters at which a blocked client is unblocked. */
+  lowWater: number;
+  /** Largest message the queue is coalesced into (whole chunks are never split). */
+  chunk: number;
+  /** Queued characters past which the client is closed with {@link FELL_BEHIND}. */
+  maxPending: number;
+  /** `bufferedAmount` (bytes) past which a legacy client is closed with {@link FELL_BEHIND}. */
+  legacyBuffered: number;
+}
+
+export const DEFAULT_FLOW_LIMITS: FlowLimits = {
+  highWater: 2 * 1024 * 1024,
+  lowWater: 512 * 1024,
+  chunk: 64 * 1024,
+  maxPending: 16 * 1024 * 1024,
+  legacyBuffered: 8 * 1024 * 1024,
+};
+
+/** The part of a WebSocket the pacer uses. */
+export interface FlowSocket {
+  readonly readyState: number;
+  readonly OPEN: number;
+  readonly bufferedAmount: number;
+  send(data: string): void;
+  close(code?: number, reason?: string): void;
+}
+
+/** A PTY that may be able to stop reading output (node-pty can, `Bun.Terminal` cannot). */
+export interface PausablePty {
+  pause?(): void;
+  resume?(): void;
+}
+
+interface ClientFlow {
+  /** Whether the client acknowledges (connected with `?flow=1`). */
+  acks: boolean;
+  sent: number;
+  acked: number;
+  blocked: boolean;
+  pending: string[];
+  pendingLength: number;
+}
+
+/** Paces one session's output to its clients. */
+export class OutputPacer {
+  private flows = new Map<FlowSocket, ClientFlow>();
+  private paused = false;
+
+  /**
+   * @param pty - Returns the session's PTY, or `null` before it spawns.
+   * @param limits - Flow limits (tests pass small ones).
+   */
+  constructor(
+    private pty: () => PausablePty | null,
+    private limits: FlowLimits = DEFAULT_FLOW_LIMITS,
+  ) {}
+
+  /** Whether the PTY is paused because every client is behind. */
+  get isPaused(): boolean {
+    return this.paused;
+  }
+
+  /** Starts pacing `ws`. `acks` is true for a client that sends acknowledgements. */
+  add(ws: FlowSocket, acks: boolean): void {
+    this.flows.set(ws, {
+      acks,
+      sent: 0,
+      acked: 0,
+      blocked: false,
+      pending: [],
+      pendingLength: 0,
+    });
+    this.updatePause();
+  }
+
+  /** Stops pacing `ws` (closed) and drops its queue. */
+  remove(ws: FlowSocket): void {
+    if (!this.flows.delete(ws)) return;
+    this.updatePause();
+  }
+
+  /** Sends `data` to one client, in order after anything queued for it. */
+  send(ws: FlowSocket, data: string): void {
+    const flow = this.flows.get(ws);
+    if (flow) this.write(ws, flow, data);
+    this.updatePause();
+  }
+
+  /** Sends `data` to every client. */
+  broadcast(data: string): void {
+    for (const [ws, flow] of this.flows) this.write(ws, flow, data);
+    this.updatePause();
+  }
+
+  /** Records that `ws` has parsed `total` characters since it connected. */
+  ack(ws: FlowSocket, total: number): void {
+    const flow = this.flows.get(ws);
+    if (!flow?.acks || !Number.isFinite(total)) return;
+    flow.acked = Math.max(flow.acked, Math.min(total, flow.sent));
+    if (flow.blocked && flow.sent - flow.acked <= this.limits.lowWater) {
+      flow.blocked = false;
+      this.flush(ws, flow);
+    }
+    this.updatePause();
+  }
+
+  private write(ws: FlowSocket, flow: ClientFlow, data: string): void {
+    if (ws.readyState !== ws.OPEN) return;
+    if (!flow.acks) {
+      ws.send(data);
+      if (ws.bufferedAmount > this.limits.legacyBuffered) this.fellBehind(ws);
+      return;
+    }
+    if (!flow.blocked && flow.pending.length === 0) {
+      this.transmit(ws, flow, data);
+      return;
+    }
+    flow.pending.push(data);
+    flow.pendingLength += data.length;
+    if (flow.pendingLength > this.limits.maxPending) this.fellBehind(ws);
+  }
+
+  private transmit(ws: FlowSocket, flow: ClientFlow, data: string): void {
+    ws.send(data);
+    flow.sent += data.length;
+    if (flow.sent - flow.acked >= this.limits.highWater) flow.blocked = true;
+  }
+
+  /** Sends the queue in order, coalesced, until it is empty or the client blocks again. */
+  private flush(ws: FlowSocket, flow: ClientFlow): void {
+    let i = 0;
+    while (i < flow.pending.length && !flow.blocked && ws.readyState === ws.OPEN) {
+      let message = flow.pending[i++];
+      while (
+        i < flow.pending.length &&
+        message.length + flow.pending[i].length <= this.limits.chunk
+      ) {
+        message += flow.pending[i++];
+      }
+      flow.pendingLength -= message.length;
+      this.transmit(ws, flow, message);
+    }
+    flow.pending.splice(0, i);
+  }
+
+  private fellBehind(ws: FlowSocket): void {
+    this.flows.delete(ws);
+    ws.close(FELL_BEHIND, 'fell behind');
+  }
+
+  private updatePause(): void {
+    let allBlocked = this.flows.size > 0;
+    for (const flow of this.flows.values()) {
+      if (!flow.acks || !flow.blocked) {
+        allBlocked = false;
+        break;
+      }
+    }
+    const pty = this.pty();
+    if (allBlocked && !this.paused && pty?.pause) {
+      pty.pause();
+      this.paused = true;
+    } else if (!allBlocked && this.paused) {
+      pty?.resume?.();
+      this.paused = false;
+    }
+  }
+}

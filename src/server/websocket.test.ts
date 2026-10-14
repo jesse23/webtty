@@ -187,6 +187,49 @@ describe('websocket', () => {
     expect(m2.join('')).toContain('hello-fanout');
   });
 
+  test.skipIf(process.platform === 'win32')(
+    'output to an acknowledging client stops at the high-water mark and resumes in order',
+    async () => {
+      await fetch(`${baseUrl}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'ws-test-flow' }),
+      });
+      const { ws, messages } = await connectWs(
+        `${wsBase}/ws/ws-test-flow/pty?cols=80&rows=24&flow=1`,
+      );
+      const received = () => messages.reduce((n, m) => n + m.length, 0);
+      const ack = () => ws.send(JSON.stringify({ type: 'ack', chars: received() }));
+      await waitForPrompt(messages);
+      ack();
+
+      // About 3.1 million characters, more than the 2 Mi-character window.
+      const N = 400_000;
+      ws.send(`seq 1 ${N}; echo FLOW-$((40+2))${NL}`);
+      await new Promise((r) => setTimeout(r, 1500));
+      const held = received();
+      expect(held).toBeGreaterThan(1024 * 1024);
+      expect(held).toBeLessThan(2 * 1024 * 1024 + 256 * 1024);
+      expect(messages.join('')).not.toContain('FLOW-42');
+
+      const deadline = Date.now() + 20000;
+      while (!messages.join('').includes('FLOW-42') && Date.now() < deadline) {
+        ack();
+        await new Promise((r) => setTimeout(r, 20));
+      }
+      await closeWs(ws);
+
+      const numbers = messages
+        .join('')
+        .split('\r\n')
+        .filter((l) => /^\d+$/.test(l))
+        .map(Number);
+      expect(numbers.length).toBe(N);
+      expect(numbers.every((n, i) => n === i + 1)).toBe(true);
+    },
+    30000,
+  );
+
   test('session is removed and tab closed when shell exits', async () => {
     await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',

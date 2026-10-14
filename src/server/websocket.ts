@@ -3,6 +3,7 @@ import type { WebSocket as WS } from 'ws';
 import { WebSocketServer } from 'ws';
 import { loadConfig } from '../config';
 import { spawnForSession } from '../pty';
+import { FELL_BEHIND } from './flow';
 import type { Session } from './session';
 import { sessionRegistry, setLastUsedId } from './session';
 
@@ -11,6 +12,7 @@ const WS_CLOSE = {
   BAD_REQUEST: 1008 as const, // RFC 6455: policy violation / bad data
   SESSION_GONE: 4001 as const, // app-level: session deleted or shell exited
   PTY_NOT_RUNNING: 4002 as const, // app-level: PTY not running
+  FELL_BEHIND, // app-level: client fell too far behind the output (ADR 048)
 } as const;
 
 function closeClients(session: Session, code: number, reason: string): void {
@@ -186,6 +188,9 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       return;
     }
     session.clients.add(ws);
+    // A client that acknowledges output says so in the URL; one without it predates
+    // ADR 048 (a tab loaded before an upgrade) and is sent output unpaced.
+    session.output.add(ws, url.searchParams.get('flow') === '1');
     setLastUsedId(id);
 
     if (!session.pty) {
@@ -202,11 +207,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
       session.pty.onData((data: string) => {
         session.scrollback = (session.scrollback + data).slice(-config.scrollback);
-        for (const client of session.clients) {
-          if (client.readyState === client.OPEN) {
-            client.send(data, { binary: false });
-          }
-        }
+        session.output.broadcast(data);
       });
 
       session.pty.onExit(() => {
@@ -227,12 +228,12 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       });
 
       const banner = sessionBanner();
-      ws.send(banner);
+      session.output.send(ws, banner);
       session.scrollback = banner;
       session.pty.write('\n');
     } else {
       if (session.scrollback) {
-        ws.send(session.scrollback, { binary: false });
+        session.output.send(ws, session.scrollback);
       }
       session.pty.resize(cols, rows);
     }
@@ -241,7 +242,16 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
       const message = data.toString('utf8');
       if (message.startsWith('{')) {
         try {
-          const msg = JSON.parse(message) as { type: string; cols: number; rows: number };
+          const msg = JSON.parse(message) as {
+            type: string;
+            cols: number;
+            rows: number;
+            chars: number;
+          };
+          if (msg.type === 'ack') {
+            session.output.ack(ws, Number(msg.chars));
+            return;
+          }
           if (msg.type === 'resize') {
             const c = Math.max(1, Math.min(1000, Math.trunc(msg.cols) || 80));
             const r = Math.max(1, Math.min(500, Math.trunc(msg.rows) || 24));
@@ -257,6 +267,7 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
     ws.on('close', () => {
       session.clients.delete(ws);
+      session.output.remove(ws);
     });
 
     ws.on('error', () => {});
