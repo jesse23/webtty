@@ -28,7 +28,7 @@ User entries are **merged with defaults by `(key, mods)` identity**:
 - All other defaults are preserved.
 - To consume a key without sending anything, set `"chars": ""`.
 
-Bindings also win over webtty's built-in copy, paste and clear-screen keys (Ctrl+Shift+C, Ctrl+Insert, Shift+Insert and Ctrl+V; Cmd+K on macOS): a binding for one of them sends its `chars` instead, and `"chars": ""` turns the key off. See [ADR 054](../adrs/054.client.copy-paste-clear-keys.md). Font-size zoom keys are not overridable.
+Bindings also win over webtty's built-in copy, paste and clear-screen keys (Ctrl+Shift+C, Ctrl+Insert, Shift+Insert and Ctrl+V; Cmd+K on macOS) and find keys (Ctrl+Shift+F; Cmd+F, Cmd+Shift+F, Cmd+G and Cmd+Shift+G on macOS; Escape while the find bar is open): a binding for one of them sends its `chars` instead, and `"chars": ""` turns the key off. See [ADR 054](../adrs/054.client.copy-paste-clear-keys.md) and [ADR 055](../adrs/055.client.find-in-scrollback.md). Bindings do not apply in the find bar's field. Font-size zoom keys are not overridable.
 
 ## Defining `chars`
 

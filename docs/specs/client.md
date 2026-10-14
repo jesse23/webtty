@@ -197,6 +197,29 @@ The sequences go in only where the output is at ground: if the last message ende
 
 The selection and kitty graphics placements are cleared too. The clear is the tab's own: a reload, reconnect or another tab gets the server's replay, scrollback included.
 
+## Find in the Scrollback
+
+The canvas is invisible to the browser's own find, so webtty has Ghostty's search ([ADR 055](../adrs/055.client.find-in-scrollback.md)), run by libghostty-vt (`ghostty_search_*`):
+
+| Platform | Key | Action | When it cannot be done |
+|---|---|---|---|
+| macOS | Cmd+F | open the find bar (focus it and select its text if open) | |
+| macOS | Cmd+Shift+F | close | the app gets the key (bar closed) |
+| macOS | Cmd+G / Cmd+Shift+G | next / previous match | the app gets the key (bar closed) |
+| others | Ctrl+Shift+F | open the find bar | |
+| all | Escape | close | the app gets the key (bar closed) |
+| in the field | Enter / Shift+Enter | next / previous match | |
+
+Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `find-bar.ts`).
+
+- **Matching** is Ghostty's: ASCII letters case-insensitively, everything else exactly, soft-wrapped rows joined so a match can span a wrap; scrollback and screen, on the active screen.
+- **Order**: next goes toward older output (up), previous toward newer, both wrapping. Nothing is selected until the first Enter; the count is Ghostty's `selected/total` (`0/n` before then).
+- **Scrolling**: if no row of the selected match is in view, the view jumps so its first row is the top row. While a match is selected and the view is scrolled up, output does not pull the view to the bottom: it stays on its rows.
+- **Highlights**: every match in `searchBackground` / `searchForeground`, the selected one in `searchSelectedBackground` / `searchSelectedForeground` (Ghostty's defaults); the selection is drawn over both.
+- **The bar** (`find-bar.ts`) is a DOM overlay at the top right, outside `#terminal`, coloured from the theme, with a labelled field, the count in a live region, ↑ (next), ↓ (previous) and × buttons. Typing searches after 150 ms; closing ends the search, clears the highlights and refocuses the terminal, and the field keeps its text for the next open.
+
+`Terminal` (vendored) keeps the needle (also across `reset`), runs the search for at most 4 ms a frame before each render, and reads the matches again when they changed, at most every ten times the last read took; the renderer finds the matches in view by binary search on the newest-to-oldest list, and repaints a row only when its matches change. Find has no side effects, so the replay on connect needs no special handling.
+
 ## Program Clipboard Writes
 
 Programs write the clipboard with OSC 52 (`ESC ] 52 ; c ; <base64> BEL` or ST), as Claude Code, pi, Neovim 0.10+ and tmux `set-clipboard` do over SSH ([ADR 052](../adrs/052.client.osc52-clipboard-write.md)). Ghostty parses and decodes it (also iTerm2's `OSC 1337 ; Copy` and kitty's OSC 5522) and calls the binding's `CLIPBOARD_WRITE` callback, installed only while `clipboardWrite` is on:
@@ -244,6 +267,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
 | Copy, paste and clear keys | Ghostty's defaults for the browser's platform: Ctrl+Shift+C and Ctrl+Insert copy and Shift+Insert pastes outside macOS (Ctrl+C stays the interrupt; Ctrl+Shift+C with no selection goes to the app), Cmd+K clears the screen and scrollback on macOS (at an OSC 133 prompt with FF for the shell to redraw; the app's key on the alternate screen); `keyboardBindings` win | [ADR 054](../adrs/054.client.copy-paste-clear-keys.md) | ✅ |
+| Find in the scrollback | Cmd+F (macOS) or Ctrl+Shift+F opens a find bar; libghostty-vt's search over scrollback and screen (ASCII case-insensitive, across soft wraps), every match highlighted and the selected one distinct in Ghostty's colours, Enter / Shift+Enter (Cmd+G / Cmd+Shift+G) to the next (older) and previous match with Ghostty's `k/n` count, the view jumping to a match out of view and kept on it while output streams, Escape to close; `keyboardBindings` win | [ADR 055](../adrs/055.client.find-in-scrollback.md) | ✅ |
 | Focus reports, title and bell | Mode 1004 focus reports encoded by Ghostty, sent on each change and when the mode is set; the tab title is the program's OSC 0/2 title (`<title> \| webtty`, the session id while it has none); a bell puts 🔔 in front of it until the terminal is focused or a key is pressed, and bells replayed on connect are ignored; `bellTitle: false` turns the mark off | [ADR 053](../adrs/053.client.focus-reports-title-and-bell.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` are Ghostty's default cursor; Ghostty applies DECSCUSR from the PTY (Ps 0 and RIS restore the default); mode 12 is ignored, as in Ghostty with `cursor-style-blink` set; and the renderer draws the shape and blink from its state, repainting the cursor cell so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
