@@ -43,6 +43,14 @@ interface Bootstrap {
   tabTitle: TabTitle;
 }
 
+/** What steps 9-13 use from the steps before them. */
+interface InputDeps {
+  pty: PtyConnection;
+  graphics: { clear(): void };
+  smoothScroll: SmoothScroll;
+  layout: LayoutFeature;
+}
+
 /** What step 2 builds that later steps use. */
 interface Surface {
   smoothScroll: SmoothScroll;
@@ -95,32 +103,8 @@ export async function startClient(env: ClientEnv): Promise<Disposable> {
   connection = pty;
   // 8. Wheel scrolling: the custom wheel handler, the app's wheel pace, the glide's frame
   store.add(installScroll(ctx, { smoothScroll, wheelStream }));
-  const clearScreen = screenClearer(term, graphics, smoothScroll);
-  // 9. Find in the scrollback (ADR 055), before the dispatcher that drives it
-  const { mac } = ctx;
-  const find = store.add(
-    installFind(ctx, { ...env, shortcutActionOf: (e) => shortcutFor(e, mac)?.action }),
-  );
-  // Pastes: text through the terminal, a non-text paste as Ctrl+V (ADR 014, ADR 037,
-  // ADR 049). Built here as the dispatcher's paste keys use it; its listeners come at 13.
-  const paste = new PasteService(term, pty, env.navigator);
-  // 10. The one container capture keydown listener: configured bindings (ADR 018), then
-  // Ghostty's shortcuts for this platform (ADR 054, ADR 055, ADR 057)
-  store.add(
-    installKeyDispatcher(ctx, {
-      connection: pty,
-      find,
-      clearScreen,
-      pasteFromClipboard: () => paste.pasteFromClipboard(),
-    }),
-  );
-  // 11. Font zoom: the last window capture keydown listener, fitting at once (ADR 033)
-  store.add(installFontZoom(ctx, { fit: () => layout.fit() }));
-  // 12. Keystrokes and input to the PTY, and the grid size whenever it changes
-  store.add(term.onData((data: string) => pty.send(data)));
-  store.add(term.onResize(({ cols, rows }) => pty.sendResize(cols, rows)));
-  // 13. The right click set to paste, then the container capture paste listener (ADR 051)
-  store.add(installPaste(ctx, { paste }));
+  // 9-13. Find, the key dispatcher, font zoom, input to the PTY and paste
+  installInput(ctx, env, store, { pty, graphics, smoothScroll, layout });
   return store;
 }
 
@@ -193,4 +177,39 @@ function installSurface(ctx: ClientContext, env: ClientEnv, store: DisposableSto
   // The first of the document's visibilitychange listeners (ADR 031)
   store.add(installRepaintOnVisible(ctx));
   return { smoothScroll, wheelStream, layout };
+}
+
+/** Steps 9-13: find, the paste service, the key dispatcher, font zoom, the PTY input and paste. */
+function installInput(
+  ctx: ClientContext,
+  env: ClientEnv,
+  store: DisposableStore,
+  { pty, graphics, smoothScroll, layout }: InputDeps,
+): void {
+  const { term, mac } = ctx;
+  const clearScreen = screenClearer(term, graphics, smoothScroll);
+  // 9. Find in the scrollback (ADR 055), before the dispatcher that drives it
+  const find = store.add(
+    installFind(ctx, { ...env, shortcutActionOf: (e) => shortcutFor(e, mac)?.action }),
+  );
+  // Pastes: text through the terminal, a non-text paste as Ctrl+V (ADR 014, ADR 037,
+  // ADR 049). Built here as the dispatcher's paste keys use it; its listeners come at 13.
+  const paste = new PasteService(term, pty, env.navigator);
+  // 10. The one container capture keydown listener: configured bindings (ADR 018), then
+  // Ghostty's shortcuts for this platform (ADR 054, ADR 055, ADR 057)
+  store.add(
+    installKeyDispatcher(ctx, {
+      connection: pty,
+      find,
+      clearScreen,
+      pasteFromClipboard: () => paste.pasteFromClipboard(),
+    }),
+  );
+  // 11. Font zoom: the last window capture keydown listener, fitting at once (ADR 033)
+  store.add(installFontZoom(ctx, { fit: () => layout.fit() }));
+  // 12. Keystrokes and input to the PTY, and the grid size whenever it changes
+  store.add(term.onData((data: string) => pty.send(data)));
+  store.add(term.onResize(({ cols, rows }) => pty.sendResize(cols, rows)));
+  // 13. The right click set to paste, then the container capture paste listener (ADR 051)
+  store.add(installPaste(ctx, { paste }));
 }
