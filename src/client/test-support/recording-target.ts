@@ -84,3 +84,23 @@ export class RecordingTarget implements ListenerTarget {
     }
   }
 }
+
+/**
+ * Records the listeners later added to and removed from a real DOM `target` (a happy-dom
+ * element or document) while still adding them to it, so a feature test can read the
+ * listener order and teardown of targets its code also queries, and dispatch real events.
+ */
+export function recordListeners(target: EventTarget, name: string): RecordingTarget {
+  const recording = new RecordingTarget(name);
+  const add = target.addEventListener.bind(target);
+  const remove = target.removeEventListener.bind(target);
+  target.addEventListener = (type, listener, options) => {
+    if (listener) recording.addEventListener(type, listener, options);
+    add(type, listener, options);
+  };
+  target.removeEventListener = (type, listener, options) => {
+    if (listener) recording.removeEventListener(type, listener, options);
+    remove(type, listener, options);
+  };
+  return recording;
+}

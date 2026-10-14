@@ -9,7 +9,7 @@ import { fakeWebSocket } from './test-support/fake-socket';
 import { FakeTerminal } from './test-support/fake-terminal';
 import { FakeWindow } from './test-support/fake-window';
 import { ManualClock } from './test-support/manual-clock';
-import { RecordingTarget } from './test-support/recording-target';
+import { RecordingTarget, recordListeners } from './test-support/recording-target';
 
 describe('ManualClock', () => {
   test('runs timeouts in due order when time advances, with now() at each due time', () => {
@@ -114,6 +114,32 @@ describe('RecordingTarget', () => {
     target.dispatch({ type: 'focus' });
     expect(log).toEqual(['fn', 'object:focus', 'object:focus']);
     expect(target.active.map((r) => r.type)).toEqual(['focus', 'blur']);
+  });
+});
+
+describe('recordListeners', () => {
+  test('logs the adds and removes on a real DOM target, which still runs its listeners', async () => {
+    const dom = createDomWindow();
+    const element = dom.document.createElement('div');
+    const recording = recordListeners(element, 'container');
+    const log: string[] = [];
+    const listener = () => log.push('focusin');
+    element.addEventListener('focusin', listener, { capture: true });
+    element.dispatchEvent(new dom.window.Event('focusin'));
+    expect(recording.active.map((r) => [r.target, r.type, r.capture])).toEqual([
+      ['container', 'focusin', true],
+    ]);
+    element.removeEventListener('focusin', listener, true);
+    element.dispatchEvent(new dom.window.Event('focusin'));
+    expect(log).toEqual(['focusin']);
+    expect(recording.removed).toHaveLength(1);
+    expect(recording.active).toEqual([]);
+    // EventTarget takes a null listener and ignores it
+    const target: EventTarget = element;
+    target.addEventListener('focusin', null);
+    target.removeEventListener('focusin', null);
+    expect(recording.added).toHaveLength(1);
+    await dom.close();
   });
 });
 
