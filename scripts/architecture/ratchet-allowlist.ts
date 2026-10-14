@@ -38,7 +38,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
       lines: 2147,
       step: 'vendor terminal split into core/ (ADR 061)',
     },
-    'src/client/vendor/tests/official-terminal.test.ts': { lines: 1135, step: VENDOR_TESTS },
     'src/client/vendor/tests/renderer.test.ts': { lines: 1087, step: VENDOR_TESTS },
     'src/client/vendor/tests/terminal.test.ts': { lines: 1159, step: VENDOR_TESTS },
     'src/config.ts': { lines: 369, step: 'server track: src/config/ split (ADR 062)' },

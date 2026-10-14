@@ -53,3 +53,13 @@ export const bgRgb = (c: { bg_r: number; bg_g: number; bg_b: number }) =>
 /** `n` lines `line 1` … `line n`, joined by CRLF. */
 export const lines = (n: number) =>
   Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\r\n');
+
+/** A command as fish 4 marks it with OSC 133 (ADR 057): prompt, command line, output, end. */
+export const markedCommand = (name: string, outputLines: number) =>
+  `\x1b]133;A\x07$ \x1b]133;B\x07${name}\r\n\x1b]133;C\x07` +
+  Array.from({ length: outputLines }, (_, i) => `${name} ${i}`).join('\r\n') +
+  '\r\n\x1b]133;D;0\x07';
+
+/** On a 20x5 grid: prompts on rows 0, 7 and 14, and the current one on row 21 of 22. */
+export const markedSession = () =>
+  `${markedCommand('one', 6)}${markedCommand('two', 6)}${markedCommand('three', 6)}\x1b]133;A\x07$ `;
