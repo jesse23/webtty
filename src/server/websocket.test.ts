@@ -1,31 +1,23 @@
+// Behaviour tests for the two WebSocket channels, /ws/:id/pty and /ws/:id/events, against
+// the whole server built in-process by createServer with real shells: banner and replay,
+// fan-out, flow control, resize, shell exit and the stop once the last session ends
+// (ADR 062, ADR 064). The tests share one server and run in order.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { type ChildProcess, spawn } from 'node:child_process';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import { isWindows, runningUnderBun } from '../runtime';
-import {
-  cleanupTmpHome,
-  getFreePort,
-  makeTmpHome,
-  waitForServer,
-} from '../test-support/server-harness';
+import { type LiveServer, startLiveServer } from '../test-support/live-server';
+import { type TmpHome, useTmpHome } from '../test-support/server-harness';
+import { resolveServerPaths } from './server-paths';
 
 const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, 'g');
 const stripAnsi = (s: string) => s.replace(ANSI_RE, '');
 
 // cmd.exe requires CR+LF to execute commands; sh/bash accept LF alone.
 const NL = process.platform === 'win32' ? '\r\n' : '\n';
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// On Windows, Bun's ConPTY/net.Socket integration doesn't support the pipe
-// handles node-pty requires. Mirror the same workaround as http.ts: run the
-// server under Node when on Windows+Bun so node-pty works correctly.
-const useNode = isWindows() && runningUnderBun();
-const SERVER_EXEC = useNode ? 'node' : process.execPath;
-const SERVER_ENTRY = useNode
-  ? path.resolve(__dirname, '../../dist/server/index.js')
-  : path.resolve(__dirname, 'index.ts');
+// On Windows, Bun's ConPTY/net.Socket integration doesn't support the pipe handles node-pty
+// requires, so these real-shell tests cannot run in a Bun test process there.
+const noPtyInProcess = isWindows() && runningUnderBun();
 
 function connectWs(wsUrl: string): Promise<{ ws: WebSocket; messages: string[] }> {
   return new Promise((resolve, reject) => {
@@ -85,37 +77,22 @@ function closeWs(ws: WebSocket): Promise<void> {
   });
 }
 
-describe('websocket', () => {
-  let proc: ChildProcess;
+describe.skipIf(noPtyInProcess)('websocket', () => {
+  let live: LiveServer;
   let baseUrl: string;
   let wsBase: string;
-  let port: number;
-  let tmpHome: string;
+  let home: TmpHome;
 
   beforeAll(async () => {
-    tmpHome = makeTmpHome('ws-test');
-    port = await getFreePort();
-    baseUrl = `http://127.0.0.1:${port}`;
-    wsBase = `ws://127.0.0.1:${port}`;
-    proc = spawn(SERVER_EXEC, [SERVER_ENTRY], {
-      env: {
-        ...process.env,
-        PORT: String(port),
-        HOME: tmpHome,
-        // Let the server resolve the shell via its own platform detection (config.ts).
-        // Forcing /bin/sh here breaks Windows where that path does not exist.
-        ...(process.platform !== 'win32' && { SHELL: '/bin/sh' }),
-        // On Windows, clink (if installed) auto-injects into cmd.exe and breaks PTY socket writes.
-        ...(process.platform === 'win32' && { CLINK_NOAUTORUN: '1' }),
-      },
-      stdio: 'ignore',
-    });
-    await waitForServer(baseUrl);
+    home = useTmpHome('ws-test');
+    live = await startLiveServer({ paths: resolveServerPaths() });
+    baseUrl = live.base;
+    wsBase = live.wsBase;
   });
 
   afterAll(() => {
-    proc.kill();
-    cleanupTmpHome(tmpHome);
+    live.close();
+    home.restore();
   });
 
   test('rejects connection for non-existent session with code 4001', async () => {
@@ -497,15 +474,10 @@ describe('websocket', () => {
     ws.send(`exit${NL}`);
     await new Promise<void>((resolve) => ws.on('close', () => resolve()));
 
+    // Shutdown closes the listener at once; onStop follows after the shutdown grace.
     const deadline = Date.now() + 3000;
-    while (Date.now() < deadline) {
-      try {
-        await fetch(`${baseUrl}/api/sessions`);
-        await Bun.sleep(100);
-      } catch {
-        return;
-      }
-    }
-    throw new Error('Server did not shut down after last session exited');
+    while (live.server.httpServer.listening && Date.now() < deadline) await Bun.sleep(10);
+    expect(live.server.httpServer.listening).toBe(false);
+    expect(live.store.size).toBe(0);
   });
 });
