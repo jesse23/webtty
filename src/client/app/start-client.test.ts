@@ -180,6 +180,51 @@ describe('startClient', () => {
     expect(fake.term.calls).toContain('clearScreen');
   });
 
+  test('kitty replies go out on the socket; the find field knows the find keys', async () => {
+    await start({ platform: 'MacIntel' });
+    const socket = fake.sockets.last();
+    socket.open();
+    socket.receive('\x1b_Ga=q,i=31,s=1,v=1,f=24;AAAA\x1b\\');
+    expect(socket.sent.at(-1)).toBe('\x1b_Gi=31;OK\x1b\\');
+    const { KeyboardEvent } = fake.dom.window;
+    fake.container.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'KeyF', key: 'f', metaKey: true, bubbles: true }),
+    );
+    const input = fake.dom.document.getElementById('find-bar-input') as HTMLInputElement;
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'Escape', key: 'Escape', bubbles: true }),
+    );
+    expect(fake.term.calls).toContain('endFind');
+  });
+
+  test('bells and notifications in the replay are ignored, later ones mark the title', async () => {
+    await start();
+    const socket = fake.sockets.last();
+    socket.open();
+    socket.receive('replayed');
+    fake.term.fire('onBell');
+    expect(fake.dom.document.title).toBe('work | webtty');
+    // The replay ended with the short message before this one.
+    socket.receive('live');
+    // Without the Notification API, a notification is the bell mark (ADR 056).
+    fake.term.fire('onDesktopNotification', { title: 'done', body: '' });
+    expect(fake.dom.document.title).toBe('🔔 work | webtty');
+  });
+
+  test('Ctrl+V pastes what the clipboard reads', async () => {
+    await start();
+    Object.defineProperty(fake.env.navigator, 'clipboard', {
+      value: { readText: async () => 'pasted' },
+    });
+    fake.sockets.last().open();
+    const { KeyboardEvent } = fake.dom.window;
+    fake.container.dispatchEvent(
+      new KeyboardEvent('keydown', { code: 'KeyV', key: 'v', ctrlKey: true, bubbles: true }),
+    );
+    await Promise.resolve();
+    expect(fake.term.calls).toContain('paste:pasted');
+  });
+
   test('the scroll hooks are attached; font zoom fits at once', async () => {
     await start();
     expect(fake.term.wheelHandler).toBeDefined();
