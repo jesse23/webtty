@@ -24,7 +24,7 @@ the rejected alternatives.
 ```
 PTY ──► server ──► WebSocket ──► ws.onmessage
                                     │
-                        KittyGraphics.feed(data)   (features/kitty/graphics.ts)
+                        KittyGraphics.feed(data)   (features/kitty/graphics/kitty-graphics.ts)
                           │            │
                      text segments   APC commands
                           │            │
@@ -32,7 +32,7 @@ PTY ──► server ──► WebSocket ──► ws.onmessage
                           ▲            │                    │
                           └─ cursor ───┘                    ▼
                           advance / reply                overlay canvas
-                                                       (features/kitty/graphics.ts)
+                                         (features/kitty/graphics/overlay-canvas.ts)
 replies (a=q OK) ──► ws.send ──► PTY
 ```
 
@@ -134,8 +134,17 @@ src/client/
       png-size.ts          PNG IHDR width and height, from bytes or base64
       cell-geometry.ts     device cell size, per-axis scale, cells an image covers
       control-scanner.ts   sequences that clear placements, across chunk boundaries
-    graphics.ts      ← browser: decode, placement table, overlay canvas, scroll tracking
-    graphics.test.ts ← state handling against a stubbed DOM and image decoder
+    graphics/        ← browser side, one part per file, each with its x.test.ts:
+      kitty-graphics.ts    the facade: feed(), command routing, replies, reset/clear/dispose
+      kitty-limits.ts      image count, pixel, byte and transmission limits
+      kitty-error.ts       the error a refused command is answered with
+      kitty-terminal.ts    the slice of the terminal it reads: cell size, scrollback, scale
+      image-decoder.ts     pre-decode checks and base64 / zlib / PNG / raw decode (deps injected)
+      image-store.ts       images by id in recency order, the byte budget, eviction
+      placements.ts        the placement table
+      placement-geometry.ts  placement record, cursor advance, draw rectangle (pure)
+      overlay-canvas.ts    the overlay canvas, its frame loop and repaint rules, dispose()
+      test-support/        graphics-harness.ts: fake terminal and decoder, happy-dom container
   index.ts           ← wires ws.onmessage through KittyGraphics
 ```
 

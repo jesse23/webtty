@@ -8,7 +8,6 @@ import type { Allowlist } from './ratchet';
 const ENGINE_SPLIT = 'vendor engine split, ghostty.ts into engine/ (ADR 061)';
 const VENDOR_TESTS = 'vendor tests split with their facades into vendor/tests/ (ADR 061, ADR 064)';
 const CLIENT_ROOT = 'client composition root, index.ts an entry only (ADR 060)';
-const KITTY_SPLIT = 'kitty graphics split into features/kitty/ (ADR 060)';
 const SERVER_HARNESS =
   'server track: src/utils.test.ts becomes src/test-support/server-harness.ts (ADR 064)';
 const CLI_COMMANDS = 'server track: CLI command modules (ADR 063)';
@@ -20,7 +19,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'scripts/update-ghostty-vt.ts': { lines: 360, step: 'scripts/ghostty-vt/ split (ADR 059)' },
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
-    'src/client/features/kitty/graphics/kitty-graphics.ts': { lines: 662, step: KITTY_SPLIT },
     // 565 at the checker's commit; the folder moves lengthened its imports by 3 lines.
     'src/client/index.ts': { lines: 568, step: CLIENT_ROOT },
     'src/client/vendor/ghostty-web/ghostty.ts': { lines: 3061, step: ENGINE_SPLIT },

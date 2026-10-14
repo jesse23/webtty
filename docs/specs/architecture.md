@@ -149,7 +149,9 @@ src/
       scroll/                   smooth-scroll.ts, scroll-split.ts, wheel-classifier.ts (VS Code MIT notice), wheel-stream.ts, scroll-feature.ts
       kitty/
         protocol/               apc-splitter.ts, apc-command.ts, chunk-assembler.ts, kitty-reply.ts, png-size.ts, cell-geometry.ts, control-scanner.ts
-        graphics/               image-store.ts, image-decoder.ts, placements.ts, kitty-limits.ts, overlay-canvas.ts (+ dispose), kitty-graphics.ts (facade)
+        graphics/               image-store.ts, image-decoder.ts, placements.ts, placement-geometry.ts, kitty-limits.ts,
+                                kitty-error.ts, kitty-terminal.ts, overlay-canvas.ts (+ dispose), kitty-graphics.ts (facade),
+                                test-support/graphics-harness.ts
         kitty-feature.ts
     test-support/               fake-terminal.ts, fake-socket.ts, manual-clock.ts, recording-target.ts, dom-window.ts
     test-support.test.ts        the fakes' self-tests (a test-support/ folder holds no *.test.ts)
@@ -319,7 +321,7 @@ While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/a
 | Architecture SPEC and conventions | Layers, folders, module kinds, naming, size limits, comments | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
 | Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet, import rules | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
 | Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ⬜ |
-| Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` (protocol done) | [ADR 060](../adrs/060.client.feature-modules.md) | ⬜ |
+| Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
 | Vendored terminal, renderer, input and selection split | facades at their paths, parts in `core/`, `render/`, `input/`, `selection/` | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
 | Listener teardown | `Terminal.dispose` and `SelectionManager` release every listener | [ADR 065](../adrs/065.client.listener-teardown.md) | ⬜ |
