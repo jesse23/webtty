@@ -3,7 +3,7 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { WebSocket, type WebSocketServer } from 'ws';
 import { DEFAULT_CONFIG, loadConfig } from '../../config';
-import { spawnForSession } from '../../pty';
+import { spawnPty } from '../../pty';
 import { FakePty } from '../../test-support/fake-pty';
 import { sessionBanner } from '../sessions/session-banner';
 import { SessionStore } from '../sessions/session-store';
@@ -30,7 +30,7 @@ async function start() {
   server = http.createServer();
   wss = createWebSocketServer(server, store, {
     loadConfig: () => DEFAULT_CONFIG,
-    spawnPty: (cols, rows) => {
+    spawnPty: ({ cols, rows }) => {
       log.push(`spawn ${cols}x${rows}`);
       return pty;
     },
@@ -102,7 +102,7 @@ describe('defaultPtySpawnDeps', () => {
   test('reads the config file, spawns through src/pty and names the package runner', () => {
     const deps = defaultPtySpawnDeps();
     expect(deps.loadConfig).toBe(loadConfig);
-    expect(deps.spawnPty).toBe(spawnForSession);
+    expect(deps.spawnPty).toBe(spawnPty);
     expect(['bunx', 'npx']).toContain(deps.runner);
   });
 });

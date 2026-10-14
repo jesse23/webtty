@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 import { homedir } from 'node:os';
 import { DEFAULT_CONFIG } from '../../config';
+import type { PtySpawnOptions } from '../../pty';
 import { FakePty } from '../../test-support/fake-pty';
 import { FakeSocket } from '../../test-support/fake-socket';
 import { WS_CLOSE } from '../ws/close-codes';
@@ -14,7 +15,8 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 function fixture(scrollback = DEFAULT_CONFIG.scrollback) {
   const log: string[] = [];
   const pty = new FakePty(log);
-  const spawnPty = mock((cols: number, rows: number, ...rest: unknown[]) => {
+  const spawnPty = mock((options: PtySpawnOptions) => {
+    const { cols, rows, ...rest } = options;
     log.push(`spawn ${cols}x${rows} ${JSON.stringify(rest)}`);
     return pty;
   });
@@ -67,7 +69,7 @@ describe('Session.ensurePty', () => {
     session.attach(ws, false);
     session.ensurePty(ws, 100, 30, deps, host);
     expect(log).toEqual([
-      `spawn 100x30 ${JSON.stringify(['/bin/sh', DEFAULT_CONFIG.term, DEFAULT_CONFIG.colorTerm, '/work', { A: '1' }])}`,
+      `spawn 100x30 ${JSON.stringify({ shell: '/bin/sh', term: DEFAULT_CONFIG.term, colorTerm: DEFAULT_CONFIG.colorTerm, cwd: '/work', env: { A: '1' } })}`,
       `ws.send ${JSON.stringify(sessionBanner('bunx').slice(0, 20))}`,
       'pty.write "\\n"',
     ]);

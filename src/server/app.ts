@@ -4,11 +4,10 @@
 import http from 'node:http';
 import type { WebSocketServer } from 'ws';
 import type { Config } from '../config';
-import { spawnForSession } from '../pty';
+import { type SpawnPty, spawnPty } from '../pty';
 import { packageRunner } from '../runtime';
 import { createRequestHandler } from './routes/route-table';
 import type { ServerPaths } from './server-paths';
-import type { SpawnPty } from './sessions/session';
 import type { SessionStore } from './sessions/session-store';
 import { WS_CLOSE } from './ws/close-codes';
 import { createWebSocketServer } from './ws/ws-upgrade';
@@ -22,7 +21,7 @@ export interface ServerDeps {
   loadConfig: () => Config;
   /** The one registry of sessions; its `onEmpty` should call {@link WebttyServer.shutdown}. */
   store: SessionStore;
-  /** Starts a session's shell; `spawnForSession` from src/pty when omitted. */
+  /** Starts a session's shell; `spawnPty` from src/pty when omitted. */
   spawnPty?: SpawnPty;
   /** Where the client files and the wasm are. */
   paths: ServerPaths;
@@ -71,7 +70,7 @@ export function createServer(deps: ServerDeps): WebttyServer {
   // 3. The WebSocket server on the HTTP server's upgrade event.
   const wss = createWebSocketServer(httpServer, store, {
     loadConfig,
-    spawnPty: deps.spawnPty ?? spawnForSession,
+    spawnPty: deps.spawnPty ?? spawnPty,
     runner: packageRunner(),
   });
 

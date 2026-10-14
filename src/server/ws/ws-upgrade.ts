@@ -5,7 +5,7 @@ import type http from 'node:http';
 import type { WebSocket as WS } from 'ws';
 import { WebSocketServer } from 'ws';
 import { loadConfig } from '../../config';
-import { spawnForSession } from '../../pty';
+import { spawnPty } from '../../pty';
 import { packageRunner } from '../../runtime';
 import type { PtySpawnDeps } from '../sessions/session';
 import type { SessionStore } from '../sessions/session-store';
@@ -18,7 +18,7 @@ const EVENTS_PATH = /^\/ws\/([^/]+)\/events$/;
 
 /** The production spawn dependencies: the config file, the platform's PTY backend and runner. */
 export function defaultPtySpawnDeps(): PtySpawnDeps {
-  return { loadConfig, spawnPty: spawnForSession, runner: packageRunner() };
+  return { loadConfig, spawnPty, runner: packageRunner() };
 }
 
 function requestUrl(req: http.IncomingMessage): URL {

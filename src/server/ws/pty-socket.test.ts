@@ -16,7 +16,7 @@ function fixture() {
   const session = store.create('s', '/work');
   const deps: PtySpawnDeps = {
     loadConfig: () => DEFAULT_CONFIG,
-    spawnPty: (cols, rows) => {
+    spawnPty: ({ cols, rows }) => {
       log.push(`spawn ${cols}x${rows}`);
       return pty;
     },

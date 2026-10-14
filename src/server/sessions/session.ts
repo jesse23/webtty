@@ -4,27 +4,16 @@
 // the registry of sessions is SessionStore in session-store.ts.
 import { homedir } from 'node:os';
 import type { Config } from '../../config';
-import type { PtyProcess } from '../../pty';
+import type { PtyProcess, SpawnPty } from '../../pty';
 import { type FlowSocket, OutputPacer } from '../output-pacer';
 import { WS_CLOSE } from '../ws/close-codes';
 import { sessionBanner } from './session-banner';
-
-/** Starts a session's shell: `spawnForSession` from src/pty in production, a fake in tests. */
-export type SpawnPty = (
-  cols: number,
-  rows: number,
-  shell: string,
-  term: string,
-  colorTerm: string,
-  cwd: string,
-  env: Record<string, string>,
-) => PtyProcess;
 
 /** What {@link Session.ensurePty} needs to start a shell, injected so tests need no real PTY. */
 export interface PtySpawnDeps {
   /** Reads the config at spawn time, so an edited config file applies to the next shell (ADR 009). */
   loadConfig: () => Config;
-  /** Spawns the shell. */
+  /** Spawns the shell: `spawnPty` from src/pty in production, a fake in tests. */
   spawnPty: SpawnPty;
   /** The package runner (`bunx` or `npx`) the banner tells the user to run. */
   runner: string;
@@ -103,15 +92,15 @@ export class Session {
     }
     const config = deps.loadConfig();
     const limit = config.scrollback;
-    const pty = deps.spawnPty(
+    const pty = deps.spawnPty({
+      shell: config.shell,
       cols,
       rows,
-      config.shell,
-      config.term,
-      config.colorTerm,
-      this.baseDir,
-      config.env,
-    );
+      term: config.term,
+      colorTerm: config.colorTerm,
+      cwd: this.baseDir,
+      env: config.env,
+    });
     this.pty = pty;
     // The per-chunk hot path: append to the ring and hand the chunk to the pacer, nothing more.
     pty.onData((data: string) => {

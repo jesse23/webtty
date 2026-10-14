@@ -3,9 +3,9 @@
 // websocket and session code count in coverage. A test-support object (ADR 062, ADR 064).
 import type { AddressInfo } from 'node:net';
 import { type Config, loadConfig as loadUserConfig } from '../config';
+import type { SpawnPty } from '../pty';
 import { createServer, type WebttyServer } from '../server/app';
 import type { ServerPaths } from '../server/server-paths';
-import type { SpawnPty } from '../server/sessions/session';
 import { SessionStore } from '../server/sessions/session-store';
 
 /** What a test can swap; everything else is the production wiring. */

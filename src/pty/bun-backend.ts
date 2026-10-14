@@ -1,25 +1,14 @@
-import type { PtyProcess } from './pty-process';
+// The Bun.Terminal PTY backend: a SpawnPty built on Bun's native `Bun.spawn({ terminal })`.
+// Used under Bun on every platform but Windows (ADR 062); it cannot pause (ADR 048).
+import type { PtyProcess, PtySpawnOptions } from './pty-process';
 
 /**
  * Spawns a PTY-backed shell using Bun's native `Bun.spawn` terminal API.
  *
- * @param shell - Shell executable path (e.g., `/bin/bash`).
- * @param cols - Terminal width in columns.
- * @param rows - Terminal height in rows.
- * @param term - `$TERM` environment variable (e.g., `xterm-256color`).
- * @param colorTerm - `$COLORTERM` environment variable (e.g., `truecolor`).
- * @param cwd - Working directory for the shell.
  * @returns A {@link PtyProcess} handle for reading/writing and managing the PTY.
  */
-export function spawn(
-  shell: string,
-  cols: number,
-  rows: number,
-  term: string,
-  colorTerm: string,
-  cwd: string,
-  env: Record<string, string>,
-): PtyProcess {
+export function spawnBunPty(options: PtySpawnOptions): PtyProcess {
+  const { shell, cols, rows, term, colorTerm, cwd, env } = options;
   let onDataCb: ((data: string) => void) | undefined;
   let onExitCb: ((e: { exitCode: number }) => void) | undefined;
   // One streaming decoder per PTY: a read can end mid-character, and decoding each

@@ -46,7 +46,7 @@ async function start(loadConfig: () => Config = () => DEFAULT_CONFIG) {
     loadConfig,
     store,
     paths,
-    spawnPty: (cols, rows) => {
+    spawnPty: ({ cols, rows }) => {
       log.push(`spawn ${cols}x${rows}`);
       return pty;
     },
