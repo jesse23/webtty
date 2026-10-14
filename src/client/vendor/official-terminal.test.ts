@@ -630,10 +630,25 @@ describe('official engine: effects and replies', () => {
   test('reports the title and the bell once', () => {
     const t = term();
     t.write('\x1b]2;first\x07');
-    expect(t.readEffects()).toEqual({ bell: false, title: 'first', clipboard: null });
+    expect(t.readEffects()).toEqual({
+      bell: false,
+      title: 'first',
+      clipboard: null,
+      notifications: [],
+    });
     t.write('\x07\x1b]0;second\x1b\\');
-    expect(t.readEffects()).toEqual({ bell: true, title: 'second', clipboard: null });
-    expect(t.readEffects()).toEqual({ bell: false, title: null, clipboard: null });
+    expect(t.readEffects()).toEqual({
+      bell: true,
+      title: 'second',
+      clipboard: null,
+      notifications: [],
+    });
+    expect(t.readEffects()).toEqual({
+      bell: false,
+      title: null,
+      clipboard: null,
+      notifications: [],
+    });
     t.free();
   });
 
@@ -846,6 +861,85 @@ describe('official engine: cursor at a prompt (ADR 054)', () => {
     t.write(new Uint8Array([0xc3]));
     expect(t.writeUntilGround(new Uint8Array([0xa9, 0x41]))).toBe(1);
     t.free();
+  });
+});
+
+describe('official engine: desktop notifications (ADR 056)', () => {
+  /** The notifications one write reports. */
+  function notified(seq: string, config: object = THEME) {
+    const t = term(80, 24, config);
+    t.write(seq);
+    const { notifications } = t.readEffects();
+    expect(t.readEffects().notifications).toEqual([]);
+    // Neither sequence has a reply.
+    expect(t.readResponse()).toBeNull();
+    t.free();
+    return notifications;
+  }
+
+  test('OSC 9 is a notification with no title, ended by BEL or ST', () => {
+    expect(notified('\x1b]9;Build done\x07')).toEqual([{ title: '', body: 'Build done' }]);
+    expect(notified('\x1b]9;héllo 中文 🎉; with; semicolons\x1b\\')).toEqual([
+      { title: '', body: 'héllo 中文 🎉; with; semicolons' },
+    ]);
+  });
+
+  test('OSC 777;notify has a title and a body; the body may hold semicolons', () => {
+    expect(notified('\x1b]777;notify;Claude Code;Needs your input\x07')).toEqual([
+      { title: 'Claude Code', body: 'Needs your input' },
+    ]);
+    expect(notified('\x1b]777;notify;t;a;b\x07')).toEqual([{ title: 't', body: 'a;b' }]);
+    expect(notified('\x1b]777;notify;;body\x07')).toEqual([{ title: '', body: 'body' }]);
+  });
+
+  test("ConEmu's OSC 9;<n> forms are not notifications", () => {
+    for (const seq of [
+      '9;4;1;50', // progress
+      '9;4;0',
+      '9;1;100', // sleep
+      '9;2;message box',
+      '9;3;tab title',
+      '9;5', // wait for input
+      '9;6;macro',
+      '9;7;cmd',
+      '9;8;PATH',
+      '9;9;/tmp',
+      '9;10',
+      '9;11;comment',
+      '9;12', // prompt start
+    ]) {
+      expect(notified(`\x1b]${seq}\x07`)).toEqual([]);
+    }
+  });
+
+  test('an OSC 9 that only looks like ConEmu is a notification, as in Ghostty', () => {
+    expect(notified('\x1b]9;4\x07')).toEqual([{ title: '', body: '4' }]);
+    expect(notified('\x1b]9;42 tests passed\x07')).toEqual([
+      { title: '', body: '42 tests passed' },
+    ]);
+  });
+
+  test('OSC 777 other than notify, or with no title, is ignored', () => {
+    expect(notified('\x1b]777;other;a;b\x07')).toEqual([]);
+    expect(notified('\x1b]777;notify;only a title\x07')).toEqual([]);
+  });
+
+  test('a sequence split across writes is reported when it ends', () => {
+    const t = term();
+    t.write('\x1b]777;notify;Do');
+    expect(t.readEffects().notifications).toEqual([]);
+    t.write('ne;all green\x07\x1b]9;second\x07');
+    expect(t.readEffects().notifications).toEqual([
+      { title: 'Done', body: 'all green' },
+      { title: '', body: 'second' },
+    ]);
+    t.free();
+  });
+
+  test('with desktopNotifications off, nothing is reported', () => {
+    const off = { ...THEME, desktopNotifications: false };
+    expect(notified('\x1b]9;Build done\x07', off)).toEqual([]);
+    expect(notified('\x1b]777;notify;t;b\x07', off)).toEqual([]);
   });
 });
 

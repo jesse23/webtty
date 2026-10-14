@@ -304,6 +304,12 @@ export interface GhosttyTerminalConfig {
    * left unset and the writes are ignored. Default true. (webtty, ADR 052)
    */
   clipboardWrite?: boolean;
+  /**
+   * Whether programs may ask for desktop notifications (OSC 9, OSC 777 `notify`): they
+   * are reported by `readEffects`. Off, Ghostty's desktop notification callback is left
+   * unset and the requests are ignored. Default true. (webtty, ADR 056)
+   */
+  desktopNotifications?: boolean;
 }
 
 /**

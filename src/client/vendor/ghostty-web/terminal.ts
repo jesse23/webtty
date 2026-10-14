@@ -17,6 +17,7 @@
 import { BufferNamespace } from './buffer';
 import { EventEmitter } from './event-emitter';
 import type {
+  DesktopNotification,
   Ghostty,
   GhosttyCell,
   GhosttyTerminal,
@@ -216,6 +217,7 @@ export class Terminal implements ITerminalCore {
   private scrollEmitter = new EventEmitter<number>();
   private pasteRequestEmitter = new EventEmitter<void>();
   private clipboardWriteEmitter = new EventEmitter<string>();
+  private desktopNotificationEmitter = new EventEmitter<DesktopNotification>();
   private findChangeEmitter = new EventEmitter<SearchState>();
   // Public event accessors (xterm.js compatibility)
   public readonly onData: IEvent<string> = this.dataEmitter.event;
@@ -234,6 +236,13 @@ export class Terminal implements ITerminalCore {
    * embedder writes the browser clipboard. (webtty, ADR 052)
    */
   public readonly onClipboardWrite: IEvent<string> = this.clipboardWriteEmitter.event;
+  /**
+   * The program asked for a desktop notification (OSC 9, OSC 777 `notify`), with its
+   * title (`''` for none) and body as plain text. Fires only while the
+   * `desktopNotifications` option is on; the embedder shows it. (webtty, ADR 056)
+   */
+  public readonly onDesktopNotification: IEvent<DesktopNotification> =
+    this.desktopNotificationEmitter.event;
   /** The match count or the selected match changed (webtty, ADR 055) */
   public readonly onFindChange: IEvent<SearchState> = this.findChangeEmitter.event;
 
@@ -310,6 +319,7 @@ export class Terminal implements ITerminalCore {
       copyOnSelect: options.copyOnSelect ?? true,
       rightClickBehavior: options.rightClickBehavior ?? 'contextMenu',
       clipboardWrite: options.clipboardWrite ?? true,
+      desktopNotifications: options.desktopNotifications ?? true,
     };
 
     // Wrap in Proxy to intercept runtime changes (xterm.js compatibility)
@@ -482,6 +492,7 @@ export class Terminal implements ITerminalCore {
       cursorStyle: this.options.cursorStyle,
       cursorBlink: this.options.cursorBlink,
       clipboardWrite: this.options.clipboardWrite,
+      desktopNotifications: this.options.desktopNotifications,
     };
   }
 
@@ -862,12 +873,13 @@ export class Terminal implements ITerminalCore {
     if (focusReporting && !this.focusReporting) this.reportFocus();
     this.focusReporting = focusReporting;
 
-    // Bell, title (OSC 0/2) and clipboard writes (OSC 52) as Ghostty reported them
-    // (webtty, ADR 042, ADR 052)
+    // Bell, title (OSC 0/2), clipboard writes (OSC 52) and desktop notifications (OSC 9,
+    // OSC 777) as Ghostty reported them (webtty, ADR 042, ADR 052, ADR 056)
     const effects = this.wasmTerm!.readEffects();
     if (effects.bell) this.bellEmitter.fire();
     if (effects.title !== null) this.setTitle(effects.title);
     if (effects.clipboard !== null) this.clipboardWriteEmitter.fire(effects.clipboard);
+    for (const n of effects.notifications) this.desktopNotificationEmitter.fire(n);
 
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();
@@ -1208,6 +1220,7 @@ export class Terminal implements ITerminalCore {
     this.scrollEmitter.dispose();
     this.pasteRequestEmitter.dispose();
     this.clipboardWriteEmitter.dispose();
+    this.desktopNotificationEmitter.dispose();
     this.findChangeEmitter.dispose();
   }
 

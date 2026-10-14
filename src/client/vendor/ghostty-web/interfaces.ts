@@ -30,6 +30,9 @@ export interface ITerminalOptions {
   // Clipboard options
   clipboardWrite?: boolean; // Report program clipboard writes (OSC 52) through onClipboardWrite; read when the terminal is created (default: true) (webtty, ADR 052)
 
+  // Notification options
+  desktopNotifications?: boolean; // Report desktop notifications (OSC 9, OSC 777) through onDesktopNotification; read when the terminal is created (default: true) (webtty, ADR 056)
+
   // The Ghostty WASM instance, from Ghostty.load() (webtty: upstream's init() and its
   // module-level instance are removed)
   ghostty: Ghostty;

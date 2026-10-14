@@ -87,7 +87,17 @@ export interface SearchState {
   selected: number | null;
 }
 
-/** Bell, title and clipboard writes since the last `readEffects` (ADR 042, ADR 052). */
+/** A desktop notification a program asked for (OSC 9, OSC 777). (webtty, ADR 056) */
+export interface DesktopNotification {
+  /** `''` when the sequence has none (OSC 9). */
+  title: string;
+  body: string;
+}
+
+/**
+ * Bell, title, clipboard writes and desktop notifications since the last `readEffects`
+ * (ADR 042, ADR 052, ADR 056).
+ */
 export interface TerminalEffects {
   bell: boolean;
   title: string | null;
@@ -97,6 +107,12 @@ export interface TerminalEffects {
    * while the terminal was created with `clipboardWrite` on. (webtty, ADR 052)
    */
   clipboard: string | null;
+  /**
+   * The desktop notifications the program asked for (OSC 9 and OSC 777 `notify`), in
+   * order. Only set while the terminal was created with `desktopNotifications` on.
+   * (webtty, ADR 056)
+   */
+  notifications: DesktopNotification[];
 }
 
 /**
@@ -221,7 +237,7 @@ export interface GhosttyTerminal {
   // Replies and effects
   hasResponse(): boolean;
   readResponse(): string | null;
-  /** Bell, title and clipboard writes since the last call. */
+  /** Bell, title, clipboard writes and desktop notifications since the last call. */
   readEffects(): TerminalEffects;
 }
 
@@ -557,6 +573,7 @@ function resolveOfficialLayout(layout: VtLayout) {
       DEFAULT_CURSOR_STYLE: opt('DEFAULT_CURSOR_STYLE'),
       DEFAULT_CURSOR_BLINK: opt('DEFAULT_CURSOR_BLINK'),
       CLIPBOARD_WRITE: opt('CLIPBOARD_WRITE'),
+      DESKTOP_NOTIFICATION: opt('DESKTOP_NOTIFICATION'),
     },
     defaultCursorStyle: {
       bar: layout.value('GhosttyTerminalCursorStyle', 'BAR'),
@@ -791,6 +808,12 @@ function resolveOfficialLayout(layout: VtLayout) {
       writerUserdata: layout.offset('GhosttyWriter', 'userdata'),
       STANDARD: layout.value('GhosttyClipboardLocation', 'STANDARD'),
       CLIPBOARD: layout.value('GhosttyPasteSource', 'CLIPBOARD'),
+    },
+    notification: {
+      size: layout.offset('GhosttyTerminalDesktopNotification', 'size'),
+      title: layout.offset('GhosttyTerminalDesktopNotification', 'title'),
+      body: layout.offset('GhosttyTerminalDesktopNotification', 'body'),
+      bodyEnd: layout.offset('GhosttyTerminalDesktopNotification', 'body') + layout.size('GhosttyString'),
     },
     clipboardWrite: {
       location: layout.offset('GhosttyClipboardWrite', 'location'),
@@ -1292,6 +1315,7 @@ export class OfficialTerminal implements GhosttyTerminal {
   private titleChanged = false;
   private pendingTitle: string | null = null;
   private pendingClipboard: string | null = null;
+  private pendingNotifications: DesktopNotification[] = [];
 
   // Search (ADR 055): the handle while a needle is set, the generation it last fed, and
   // the wasm buffer matches are read into, grown as needed.
@@ -1382,7 +1406,10 @@ export class OfficialTerminal implements GhosttyTerminal {
     ]);
     this.setU32s(at.tVals, [at.curX, at.curY, at.sbRows, at.screen]);
 
-    this.installCallbacks(config?.clipboardWrite ?? true);
+    this.installCallbacks(
+      config?.clipboardWrite ?? true,
+      config?.desktopNotifications ?? true
+    );
     this.applyConfig(config);
     this.allocView();
   }
@@ -2068,10 +2095,16 @@ export class OfficialTerminal implements GhosttyTerminal {
   }
 
   readEffects(): TerminalEffects {
-    const effects = { bell: this.bell, title: this.pendingTitle, clipboard: this.pendingClipboard };
+    const effects = {
+      bell: this.bell,
+      title: this.pendingTitle,
+      clipboard: this.pendingClipboard,
+      notifications: this.pendingNotifications,
+    };
     this.bell = false;
     this.pendingTitle = null;
     this.pendingClipboard = null;
+    this.pendingNotifications = [];
     return effects;
   }
 
@@ -2146,7 +2179,7 @@ export class OfficialTerminal implements GhosttyTerminal {
   // Private: setup
   // ==========================================================================
 
-  private installCallbacks(clipboardWrite: boolean): void {
+  private installCallbacks(clipboardWrite: boolean, desktopNotifications: boolean): void {
     const L = this.L;
     const table = this.vt.fnTable;
     const install = (
@@ -2247,6 +2280,29 @@ export class OfficialTerminal implements GhosttyTerminal {
         'CLIPBOARD_WRITE',
         (_t, _u, write) => {
           this.clipboardWrite(write);
+          return undefined;
+        },
+        3,
+        false
+      );
+    }
+    // DESKTOP_NOTIFICATION(terminal, userdata, notification): OSC 9 (but not ConEmu's
+    // OSC 9;<n> forms, which Ghostty's parser takes first) and OSC 777;notify. The
+    // strings are borrowed, so they are copied out here. Left NULL with
+    // desktopNotifications off, so Ghostty ignores them (webtty, ADR 056).
+    if (desktopNotifications) {
+      install(
+        L.opt.DESKTOP_NOTIFICATION,
+        'DESKTOP_NOTIFICATION',
+        (_t, _u, notification) => {
+          const N = this.L.notification;
+          // A sized struct: read only the fields its size covers.
+          if (this.dv().getUint32(notification + N.size, true) < N.bodyEnd) return undefined;
+          const text = (ptr: number) => new TextDecoder().decode(this.stringAt(ptr));
+          this.pendingNotifications.push({
+            title: text(notification + N.title),
+            body: text(notification + N.body),
+          });
           return undefined;
         },
         3,

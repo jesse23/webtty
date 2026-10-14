@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Ghostty } from './ghostty-web/ghostty';
+import { Ghostty, type TerminalEffects } from './ghostty-web/ghostty';
 import { InputHandler } from './ghostty-web/input-handler';
 import { LinkDetector } from './ghostty-web/link-detector';
 import { OSC8LinkProvider } from './ghostty-web/providers/osc8-link-provider';
@@ -635,10 +635,11 @@ describe('Terminal bell and title', () => {
   // (ADR 047).
   test('a bell and a title reported by readEffects reach onBell and onTitleChange', () => {
     const term = new Terminal({ ghostty: {} as never });
-    let effects: { bell: boolean; title: string | null; clipboard: string | null } = {
+    let effects: TerminalEffects = {
       bell: true,
       title: 'vim',
       clipboard: null,
+      notifications: [],
     };
     (term as unknown as { wasmTerm: object }).wasmTerm = {
       write: () => {},
@@ -647,7 +648,7 @@ describe('Terminal bell and title', () => {
       getMode: () => false,
       readEffects: () => {
         const e = effects;
-        effects = { bell: false, title: null, clipboard: null };
+        effects = { bell: false, title: null, clipboard: null, notifications: [] };
         return e;
       },
     };
@@ -811,6 +812,39 @@ describe('Terminal clipboard writes', () => {
       ).buildWasmConfig();
     expect(wasmConfig({}).clipboardWrite).toBe(true);
     expect(wasmConfig({ clipboardWrite: false }).clipboardWrite).toBe(false);
+  });
+});
+
+describe('Terminal desktop notifications', () => {
+  // OSC 9 and OSC 777 come from the engine's readEffects and reach the embedder through
+  // onDesktopNotification (ADR 056).
+  test('OSC 9 and OSC 777 output fire onDesktopNotification, each once, in order', async () => {
+    const ghostty = await Ghostty.load(WASM);
+    const term = new Terminal({ ghostty: {} as never });
+    (term as unknown as { wasmTerm: unknown }).wasmTerm = ghostty.createTerminal(20, 2);
+    const write = (data: string) =>
+      (term as unknown as { writeInternal(data: string): void }).writeInternal(data);
+    const shown: { title: string; body: string }[] = [];
+    term.onDesktopNotification((n) => shown.push(n));
+
+    write('\x1b]9;Build done\x07\x1b]777;notify;Claude Code;Needs your input\x1b\\');
+    expect(shown).toEqual([
+      { title: '', body: 'Build done' },
+      { title: 'Claude Code', body: 'Needs your input' },
+    ]);
+    write('plain output');
+    expect(shown).toHaveLength(2);
+  });
+
+  test('passes desktopNotifications to the engine, on by default', () => {
+    const wasmConfig = (options: object) =>
+      (
+        new Terminal({ ghostty: {} as never, ...options }) as unknown as {
+          buildWasmConfig(): GhosttyTerminalConfig;
+        }
+      ).buildWasmConfig();
+    expect(wasmConfig({}).desktopNotifications).toBe(true);
+    expect(wasmConfig({ desktopNotifications: false }).desktopNotifications).toBe(false);
   });
 });
 
