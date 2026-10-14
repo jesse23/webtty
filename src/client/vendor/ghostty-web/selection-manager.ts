@@ -153,13 +153,21 @@ export class SelectionManager {
       let lastNonEmpty = -1;
 
       // Determine column range for this row
-      const colStart = absRow === startAbsRow ? startCol : 0;
+      let colStart = absRow === startAbsRow ? startCol : 0;
       const colEnd = absRow === endAbsRow ? endCol : line.length - 1;
+      // A selection that starts on the right half of a wide character takes all of it
+      if (colStart > 0 && line[colStart]?.width === 0 && line[colStart - 1]?.width === 2) {
+        colStart--;
+      }
 
       // Build the line text
       let lineText = '';
       for (let col = colStart; col <= colEnd; col++) {
         const cell = line[col];
+        // A spacer (width 0) holds nothing: the cell after a wide character, or the
+        // last column when a wide character wrapped to the next row. (webtty: upstream
+        // copied it as a space, so "中文" came out as "中 文".)
+        if (cell && cell.width === 0) continue;
         if (cell && cell.codepoint !== 0) {
           // Use grapheme lookup for cells with multi-codepoint characters
           let char: string;

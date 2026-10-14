@@ -135,3 +135,71 @@ describe('SelectionManager copy on select', () => {
     expect(changes()).toBe(3);
   });
 });
+
+describe('SelectionManager text of wide characters', () => {
+  const doc = globalThis.document;
+  let ghostty: Ghostty;
+
+  beforeEach(async () => {
+    globalThis.document = target() as unknown as Document;
+    ghostty = await Ghostty.load(WASM);
+  });
+
+  afterEach(() => {
+    globalThis.document = doc;
+  });
+
+  /** The text a selection from (startCol, startRow) to (endCol, endRow) copies; rows are absolute. */
+  function selected(
+    wasmTerm: GhosttyTerminal,
+    start: [number, number],
+    end: [number, number],
+  ): string {
+    const m = new SelectionManager(
+      { cols: wasmTerm.cols, rows: wasmTerm.rows, options: {} } as unknown as Terminal,
+      { getCanvas: () => target() } as unknown as CanvasRenderer,
+      wasmTerm,
+      { style: {} } as HTMLTextAreaElement,
+    );
+    const internal = m as unknown as Record<string, { col: number; absoluteRow: number }>;
+    internal.selectionStart = { col: start[0], absoluteRow: start[1] };
+    internal.selectionEnd = { col: end[0], absoluteRow: end[1] };
+    return m.getSelection();
+  }
+
+  // Emoji with a skin tone, with VS16 (U+2764 U+FE0F) and a ZWJ family, and combining marks
+  test('copies no space for the spacer after a CJK character or an emoji', () => {
+    const t = ghostty.createTerminal(30, 4);
+    t.write(
+      '中文字 ok\r\n\u{1f44d}\u{1f3fd} \u2764\ufe0f \u{1f468}\u200d\u{1f469}\u200d\u{1f467} x\r\ne\u0301 a\u20dd',
+    );
+    expect(selected(t, [0, 0], [29, 2])).toBe(
+      '中文字 ok\n\u{1f44d}\u{1f3fd} \u2764\ufe0f \u{1f468}\u200d\u{1f469}\u200d\u{1f467} x\ne\u0301 a\u20dd',
+    );
+    // A selection that starts or ends on the right half of a wide character
+    expect(selected(t, [1, 0], [3, 0])).toBe('中文');
+    t.free();
+  });
+
+  test('copies no space for a spacer at the last column', () => {
+    // A wide character that does not fit wraps, leaving a spacer at the last column
+    const wrapped = ghostty.createTerminal(5, 4);
+    wrapped.write('abcd中ef');
+    expect(selected(wrapped, [0, 0], [4, 1])).toBe('abcd\n中ef');
+    expect(selected(wrapped, [2, 0], [4, 0])).toBe('cd');
+    wrapped.free();
+    // A wide character ending at the last column
+    const fits = ghostty.createTerminal(6, 4);
+    fits.write('abcd中ef');
+    expect(selected(fits, [3, 0], [1, 1])).toBe('d中\nef');
+    fits.free();
+  });
+
+  test('copies scrollback rows without spacers', () => {
+    const t = ghostty.createTerminal(10, 2);
+    t.write('中文 1\r\n日本語 2\r\nlast\r\nrow');
+    expect(t.getScrollbackLength()).toBe(2);
+    expect(selected(t, [0, 0], [9, 3])).toBe('中文 1\n日本語 2\nlast\nrow');
+    t.free();
+  });
+});
