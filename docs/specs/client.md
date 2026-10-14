@@ -57,7 +57,7 @@ The vendored TS is excluded from Biome so it stays byte-identical to upstream un
 2. Fetches `GET /api/config` to get terminal config
 3. Sets `document.title = sessionId + ' | webtty'`
 4. Loads the official libghostty-vt wasm and initialises the vendored ghostty-web `Terminal` with config values (cols, rows, fontSize, fontFamily, cursorStyle, cursorStyleBlink, scrollbackLines, mouseScrollSpeed, theme, copyOnSelect, rightClickBehavior)
-5. Connects to `ws://<host>/ws/:id?cols=<cols>&rows=<rows>` over WebSocket
+5. Connects to `ws://<host>/ws/:id/pty?cols=<cols>&rows=<rows>&flow=1` over WebSocket, and acknowledges output as it parses it: `{ type: 'ack', chars }`, the characters parsed since connecting, every 64 Ki characters and 100 ms after output stops (ADR 048)
 6. Fits the terminal to the viewport from the full container size (no scrollbar reserve, see ADR 033) and observes resize events
 7. Sends a `{ type: 'resize', cols, rows }` JSON message on open and on every terminal resize
 8. Forwards all keystrokes to the PTY via `term.onData`
@@ -111,6 +111,7 @@ All status messages written to the terminal share a consistent style:
 |-------|---------|----------|
 | WS close `4001` (session deleted or shell exited) | `Session removed.` | `window.close()` after 500ms |
 | WS close `1001` (server stopped) | `Server stopped.` | `window.close()` after 500ms |
+| WS close `4003` (tab fell behind the output) | `Tab fell behind; replaying recent output.` | Terminal reset, reconnect at once |
 | WS close (unexpected) | `Connection lost. Reconnecting in 2s...` | Reconnect after 2s |
 | WS error | `WebSocket error.` | — |
 
@@ -176,6 +177,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Config endpoint | `GET /api/config` — serves client-relevant config keys; replaces server-side template injection | [ADR 012](../adrs/012.client.static-assets.md) | ✅ |
 | Session support | `GET /s/:id` opens a named session; `GET /` redirects to last-used or creates `main` | [ADR 005](../adrs/005.client.session-support.md) | ✅ |
 | Multi-client | Multiple tabs can attach to the same session; scrollback replayed on reconnect; tab closes when PTY exits | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
+| Output acknowledgements | Output is acknowledged as it is parsed, so the server sends it in order at the tab's pace; a tab closed with `4003` for falling behind resets and reconnects to the replay | [ADR 048](../adrs/048.webtty.output-flow-control.md) | ✅ |
 | Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` defaults; DECSCUSR from PTY overrides at runtime inside the terminal (Ps 0 restores the default), and the cursor cell is repainted so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md) | ✅ |

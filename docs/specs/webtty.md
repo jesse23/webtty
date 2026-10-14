@@ -1,6 +1,6 @@
 # SPEC: webtty
 
-**Last Updated:** 2026-09-20
+**Last Updated:** 2026-10-13
 
 ---
 
@@ -46,6 +46,20 @@ interface Session {
 
 Sessions survive client disconnects — the PTY keeps running while idle. Multiple clients can attach to the same session simultaneously; PTY output is broadcast to all.
 
+### Output flow control
+
+PTY output is paced per client by acknowledgements (ADR 048). A client that connects with `?flow=1` sends `{"type":"ack","chars":<total>}` as it parses output: the running count of characters (UTF-16 code units) since it connected, every 64 Ki characters and 100 ms after output stops.
+
+| Rule | Value |
+|------|-------|
+| Client blocked (new output queued in order) | 2 Mi characters unacknowledged |
+| Client unblocked (queue sent, coalesced into ≤ 64 Ki-character messages) | 512 Ki characters unacknowledged |
+| PTY paused | while every client is blocked, if the PTY can pause (node-pty; `Bun.Terminal` cannot) |
+| Client closed with `4003` (fell behind; it reconnects and gets the replay) | queue over 16 Mi characters |
+| Legacy client (no `?flow=1`) | sent straight through; closed with `4003` once `bufferedAmount` passes 8 MB |
+
+Scrollback replay and the banner count against the same window. Frames are text frames.
+
 Session IDs appear directly in the URL path (`/s/:id`), so they must be valid URL path segments:
 
 - Allowed characters: `a-z`, `0-9`, `-`, `_`, `.`
@@ -83,3 +97,4 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | Config file | Shell, port, font, theme from `~/.config/webtty/config.json`; hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Client integration (CLI → Web) | `POST /s/:id/publish` (one-shot or streaming JSON) + `ws /ws/:id/events` subscribe; channel active only while PTY is running; no extra process or port | [ADR 025](../adrs/025.server.channel.md) | ✅ |
 | Session base directory | `POST /api/sessions` accepts `baseDir` (absolute path); PTY shell spawns there instead of `homedir()`; CLI `webtty [go] [id] --dir <path>` resolves and forwards it; ignored when attaching to an existing session | [ADR 028](../adrs/028.session.base-dir.md) | ✅ |
+| Output flow control | Output paced per client by acknowledgements: in order at any client speed, bounded server buffers, PTY paused while every client is behind (node-pty), a client that falls 16 Mi characters behind is closed with `4003` and reconnects to the replay; avoids Bun's `ws` shim reordering and duplicating messages past 16 MB | [ADR 048](../adrs/048.webtty.output-flow-control.md) | ✅ |
