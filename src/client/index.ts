@@ -12,8 +12,7 @@ import { isMacPlatform, shortcutFor } from './shortcuts';
 import { SmoothScroll } from './smooth-scroll';
 import { TabTitle } from './tab-title';
 import { toTerminalTheme } from './theme';
-import { FitAddon, Ghostty, Terminal } from './vendor/ghostty-web';
-import { watchDevicePixelRatio } from './vendor/ghostty-web/renderer';
+import { FitAddon, Ghostty, Terminal, watchDevicePixelRatio } from './vendor/ghostty-web';
 import { WheelStream } from './wheel-stream';
 
 interface KeyboardBinding {

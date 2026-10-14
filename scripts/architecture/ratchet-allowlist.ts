@@ -9,7 +9,6 @@ const ENGINE_SPLIT = 'vendor engine split, ghostty.ts into engine/ (ADR 061)';
 const VENDOR_TESTS = 'vendor tests split with their facades into vendor/tests/ (ADR 061, ADR 064)';
 const CLIENT_ROOT = 'client composition root, index.ts an entry only (ADR 060)';
 const KITTY_SPLIT = 'kitty graphics split into features/kitty/ (ADR 060)';
-const VENDOR_BARREL = 'barrel exports Glide, Pace and watchDevicePixelRatio (ADR 060)';
 const SERVER_HARNESS =
   'server track: src/utils.test.ts becomes src/test-support/server-harness.ts (ADR 064)';
 const CLI_COMMANDS = 'server track: CLI command modules (ADR 063)';
@@ -56,11 +55,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'banned-name src/pty/types.ts': 'server track: pty/pty-process.ts (ADR 062)',
     'banned-name src/client/vendor/ghostty-web/types.ts':
       'V15: the vendor types.ts shim is removed (ADR 061)',
-    'vendor-deep src/client/index.ts -> src/client/vendor/ghostty-web/renderer.ts': VENDOR_BARREL,
-    'vendor-deep src/client/smooth-scroll.ts -> src/client/vendor/ghostty-web/glide.ts':
-      VENDOR_BARREL,
-    'vendor-deep src/client/wheel-stream.ts -> src/client/vendor/ghostty-web/glide.ts':
-      VENDOR_BARREL,
     // Upstream's Node fallback in Ghostty.loadFromPath; tests run under Bun, where Bun.file
     // reads the wasm first, so engine/wasm-loader.ts can drop it.
     'client-node src/client/vendor/ghostty-web/ghostty.ts -> fs/promises': ENGINE_SPLIT,

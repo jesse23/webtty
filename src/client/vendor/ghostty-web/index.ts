@@ -50,6 +50,9 @@ export { UrlRegexProvider } from './providers/url-regex-provider';
 export { LinkDetector } from './link-detector';
 export type { ILink, ILinkProvider, IBufferCellPosition } from './types';
 
-// webtty's teardown (ADR 060, ADR 065)
+// webtty's scrolling motion (ADR 045), DPR tracking (ADR 039) and teardown (ADR 065)
+export { AT_ONCE, easeOutCubic, FRAME_MS, Glide, linear } from './glide';
+export type { Ease, Pace } from './glide';
+export { watchDevicePixelRatio } from './renderer';
 export { DisposableStore, listen, toDisposable } from './lifecycle/disposable-store';
 export type { Disposable, ListenerTarget } from './lifecycle/disposable-store';
