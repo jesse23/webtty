@@ -167,6 +167,10 @@ export interface GhosttyTerminal {
    */
   encodeMouse(input: MouseInput): Uint8Array;
 
+  // Focus reports (ADR 053)
+  /** The mode 1004 report for a focus change, `CSI I` or `CSI O`, as Ghostty encodes it. */
+  encodeFocus(focused: boolean): Uint8Array;
+
   // Paste (ADR 049)
   /**
    * Pastes text as Ghostty does (`ghostty_terminal_paste`): bracketed while mode 2004
@@ -318,6 +322,7 @@ interface OfficialWasmExports {
   ghostty_mouse_event_set_mods(event: number, mods: number): void;
   /** The GhosttyMousePosition struct is passed by value, i.e. by pointer on wasm32. */
   ghostty_mouse_event_set_position(event: number, position: number): void;
+  ghostty_focus_encode(event: number, buf: number, len: number, outWritten: number): number;
 }
 
 interface ManifestBits {
@@ -750,6 +755,10 @@ function resolveOfficialLayout(layout: VtLayout) {
       SUCCESS: layout.value('GhosttyClipboardWriteResult', 'SUCCESS'),
       UNSUPPORTED: layout.value('GhosttyClipboardWriteResult', 'UNSUPPORTED'),
     },
+    focus: {
+      GAINED: layout.value('GhosttyFocusEvent', 'GAINED'),
+      LOST: layout.value('GhosttyFocusEvent', 'LOST'),
+    },
     result: {
       SUCCESS: layout.value('GhosttyResult', 'SUCCESS'),
       OUT_OF_SPACE: layout.value('GhosttyResult', 'OUT_OF_SPACE'),
@@ -981,6 +990,8 @@ const FALLBACK_BACKGROUND = 0x000000;
 const GRAPHEME_SCRATCH = 32;
 /** Room for one mouse report; the longest, SGR-pixels, is under 32 bytes. */
 const MOUSE_REPORT_MAX = 64;
+/** Room for one focus report (`CSI I` / `CSI O`, 3 bytes). */
+const FOCUS_REPORT_MAX = 8;
 /**
  * The modes that set the mouse encoder's tracking mode and format: X10, normal, button,
  * any-event tracking, and the UTF-8, SGR, urxvt and SGR-pixels formats.
@@ -1139,6 +1150,7 @@ export class OfficialTerminal implements GhosttyTerminal {
     | 'mouseSize'
     | 'mousePos'
     | 'mouseOut'
+    | 'focusOut'
     | 'clipReply',
     number
   >;
@@ -1269,6 +1281,7 @@ export class OfficialTerminal implements GhosttyTerminal {
       mouseSize: [L.mouse.size, 8],
       mousePos: [L.mouse.positionSize, 8],
       mouseOut: [MOUSE_REPORT_MAX, 8],
+      focusOut: [FOCUS_REPORT_MAX, 8],
       clipReply: [L.clipboardWrite.replySize, 8],
     } as const);
     this.scratch = scratch;
@@ -1698,6 +1711,20 @@ export class OfficialTerminal implements GhosttyTerminal {
     this.u8()[this.at.u8] = 1;
     ex.ghostty_mouse_encoder_setopt(this.mouseEncoder, this.L.mouse.TRACK_LAST_CELL, this.at.u8);
     return this.mouseEncoder;
+  }
+
+  // ==========================================================================
+  // Focus reports (ADR 053)
+  // ==========================================================================
+
+  encodeFocus(focused: boolean): Uint8Array {
+    const at = this.at;
+    const F = this.L.focus;
+    const event = focused ? F.GAINED : F.LOST;
+    const rc = this.ex.ghostty_focus_encode(event, at.focusOut, FOCUS_REPORT_MAX, at.u32);
+    if (rc !== 0) return new Uint8Array(0);
+    const n = this.dv().getUint32(at.u32, true);
+    return this.u8().slice(at.focusOut, at.focusOut + n);
   }
 
   // ==========================================================================

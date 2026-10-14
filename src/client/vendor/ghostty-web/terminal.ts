@@ -116,6 +116,9 @@ export function mouseSurface(
 
 const MOUSE_REPORT_DECODER = new TextDecoder('utf-8', { fatal: true });
 
+/** DEC private mode 1004: the app hears `CSI I` / `CSI O` on focus changes. (webtty, ADR 053) */
+const FOCUS_EVENT_MODE = 1004;
+
 /**
  * A mouse report as text for the PTY, or '' when it is not valid UTF-8. Input travels as
  * text frames that the server writes as UTF-8, so a report with raw bytes above 0x7f
@@ -238,6 +241,11 @@ export class Terminal implements ITerminalCore {
 
   // Phase 1: Title tracking
   private currentTitle: string = '';
+
+  // Focus reports (webtty, ADR 053): keyboard focus inside the container in a focused
+  // window, and whether mode 1004 was on after the last write.
+  private focused = false;
+  private focusReporting = false;
 
   // Phase 2: Viewport and scrolling state
   public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom)
@@ -501,6 +509,10 @@ export class Terminal implements ITerminalCore {
       // focus() on a background window moves activeElement without a focusin; catch
       // the container still holding focus when the window comes back. (webtty)
       window.addEventListener('focus', this.handleWindowFocus);
+      // Terminal focus for mode 1004: a window blur or focus reaches the focused element
+      // as focusout / focusin too. (webtty, ADR 053)
+      parent.addEventListener('focusin', this.handleFocusGained);
+      parent.addEventListener('focusout', this.handleFocusLost);
 
       // Add accessibility attributes for screen readers and extensions
       parent.setAttribute('role', 'textbox');
@@ -690,6 +702,11 @@ export class Terminal implements ITerminalCore {
     // These need to be sent back to the PTY via onData
     this.processTerminalResponses();
 
+    // Ghostty reports the focus when the app turns mode 1004 on (webtty, ADR 053)
+    const focusReporting = this.wasmTerm!.getMode(FOCUS_EVENT_MODE);
+    if (focusReporting && !this.focusReporting) this.reportFocus();
+    this.focusReporting = focusReporting;
+
     // Bell, title (OSC 0/2) and clipboard writes (OSC 52) as Ghostty reported them
     // (webtty, ADR 042, ADR 052)
     const effects = this.wasmTerm!.readEffects();
@@ -818,6 +835,8 @@ export class Terminal implements ITerminalCore {
 
     // Reset title
     this.currentTitle = '';
+    // The new engine starts with mode 1004 off (webtty, ADR 053)
+    this.focusReporting = false;
   }
 
   /**
@@ -1042,6 +1061,35 @@ export class Terminal implements ITerminalCore {
     if (this.element && document.activeElement === this.element) this.textarea?.focus();
   };
 
+  /** Focus came into the container, or its window got focus back. (webtty, ADR 053) */
+  private handleFocusGained = (): void => {
+    this.setFocused(true);
+  };
+
+  /**
+   * Focus left the container, or its window lost focus (no `relatedTarget`). A move
+   * inside it, the container passing focus on to the textarea, is not a change.
+   * (webtty, ADR 053)
+   */
+  private handleFocusLost = (e: FocusEvent): void => {
+    const next = e.relatedTarget as Node | null;
+    if (next && this.element?.contains(next)) return;
+    this.setFocused(false);
+  };
+
+  private setFocused(focused: boolean): void {
+    if (focused === this.focused) return;
+    this.focused = focused;
+    if (this.wasmTerm?.getMode(FOCUS_EVENT_MODE)) this.reportFocus();
+  }
+
+  /** Sends `CSI I` or `CSI O` for the current focus, encoded by Ghostty. (webtty, ADR 053) */
+  private reportFocus(): void {
+    if (this.options.disableStdin || !this.wasmTerm) return;
+    const report = new TextDecoder().decode(this.wasmTerm.encodeFocus(this.focused));
+    if (report) this.dataEmitter.fire(report);
+  }
+
   /**
    * The cursor cell's top-left corner in CSS pixels relative to the container's
    * padding box, or undefined before open(). (webtty)
@@ -1194,6 +1242,8 @@ export class Terminal implements ITerminalCore {
       this.element.removeEventListener('mouseleave', this.handleMouseLeave);
       this.element.removeEventListener('click', this.handleClick);
       this.element.removeEventListener('focusin', this.handleFocusIn);
+      this.element.removeEventListener('focusin', this.handleFocusGained);
+      this.element.removeEventListener('focusout', this.handleFocusLost);
       this.element.removeEventListener('mousedown', this.handleMenuPress, { capture: true });
       this.element.removeEventListener('keydown', this.handleMenuKey, { capture: true });
       this.element.removeEventListener('contextmenu', this.handleContextMenu, {

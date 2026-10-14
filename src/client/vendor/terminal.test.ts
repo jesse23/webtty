@@ -295,6 +295,7 @@ describe('Terminal bell and title', () => {
       write: () => {},
       hasResponse: () => false,
       readResponse: () => null,
+      getMode: () => false,
       readEffects: () => {
         const e = effects;
         effects = { bell: false, title: null, clipboard: null };
@@ -315,6 +316,92 @@ describe('Terminal bell and title', () => {
     write('\x07\x1b]2;other\x07');
     expect(bells).toBe(1);
     expect(titles).toEqual(['vim']);
+  });
+});
+
+describe('Terminal focus reports', () => {
+  // Mode 1004 reports are encoded by Ghostty and sent as Ghostty's Surface sends them:
+  // on a focus change while the mode is on, and the current state when it is set
+  // (ADR 053).
+  async function focusTerm(options: object = {}) {
+    const ghostty = await Ghostty.load(WASM);
+    const wasmTerm = ghostty.createTerminal(20, 2);
+    const term = new Terminal({ ghostty: {} as never, ...options });
+    const element = { contains: (node: unknown) => node === inside };
+    const inside = {};
+    const internals = term as unknown as {
+      isOpen: boolean;
+      wasmTerm: unknown;
+      element: unknown;
+      handleFocusGained(): void;
+      handleFocusLost(e: { relatedTarget: unknown }): void;
+      writeInternal(data: string): void;
+    };
+    internals.wasmTerm = wasmTerm;
+    internals.isOpen = true;
+    internals.element = element;
+    const sent: string[] = [];
+    term.onData((data) => sent.push(data));
+    return {
+      wasmTerm,
+      sent,
+      write: (data: string) => internals.writeInternal(data),
+      focusIn: () => internals.handleFocusGained(),
+      focusOut: (relatedTarget: unknown = null) => internals.handleFocusLost({ relatedTarget }),
+      inside,
+    };
+  }
+
+  test('sends nothing on focus changes while mode 1004 is off', async () => {
+    const { wasmTerm, sent, focusIn, focusOut } = await focusTerm();
+    focusIn();
+    focusOut();
+    expect(sent).toEqual([]);
+    wasmTerm.free();
+  });
+
+  test('sends the current focus when the app sets the mode, then each change', async () => {
+    const { wasmTerm, sent, write, focusIn, focusOut } = await focusTerm();
+    focusIn();
+    write('\x1b[?1004h');
+    expect(sent).toEqual(['\x1b[I']);
+    focusOut();
+    focusIn();
+    expect(sent).toEqual(['\x1b[I', '\x1b[O', '\x1b[I']);
+    // Setting it again while it is on, or other output, sends nothing.
+    write('\x1b[?1004hplain');
+    expect(sent).toHaveLength(3);
+    write('\x1b[?1004l');
+    focusOut();
+    expect(sent).toHaveLength(3);
+    // Set again while unfocused: the report says so.
+    write('\x1b[?1004h');
+    expect(sent).toEqual(['\x1b[I', '\x1b[O', '\x1b[I', '\x1b[O']);
+    wasmTerm.free();
+  });
+
+  test('a move inside the terminal, or a repeated event, is not a change', async () => {
+    const { wasmTerm, sent, write, focusIn, focusOut, inside } = await focusTerm();
+    focusIn();
+    write('\x1b[?1004h');
+    // The container passing focus on to the textarea: out with an inside target, in.
+    focusOut(inside);
+    focusIn();
+    focusIn();
+    expect(sent).toEqual(['\x1b[I']);
+    focusOut();
+    focusOut();
+    expect(sent).toEqual(['\x1b[I', '\x1b[O']);
+    wasmTerm.free();
+  });
+
+  test('sends nothing with stdin disabled', async () => {
+    const { wasmTerm, sent, write, focusIn, focusOut } = await focusTerm({ disableStdin: true });
+    write('\x1b[?1004h');
+    focusIn();
+    focusOut();
+    expect(sent).toEqual([]);
+    wasmTerm.free();
   });
 });
 

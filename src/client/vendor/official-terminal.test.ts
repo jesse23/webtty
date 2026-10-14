@@ -800,6 +800,20 @@ describe('official engine: clipboard writes (ADR 052)', () => {
   });
 });
 
+describe('official engine: focus reports (ADR 053)', () => {
+  test('encodes focus gained and lost as CSI I and CSI O', () => {
+    const t = term();
+    const text = (focused: boolean) => new TextDecoder().decode(t.encodeFocus(focused));
+    expect(text(true)).toBe('\x1b[I');
+    expect(text(false)).toBe('\x1b[O');
+    // The engine sends nothing itself when the mode is set: the embedder does.
+    t.write('\x1b[?1004h');
+    expect(t.getMode(1004)).toBe(true);
+    expect(t.readResponse()).toBeNull();
+    t.free();
+  });
+});
+
 describe('official engine: memory growth', () => {
   test('reads correct cells and replies after the wasm memory has grown', () => {
     const t = term(120, 40, { scrollbackLines: 0 });
