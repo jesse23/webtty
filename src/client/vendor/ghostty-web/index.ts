@@ -34,7 +34,9 @@ export type { KeyEvent, GhosttyCell } from './types';
 
 // Low-level components (for custom integrations)
 export { CanvasRenderer } from './renderer';
-export type { RendererOptions, FontMetrics, IRenderable } from './renderer';
+export type { RendererOptions } from './renderer';
+export type { FontMetrics } from './render/font-metrics';
+export type { IRenderable } from './render/renderable';
 export { InputHandler } from './input-handler';
 export { EventEmitter } from './event-emitter';
 export { SelectionManager } from './selection-manager';
@@ -53,6 +55,6 @@ export type { ILink, ILinkProvider, IBufferCellPosition } from './types';
 // webtty's scrolling motion (ADR 045), DPR tracking (ADR 039) and teardown (ADR 065)
 export { AT_ONCE, easeOutCubic, FRAME_MS, Glide, linear } from './glide';
 export type { Ease, Pace } from './glide';
-export { watchDevicePixelRatio } from './renderer';
+export { watchDevicePixelRatio } from './render/device-pixel-ratio';
 export { DisposableStore, listen, toDisposable } from './lifecycle/disposable-store';
 export type { Disposable, ListenerTarget } from './lifecycle/disposable-store';

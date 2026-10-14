@@ -11,6 +11,16 @@
  */
 
 import type { ITheme } from './interfaces';
+import { DEFAULT_THEME } from './render/default-theme';
+import { watchDevicePixelRatio, wholeDevicePixelRatio } from './render/device-pixel-ratio';
+import { type FontMetrics, measureFont } from './render/font-metrics';
+import { frameLines } from './render/frame-lines';
+import type {
+  GraphemeLookup,
+  IRenderable,
+  IScrollbackProvider,
+  RowContent,
+} from './render/renderable';
 import {
   type HighlightSpan,
   highlightAt,
@@ -19,57 +29,15 @@ import {
   spansKey,
 } from './search';
 import type { SelectionManager } from './selection-manager';
-import type { GhosttyCell, ILink } from './types';
+import type { GhosttyCell } from './types';
 import { CellFlags } from './types';
 
-// Interface for objects that can be rendered
-export interface IRenderable {
-  getLine(y: number): GhosttyCell[] | null;
-  /**
-   * All viewport cells, row-major, read in one call. The array may be reused by
-   * the next call, so rows taken from it are only valid until then.
-   */
-  getViewport?(): GhosttyCell[];
-  /**
-   * The view's `viewportY` (lines scrolled up from the bottom). `render` calls it
-   * first, so every render path syncs the terminal's view offset in one place.
-   * Optional for buffers that cannot scroll. (webtty, ADR 042)
-   */
-  setViewportOffset?(linesFromBottom: number): void;
-  /**
-   * The cursor. `style` and `blinking`, when given, are the shape and blink the engine
-   * reports (DECSCUSR over the configured default) and are drawn instead of the
-   * options. (webtty, ADR 049)
-   */
-  getCursor(): {
-    x: number;
-    y: number;
-    visible: boolean;
-    style?: 'block' | 'underline' | 'bar';
-    blinking?: boolean;
-  };
-  getDimensions(): { cols: number; rows: number };
-  isRowDirty(y: number): boolean;
-  /** Returns true if a full redraw is needed (e.g., screen change) */
-  needsFullRedraw?(): boolean;
-  clearDirty(): void;
-  /**
-   * Get the full grapheme string for a cell at (row, col).
-   * For cells with grapheme_len > 0, this returns all codepoints combined.
-   * For simple cells, returns the single character.
-   */
-  getGraphemeString?(row: number, col: number): string;
-}
-
-export interface IScrollbackProvider {
-  getScrollbackLine(offset: number): GhosttyCell[] | null;
-  getScrollbackLength(): number;
-  /** Full grapheme string for a scrollback cell, as getGraphemeString for screen rows. */
-  getScrollbackGraphemeString?(offset: number, col: number): string;
-}
-
-/** Looks up the full grapheme string for a column of the line being drawn. */
-export type GraphemeLookup = (col: number) => string;
+// The facade's former contents, re-exported so deep imports keep working (ADR 061)
+export { DEFAULT_THEME } from './render/default-theme';
+export { watchDevicePixelRatio, wholeDevicePixelRatio } from './render/device-pixel-ratio';
+export type { FontMetrics } from './render/font-metrics';
+export { frameLines } from './render/frame-lines';
+export type { GraphemeLookup, IRenderable, IScrollbackProvider } from './render/renderable';
 
 // ============================================================================
 // Type Definitions
@@ -106,62 +74,6 @@ const ROW_CUT = 2;
  */
 export const REPAINT_CHUNK_ROWS = 8;
 
-/**
- * The ratio the canvas is drawn at: the device pixel ratio rounded up to a whole
- * number. A fractional ratio (browser zoom, Windows 125%/150%) would put cell edges
- * between device pixels and make the backing-store size fractional; the browser
- * scales the whole-ratio canvas down instead (coder/ghostty-web#198). Browsers
- * report some whole ratios with float noise (2.0000000298023224), which must not
- * round up to the next whole ratio.
- */
-export function wholeDevicePixelRatio(ratio: number | undefined): number {
-  return Math.max(1, Math.ceil((ratio || 1) - 1e-3));
-}
-
-/**
- * Calls onChange with the new window.devicePixelRatio whenever it changes (moving
- * to a display with a different scale, browser zoom). A resolution media query
- * only matches one ratio, so it is re-armed for each new ratio. Returns a function
- * that stops watching.
- */
-export function watchDevicePixelRatio(
-  win: Pick<Window, 'devicePixelRatio' | 'matchMedia'>,
-  onChange: (ratio: number) => void
-): () => void {
-  let stop = () => {};
-  const arm = () => {
-    if (typeof win.matchMedia !== 'function') return;
-    const query = win.matchMedia(`(resolution: ${win.devicePixelRatio || 1}dppx)`);
-    const listener = () => {
-      onChange(win.devicePixelRatio || 1);
-      arm();
-    };
-    query.addEventListener('change', listener, { once: true });
-    stop = () => query.removeEventListener('change', listener);
-  };
-  arm();
-  return () => stop();
-}
-
-/**
- * Returns a row reader for one frame. When the buffer has getViewport, the
- * viewport is read once, on the first row asked for, and every row is a slice of
- * that snapshot; getLine copies and parses the whole viewport on each call.
- */
-export function frameLines(
-  buffer: Pick<IRenderable, 'getLine' | 'getViewport'>,
-  cols: number,
-  rows: number
-): (y: number) => GhosttyCell[] | null {
-  if (!buffer.getViewport) return (y) => buffer.getLine(y);
-  let viewport: GhosttyCell[] | null = null;
-  return (y) => {
-    if (y < 0 || y >= rows) return null;
-    viewport ??= buffer.getViewport!();
-    return viewport.slice(y * cols, (y + 1) * cols);
-  };
-}
-
 /** A selection: start and end cell, rows inclusive. */
 interface CellRange {
   startCol: number;
@@ -197,49 +109,6 @@ function sameRange(a: CellRange | null, b: CellRange | null): boolean {
     a.endRow === b.endRow
   );
 }
-
-export interface FontMetrics {
-  width: number; // Character cell width in CSS pixels
-  height: number; // Character cell height in CSS pixels
-  baseline: number; // Distance from top to text baseline
-}
-
-// ============================================================================
-// Default Theme
-// ============================================================================
-
-export const DEFAULT_THEME: Required<ITheme> = {
-  foreground: '#d4d4d4',
-  background: '#1e1e1e',
-  cursor: '#ffffff',
-  cursorAccent: '#1e1e1e',
-  // Selection colors: solid colors that replace cell bg/fg when selected
-  // Using Ghostty's approach: selection bg = default fg, selection fg = default bg
-  selectionBackground: '#d4d4d4',
-  selectionForeground: '#1e1e1e',
-  // Ghostty's defaults: black on golden yellow, and on soft peach for the selected match
-  // (webtty, ADR 055)
-  searchBackground: '#ffe082',
-  searchForeground: '#000000',
-  searchSelectedBackground: '#f2a57e',
-  searchSelectedForeground: '#000000',
-  black: '#000000',
-  red: '#cd3131',
-  green: '#0dbc79',
-  yellow: '#e5e510',
-  blue: '#2472c8',
-  magenta: '#bc3fbc',
-  cyan: '#11a8cd',
-  white: '#e5e5e5',
-  brightBlack: '#666666',
-  brightRed: '#f14c4c',
-  brightGreen: '#23d18b',
-  brightYellow: '#f5f543',
-  brightBlue: '#3b8eea',
-  brightMagenta: '#d670d6',
-  brightCyan: '#29b8db',
-  brightWhite: '#ffffff',
-};
 
 // ============================================================================
 // CanvasRenderer Class
@@ -401,26 +270,8 @@ export class CanvasRenderer {
 
   private measureFont(): FontMetrics {
     // Use an offscreen canvas for measurement
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d')!;
-
-    // Set font (use actual pixel size for accurate measurement)
-    ctx.font = `${this.fontSize}px ${this.fontFamily}`;
-
-    // Measure width using 'M' (typically widest character)
-    const widthMetrics = ctx.measureText('M');
-    const width = Math.ceil(widthMetrics.width);
-
-    // Measure height using ascent + descent with padding for glyph overflow
-    const ascent = widthMetrics.actualBoundingBoxAscent || this.fontSize * 0.8;
-    const descent = widthMetrics.actualBoundingBoxDescent || this.fontSize * 0.2;
-
-    // Add 2px padding to height to account for glyphs that overflow (like 'f', 'd', 'g', 'p')
-    // and anti-aliasing pixels
-    const height = Math.ceil(ascent + descent) + 2;
-    const baseline = Math.ceil(ascent) + 1; // Offset baseline by half the padding
-
-    return { width, height, baseline };
+    const ctx = document.createElement('canvas').getContext('2d')!;
+    return measureFont(ctx, this.fontSize, this.fontFamily);
   }
 
   /**
@@ -781,7 +632,7 @@ export class CanvasRenderer {
     buffer: IRenderable,
     scrollbackProvider: IScrollbackProvider | undefined,
     scrollbackLength: number
-  ): { line: GhosttyCell[] | null; grapheme?: GraphemeLookup } {
+  ): RowContent {
     if (y < viewportY) {
       // This row is from scrollback, counted from its end
       const scrollbackOffset = scrollbackLength - viewportY + y;
@@ -820,7 +671,7 @@ export class CanvasRenderer {
     last: number,
     cut: boolean,
     cols: number,
-    rowAt: (k: number) => { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
+    rowAt: (k: number) => RowContent
   ): void {
     this.drawCount++;
     const state = this.rowState;
@@ -849,7 +700,7 @@ export class CanvasRenderer {
     last: number,
     cut: boolean,
     cols: number,
-    rowAt: (k: number) => { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
+    rowAt: (k: number) => RowContent
   ): void {
     const end = cut ? last : last + 1;
     const own = this.ctx;
@@ -879,7 +730,7 @@ export class CanvasRenderer {
   private drawRow(
     k: number,
     cols: number,
-    { line, grapheme }: { line: GhosttyCell[] | null; grapheme?: GraphemeLookup }
+    { line, grapheme }: RowContent
   ): void {
     this.drawCount++;
     if (line) {
