@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  activates,
   DesktopNotifier,
   NOTIFY_INTERVAL_MS,
   NOTIFY_REPEAT_MS,
@@ -95,12 +96,12 @@ describe('DesktopNotifier', () => {
     const { notifier, shown, requests, state, replay } = setup({ permission: 'default' });
     replay.active = true;
     notifier.notify({ title: 't', body: 'b' }, 0);
-    notifier.userInput();
+    notifier.userInput(true);
     expect(shown).toHaveLength(0);
     expect(state.marks).toBe(0);
     // Nor does a replayed one arm the permission prompt.
     replay.active = false;
-    notifier.userInput();
+    notifier.userInput(true);
     expect(requests).toHaveLength(0);
   });
 
@@ -128,14 +129,14 @@ describe('DesktopNotifier', () => {
   test('asks for permission on the next input after the first notification, once', async () => {
     const { notifier, shown, requests, state } = setup({ permission: 'default' });
     // Never before a notification.
-    notifier.userInput();
+    notifier.userInput(true);
     expect(requests).toHaveLength(0);
     notifier.notify({ title: '', body: 'a' }, 0);
     // Undecided: the tab title is marked instead.
     expect(shown).toHaveLength(0);
     expect(state.marks).toBe(1);
-    notifier.userInput();
-    notifier.userInput();
+    notifier.userInput(true);
+    notifier.userInput(true);
     expect(requests).toHaveLength(1);
     await Promise.resolve();
     // Granted: the next one shows.
@@ -143,17 +144,26 @@ describe('DesktopNotifier', () => {
     expect(shown.map((n) => n.body)).toEqual(['b']);
   });
 
+  test('an input that does not activate the page (Esc) leaves the request armed', () => {
+    const { notifier, requests } = setup({ permission: 'default' });
+    notifier.notify({ title: '', body: 'a' }, 0);
+    notifier.userInput(false);
+    expect(requests).toHaveLength(0);
+    notifier.userInput(true);
+    expect(requests).toHaveLength(1);
+  });
+
   test('a notification while focused arms the prompt too', () => {
     const { notifier, requests } = setup({ permission: 'default', focused: true });
     notifier.notify({ title: '', body: 'a' }, 0);
-    notifier.userInput();
+    notifier.userInput(true);
     expect(requests).toHaveLength(1);
   });
 
   test('denied: never asks, and marks the tab title', () => {
     const { notifier, requests, shown, state, logs } = setup({ permission: 'denied' });
     notifier.notify({ title: '', body: 'a' }, 0);
-    notifier.userInput();
+    notifier.userInput(true);
     notifier.notify({ title: '', body: 'b' }, NOTIFY_INTERVAL_MS);
     expect(requests).toHaveLength(0);
     expect(shown).toHaveLength(0);
@@ -164,7 +174,7 @@ describe('DesktopNotifier', () => {
   test('no Notification API, or one that throws: marks the tab title', () => {
     const none = setup({ permission: 'none' });
     none.notifier.notify({ title: '', body: 'a' }, 0);
-    none.notifier.userInput();
+    none.notifier.userInput(true);
     expect(none.state.marks).toBe(1);
     expect(none.logs).toHaveLength(1);
 
@@ -172,5 +182,18 @@ describe('DesktopNotifier', () => {
     throws.notifier.notify({ title: '', body: 'a' }, 0);
     expect(throws.state.marks).toBe(1);
     expect(throws.logs[0]).toContain('Illegal constructor.');
+  });
+});
+
+describe('activates', () => {
+  test('follows navigator.userActivation where there is one', () => {
+    expect(activates({ key: 'a' }, { isActive: false })).toBe(false);
+    expect(activates({ key: 'Escape' }, { isActive: true })).toBe(true);
+  });
+
+  test('without it, every input but Esc', () => {
+    expect(activates({ key: 'Escape' }, undefined)).toBe(false);
+    expect(activates({ key: 'a' }, undefined)).toBe(true);
+    expect(activates({}, undefined)).toBe(true);
   });
 });

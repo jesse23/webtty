@@ -54,14 +54,29 @@ export function browserNotifications(): NotificationApi | undefined {
 }
 
 /**
+ * Whether a key or click gave the page user activation, so a permission request from
+ * it can prompt. Esc and keys the browser reserves do not (HTML's activation-triggering
+ * input events); `navigator.userActivation` knows, and without it only Esc is ruled out.
+ */
+export function activates(
+  event: { key?: string },
+  activation: { readonly isActive: boolean } | undefined = typeof navigator === 'undefined'
+    ? undefined
+    : navigator.userActivation,
+): boolean {
+  if (activation) return activation.isActive;
+  return event.key !== 'Escape';
+}
+
+/**
  * Shows a program's desktop notifications (OSC 9, OSC 777) as Ghostty on macOS does
  * (ADR 056): not for the replay, at most one a second and the same one once in five
  * seconds, and only while the terminal is not focused. Without permission, or without
  * the API, the tab title is marked as for a bell instead.
  *
- * Permission is asked on the next key or click in the tab after the first
- * notification while it is undecided, once per page load, never on load: browsers
- * want a user gesture for the prompt.
+ * Permission is asked on the next key or click in the tab that activates the page
+ * (not Esc) after the first notification while it is undecided, once per page load,
+ * never on load: browsers want a user gesture for the prompt.
  */
 export class DesktopNotifier {
   private last: { at: number; key: string } | null = null;
@@ -93,9 +108,12 @@ export class DesktopNotifier {
     if (!this.show(request.title || this.host.name(), request.body, key)) this.host.mark();
   }
 
-  /** The user pressed a key or clicked in this tab: a gesture to ask permission with. */
-  userInput(): void {
-    if (!this.askOnInput || !this.api) return;
+  /**
+   * The user pressed a key or clicked in this tab: a gesture to ask permission with if
+   * it `activated` the page. One that did not (Esc) leaves the request for the next.
+   */
+  userInput(activated: boolean): void {
+    if (!this.askOnInput || !this.api || !activated) return;
     this.askOnInput = false;
     this.asked = true;
     if (this.api.permission() !== 'default') return;

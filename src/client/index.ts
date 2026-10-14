@@ -5,7 +5,7 @@ import { EdgeExtender } from './edge';
 import { FindBar } from './find-bar';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
-import { browserNotifications, DesktopNotifier } from './notifications';
+import { activates, browserNotifications, DesktopNotifier } from './notifications';
 import { nonTextPaste } from './paste';
 import { ReplayWindow } from './replay';
 import { isMacPlatform, shortcutFor } from './shortcuts';
@@ -248,7 +248,8 @@ window.addEventListener('keydown', () => tabTitle.attended(), { capture: true })
 
 // Desktop notifications (OSC 9, OSC 777), shown while the terminal is not focused, as
 // Ghostty on macOS does; the bell mark without permission. Permission is asked on the
-// next key or click after the first one, a gesture browsers accept (ADR 056).
+// next key or click after the first one that activates the page (not Esc), a gesture
+// browsers accept (ADR 056).
 const notifier = new DesktopNotifier(browserNotifications(), sessionId, replay, {
   focused: () => document.hasFocus() && container.contains(document.activeElement),
   name: () => tabTitle.name,
@@ -260,7 +261,11 @@ const notifier = new DesktopNotifier(browserNotifications(), sessionId, replay, 
 });
 term.onDesktopNotification((n) => notifier.notify(n, performance.now()));
 for (const type of ['keydown', 'mousedown'] as const) {
-  window.addEventListener(type, () => notifier.userInput(), { capture: true });
+  window.addEventListener(
+    type,
+    (e) => notifier.userInput(activates(e instanceof KeyboardEvent ? e : {})),
+    { capture: true },
+  );
 }
 container.addEventListener('focusin', () => notifier.attended());
 window.addEventListener('keydown', () => notifier.attended(), { capture: true });

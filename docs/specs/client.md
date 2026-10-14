@@ -263,7 +263,7 @@ Programs ask for desktop notifications with OSC 9 (`ESC ] 9 ; <body> BEL`, iTerm
 - otherwise, with permission granted, shows `new Notification(title, { body, tag })`: an OSC 9 notification takes the tab's name (the program's title, or the session id) as its title; the tag (session, title, body) makes a second tab on the session replace rather than stack it. Text is passed as plain text. A click focuses the window and the terminal; the terminal gaining focus or a key closes every notification it showed;
 - otherwise (permission not granted, no API over http or on iOS Safari, a constructor that throws as on Chrome for Android) puts the bell's `🔔 ` in front of the tab title, which `bellTitle: false` turns off too. Each reason is logged to the console once.
 
-Permission is never asked on load. The first live notification while it is `default` (focused or not) arms the request, and the next `keydown` or `mousedown` in the tab calls `Notification.requestPermission()`, once per page load.
+Permission is never asked on load. The first live notification while it is `default` (focused or not) arms the request, and the next `keydown` or `mousedown` in the tab that gives the page user activation (`navigator.userActivation.isActive`; without it, any but Esc) calls `Notification.requestPermission()`, once per page load. Esc, which does not, leaves the request armed.
 
 ## Behavior Notes
 
