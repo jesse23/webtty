@@ -1,3 +1,4 @@
+import { OutputAck } from './ack';
 import { Composer } from './compose';
 import { EdgeExtender } from './edge';
 import { computeInsets } from './fit';
@@ -199,8 +200,14 @@ const graphics = new KittyGraphics(term, container, (data: string) => {
 });
 
 function connect(): void {
-  const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}/pty?cols=${term.cols}&rows=${term.rows}`;
-  ws = new WebSocket(wsUrl);
+  // flow=1: this client acknowledges output as it parses it, so the server paces it
+  // (ADR 048).
+  const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}/pty?cols=${term.cols}&rows=${term.rows}&flow=1`;
+  const socket = new WebSocket(wsUrl);
+  ws = socket;
+  const ack = new OutputAck((message) => {
+    if (socket.readyState === WebSocket.OPEN) socket.send(message);
+  });
 
   const DIM = '\x1b[2m',
     YELLOW = '\x1b[1;33m',
@@ -215,11 +222,23 @@ function connect(): void {
   };
 
   ws.onmessage = (event: MessageEvent<string>) => {
+    // term.write() parses synchronously, so the output has been parsed once feed()
+    // returns: acknowledging it now lets a slow tab slow the server down.
     graphics.feed(event.data);
+    ack.parsed(event.data.length);
     smoothScroll.onOutput();
   };
 
   ws.onclose = (event: CloseEvent) => {
+    ack.dispose();
+    if (event.code === 4003) {
+      // The server dropped this tab for falling too far behind the output. Start
+      // again from the replay, as a new tab would (ADR 048).
+      term.reset();
+      term.write(msg('Tab fell behind; replaying recent output.'));
+      connect();
+      return;
+    }
     if (event.code === 4001) {
       term.write(msg('Session removed.'));
       setTimeout(() => window.close(), 500);
