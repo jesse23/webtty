@@ -1,6 +1,6 @@
 # SPEC: webtty
 
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -85,6 +85,10 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 |--------|------|-------------|
 | `GET` | `/api/server/status` | Server status; responds `200` with `{ version }` — the `package.json` version (`0.0.0-development` in dev checkouts) |
 | `POST` | `/api/server/stop` | Graceful shutdown — kills all PTYs, closes WebSocket server, exits |
+
+## Code structure
+
+The server, PTY, CLI and config code is organised as the [architecture SPEC](architecture.md) describes: `src/server/app.ts` (`createServer`) wires a `SessionStore`, an ordered route table and the WebSocket channels ([ADR 062](../adrs/062.server.composition.md)); the layers, dependency rules, size limits and test conventions for the whole repo are there ([ADR 059](../adrs/059.architecture.code-organisation.md)).
 
 ## Features
 

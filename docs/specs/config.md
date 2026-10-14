@@ -219,6 +219,10 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 }
 ```
 
+## Code structure
+
+`src/config/` holds the schema types (including `ClientConfig` and `CLIENT_CONFIG_KEYS`, the keys `GET /api/config` sends), the defaults, the pure parser, the binding merge rules and the file I/O; `src/config/index.ts` keeps the `../config` import path. The client imports these types with `import type` only ([ADR 059](../adrs/059.architecture.code-organisation.md), [ADR 062](../adrs/062.server.composition.md), [architecture SPEC](architecture.md)).
+
 ## Features
 
 | Feature | Description | ADR | Done? |

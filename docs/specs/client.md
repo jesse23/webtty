@@ -31,13 +31,18 @@ dist/
 
 ## Source layout
 
+The client's folders, module kinds, dependency rules, size limits and test conventions are in the [architecture SPEC](architecture.md) ([ADR 059](../adrs/059.architecture.code-organisation.md), [ADR 060](../adrs/060.client.feature-modules.md), [ADR 061](../adrs/061.client.vendor-split.md)). In short:
+
 ```
 src/client/
-  index.ts             ← browser TypeScript entry point
-  index.html           ← HTML shell (no inline script)
-  index.css            ← terminal styles
+  index.ts             ← browser entry, bundled to dist/client-browser.js
+  client.html          ← HTML shell (no inline script), copied to dist/client.html
+  index.css            ← terminal and find-bar styles, copied to dist/client.css
+  *.ts                 ← app modules: the connection, layout and features (moving into app/, connection/,
+                          layout/ and features/ as ADR 060 lands)
   vendor/
-    ghostty-web/       ← coder/ghostty-web lib/ at 1858a59 (non-test TS, unchanged), MIT LICENSE, PROVENANCE.md;
+    ghostty-web/       ← derived from coder/ghostty-web lib/ at 1858a59 and heavily modified by webtty, MIT LICENSE,
+                          PROVENANCE.md (upstream pin, local changes, moves and splits);
                           ghostty.ts holds every wasm call, the binding to the official wasm (ADR 042, ADR 047);
                           fn-table.ts is the function-table trampoline borrowed from ghostty-vt-js (LICENSE.ghostty-vt-js)
     fixtures/          ← PTY captures replayed in 1-byte and 512-byte writes by vendor/official-replay.test.ts
@@ -47,7 +52,7 @@ src/client/
 scripts/update-ghostty-vt.ts ← fetches and verifies a new pin (the only networked step); --verify re-checks offline
 ```
 
-The vendored TS is excluded from Biome so it stays byte-identical to upstream until webtty edits it, and is type-checked with the rest of `src/`. webtty's edits to it are tracked in git from the commit that added it. `vendor/ghostty-vt/` is excluded from Biome too, since the update script writes its sidecar; nothing in it is edited.
+The vendored TS is excluded from Biome so Coder's lines are not reformatted and webtty's edits stay readable as diffs, and is type-checked with the rest of `src/`. webtty's edits to it are tracked in git and listed in its `PROVENANCE.md`. `vendor/ghostty-vt/` is excluded from Biome too, since the update script writes its sidecar; nothing in it is edited.
 
 ## Page
 
