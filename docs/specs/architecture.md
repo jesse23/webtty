@@ -1,6 +1,6 @@
 # SPEC: Architecture
 
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-14 (revised after review)
 
 ---
 
@@ -46,9 +46,11 @@ src/client:
 | App code (`src/client/**` outside `vendor/`) imports vendor code only through `vendor/ghostty-web` (the barrel), never a deep path. Tests may deep-import. | same |
 | `src/client/features/<a>/**` never imports `src/client/features/<b>/**`. Features reach each other only through handles the composition root passes in. | same |
 | Inside the vendored tree, the parts of a split facade (`engine/`, `core/`, `render/`, `input/`, `selection/`) import narrow interfaces (`engine/engine-types.ts`, `core/host-types.ts`, `render/renderable.ts`), never the facade class as a value, so no runtime import cycle can form. | review + `tsc` |
-| A file under a `test-support/` folder is never named `*.test.ts`. | same |
+| A file under a `test-support/` folder is never named `*.test.ts`, and no file imports a `*.test.ts` file. | same |
+| Test files (`*.test.ts`) may cross the client/server line (contract tests); the import rules above apply to source files only. | same |
+| The checker counts `.ts` files only, excluding `*.d.ts`; fixtures, the wasm, JSON, Markdown, HTML and CSS are not source. | same |
 
-**Contracts across the client/server line.** The config types are defined once, in `src/config`: the client derives `ClientConfig` from them (`Pick<Config, …>`) with `import type`, so the three copies of today (client type, server whitelist, server type) become one type and one key list (`CLIENT_CONFIG_KEYS`, server side) pinned by a test. Wire constants that the client needs as values (the WebSocket close codes 1001, 4001, 4003) are mirrored in `src/client/connection/close-codes.ts` and pinned to the server's by a contract test that imports both (tests may cross the line; code may not).
+**Contracts across the client/server line.** The config types are defined once, in `src/config/config-schema.ts`: `CLIENT_CONFIG_KEYS` (a `const` tuple, the one key list, legacy `scrollback` included) and `ClientConfig = Pick<Config, (typeof CLIENT_CONFIG_KEYS)[number]>`. The server builds `/api/config` from that list (`client-view.ts`, whose test pins the exact keys and order), and the client imports the `ClientConfig` type with `import type`, so the three copies of today (client type, server whitelist, server type) become one type and one key list. A type has no runtime keys, so there is no runtime contract test for it: `tsc` checks the client against the type. While the server and client branches of the refactor are apart, the client keeps a local `Pick<Config, …>` alias marked temporary, replaced by the import when they merge. Wire constants that the client needs as values (the WebSocket close codes 1001, 4001, 4003) are mirrored in `src/client/connection/close-codes.ts` and pinned to the server's by a contract test that imports both (tests may cross the line; code may not).
 
 ## Folder tree
 
@@ -57,7 +59,8 @@ The target tree. Files marked *(entry)* keep their path because `scripts/build.t
 ```
 src/
   version.ts                    util: package version lookup
-  runtime.ts                    util: isBun, isWindows, bunTerminalAvailable, packageRunner (one definition per meaning)
+  runtime.ts                    util: bunTerminalAvailable, launchedFromBunExecutable, runningUnderBun, isWindows, packageRunner
+                                (one predicate per meaning of the three old isBun definitions, each taking an env with a production default)
   ndjson.ts                     object: LineSplitter (server /publish and CLI run)
   test-support/server-harness.ts  test util: getFreePort, waitForServer*, makeTmpHome (was src/utils.test.ts)
   config/                       node; server + cli; the client imports types only
@@ -77,6 +80,8 @@ src/
     app.ts                      factory: createServer({ loadConfig, store, spawnPty, paths, onStop }) → { httpServer, wss, shutdown }
     server-paths.ts             util: projectRoot, clientRoot, wasmPath (the one place that knows src vs dist depth)
     output-pacer.ts             object: OutputPacer, splitChunks, DEFAULT_FLOW_LIMITS (was flow.ts)
+    flow.ts                     temporary one-line re-export of output-pacer.ts, kept only until the client's
+                                replay-window.test.ts is repointed after the two branches merge, then deleted
     http/
       router.ts                 util: ordered method + pattern table (declaration order = the old if-chain order)
       respond.ts                util: sendJson, sendText, CORS_HEADERS
@@ -111,7 +116,7 @@ src/
     client.html  index.css      (paths fixed: copied by scripts/build.ts)
     app/
       start-client.ts           composition root: bootstrap, install features in the documented order, connect
-      browser-env.ts            adapter: the real window, document, navigator, fetch, WebSocket, timers, rAF
+      browser-env.ts            adapter: ClientEnv, everything start-client touches outside its own objects (see below)
       client-context.ts         types: ClientContext, Feature, Disposable
       client-config.ts          service + type: ClientConfig (from src/config types), loadClientConfig(fetch)
       terminal-options.ts       util (pure): toTerminalOptions(config, theme)
@@ -155,7 +160,9 @@ src/
       ghostty-web/              Biome-excluded; see "The vendored layer"
 scripts/
   build.ts                      unchanged outputs
-  check-architecture.ts         size and import rules (library) + check-architecture.test.ts
+  check-architecture.ts         size, naming and import rules with the ratchet allowlist + check-architecture.test.ts
+  check-coverage.ts             per-layer coverage targets over bun's lcov report (run by test:coverage)
+  check-pkg-manager.ts  clean-pkg-scripts.ts   package-manager guard and publish-time script cleanup (headers; pure parts tested)
   update-ghostty-vt.ts          CLI only (--commit, --verify)
   ghostty-vt/                   minisign.ts, sidecar.ts, inspect-wasm.ts, release-fetch.ts (fetch injected)
 ```
@@ -179,10 +186,11 @@ ghostty-web/
   engine/               every wasm call; no DOM
     engine-types.ts  cell-types.ts  wasm-exports.ts  vt-layout.ts  official-layout.ts  key-tables.ts  scratch.ts
     wasm-loader.ts  engine-context.ts  official-terminal.ts  render-state.ts  scrollback-pages.ts
-    selection-binding.ts  search-binding.ts  mouse-encoder.ts  paste-focus-encoders.ts  engine-effects.ts
-    cursor-blink.ts  text-mime.ts  key-encoder.ts
+    selection-binding.ts  search-binding.ts  mouse-encoder-binding.ts  paste-focus-binding.ts  key-encoder-binding.ts
+    engine-effects.ts (FnTable callbacks, clipboard write, readTitle)  grid-refs.ts (grid and screen refs, hyperlinkAt, graphemes)
+    engine-config.ts (applyConfig, colour reads and writes)  cursor-blink.ts  text-mime.ts
   core/                 Terminal's collaborators; import core/host-types.ts, never terminal.ts
-    host-types.ts  terminal-constants.ts  terminal-geometry.ts  terminal-options.ts  dom-setup.ts
+    host-types.ts  terminal-constants.ts  terminal-geometry.ts  options-proxy.ts  dom-setup.ts
     viewport.ts  focus-tracker.ts  find-controller.ts  write-pipeline.ts  render-loop.ts
     mouse-controller.ts  wheel-controller.ts  scrollbar-controller.ts
   render/               renderable.ts  default-theme.ts  device-pixel-ratio.ts  frame-lines.ts  cell-range.ts  row-band.ts
@@ -219,17 +227,33 @@ Other patterns used, each in one named place: **Command map** for shortcut dispa
 
 ### The client composition root
 
-`startClient(env)` runs these steps, in this order, written once in the file with numbered comments and pinned by a test that installs everything on fakes and records each listener's target, type, phase and order:
+`startClient(env)` runs these steps, in this order, written once in the file with numbered comments. The order is today's `index.ts` (at commit d333069) with two moves, each stated with why it is equivalent; it is pinned by a test that installs everything on fakes and records each listener's target, type, phase and position and each terminal emitter subscription.
 
-1. Load the config (`/api/config`), `Ghostty.load('/ghostty-vt-small.wasm')`, `new Terminal(toTerminalOptions(…))`, colour the padding, `term.open(container)`.
-2. Layout: Fitter, edge strips, DPR watch, `fonts.ready`, repaint on visibility.
-3. Scroll: SmoothScroll, the wheel handler, wheel pace, `attachBeforeRender`.
-4. Kitty graphics (the output writer).
-5. Window capture listeners in today's order: clipboard arming, tab title and notifier (user input, attended), then font zoom (a window listener so it works without focus).
-6. The key dispatcher: **one** container capture `keydown` listener. A configured binding wins (`preventDefault`, `stopPropagation`, send its chars, return); otherwise Ghostty's shortcuts run with today's `stopImmediatePropagation` and `performable` rules. It is registered after `term.open`, so it runs before the InputHandler.
-7. Paste: `onPasteRequest` and the container capture `paste` listener.
-8. The find bar.
-9. The connection: `clipboard.connected()` and `replay.connected()` run synchronously when the socket is created; on open, `graphics.reset()`, the resize message, `resyncFocus()`.
+1. **Bootstrap.** The session id from `location`; the config (`/api/config`); `ReplayWindow`; the `TabTitle` object (it sets `document.title`, so it stays before the wasm load); `Ghostty.load('/ghostty-vt-small.wasm')`; the terminal theme; `new Terminal(toTerminalOptions(…))`; the padding colour; `await term.open(container)`.
+2. **Layout and views.** `EdgeExtender`; `Composer` (container `compositionstart`, `compositionupdate`, `compositionend`, `focusout`); `WheelStream` and `SmoothScroll`; the FitAddon and the `Fitter`, whose first `schedule()` runs here; the `ResizeObserver`; window `resize`; `fonts.ready`; repaint on visible (document `visibilitychange`); the DPR watch.
+3. **Kitty graphics.** `KittyGraphics` (its overlay into the container, a document `visibilitychange`); its replies go out through the connection handle, which is created at step 7 and read only when a reply is sent.
+4. **Clipboard.** `onClipboardWrite`; window capture `keydown`, `mousedown`, `paste`, `drop` arming the writer.
+5. **Tab title.** `onTitleChange`, `onBell`; container `focusin`; window capture `keydown`.
+6. **Notifications.** `DesktopNotifier`; `onDesktopNotification`; window capture `keydown` and `mousedown` (user input); container `focusin`; document `visibilitychange`; window capture `keydown` (attended).
+7. **The connection.** `connect()`: when the socket is created, `clipboard.connected()` and `replay.connected()` run synchronously; on open, `graphics.reset()`, the resize message, `resyncFocus()`. It stays at today's position (it was never last).
+8. **Scroll hooks.** `attachCustomWheelEventHandler`, `attachWheelPace`, `attachBeforeRender`.
+9. **The find bar** and its `onFindChange` subscription. *Moved up* from after the shortcut listener so the dispatcher gets a handle instead of a forward reference. Equivalent: the bar appends its root to `document.body` (the only append to the body) and listens only on its own elements, and it is the only `onFindChange` subscriber.
+10. **The key dispatcher:** **one** container capture `keydown` listener, at the binding listener's position. A configured binding wins (`preventDefault`, `stopPropagation`, scroll to the bottom, send its chars, return); otherwise Ghostty's shortcuts run with today's `stopImmediatePropagation` and `performable` rules. *The shortcut listener's position merges into it*: the listeners registered between the two were a window listener and emitter subscriptions, none on the container. Being a capture listener it runs after `Terminal`'s own container capture `keydown` (the context-menu key, added in `open()`) and before the InputHandler's bubble listener.
+11. **Font zoom:** window capture `keydown` (a window listener so it works without focus), calling `fit()` synchronously.
+12. **Input and size:** `term.onData` → `connection.send`, `term.onResize` → `connection.sendResize`.
+13. **Paste:** `onPasteRequest`, then the container capture `paste` listener.
+
+Everything between these steps runs synchronously after the awaits of step 1, so no event can be dispatched part-way; the order matters only among listeners on the same target and phase and among subscribers of the same emitter, and those orders are the ones above:
+
+| Target, phase | Listeners in order (app only; the vendored ones come first, from `term.open`) |
+|---|---|
+| window capture `keydown` | clipboard arming → tab title attended → notifier user input → notifier attended → font zoom |
+| window capture `mousedown` | clipboard arming → notifier user input |
+| container `focusin` | tab title attended → notifier attended |
+| container capture `keydown` | key dispatcher |
+| document `visibilitychange` | repaint on visible → kitty overlay → title and notifier attended |
+
+`ClientEnv` (`app/browser-env.ts`) carries every global the root touches, each with the browser's own as the production value, so the root runs on fakes: `window` (`location`, `devicePixelRatio`, `matchMedia`, `close`, `focus`), `document` (including `fonts.ready`), `navigator`, `fetch`, `WebSocket`, `ResizeObserver`, `Notification`, `performance.now`, `setTimeout`/`clearTimeout`, `requestAnimationFrame`/`cancelAnimationFrame`, and two factories, `loadEngine(url)` (`Ghostty.load`) and `createTerminal(options)` (`new Terminal`).
 
 Features get what they need from `ClientContext` (`term`, `container`, `config`, `terminalTheme`, `mac`, `doc`, `win`) and from handles the root passes explicitly (the connection, the fitter, the find bar, `clearScreen`). There is no service locator and no event bus.
 
@@ -241,7 +265,7 @@ Features get what they need from `ClientContext` (`term`, `container`, `config`,
 
 ## Size limits
 
-Counted in lines, comments and blank lines included. Checked by `scripts/check-architecture.ts` under `bun test`.
+Counted in lines of `.ts` source (not `*.d.ts`), comments and blank lines included. Checked by `scripts/check-architecture.ts` under `bun test`, on both refactor branches: the checker lands first on the client branch and the server branch starts from that commit, so every server step runs it too.
 
 | Files | Aim | Hard limit |
 |---|---|---|
@@ -252,7 +276,7 @@ Counted in lines, comments and blank lines included. Checked by `scripts/check-a
 | Test files | ≤ 600 | 800 |
 | Functions | ≤ 60 lines | not checked; hot paths (`decodeRow`, `render`) say why when longer |
 
-While the refactor runs, the checker carries a **ratchet allowlist**: each file over its limit today, with its current line count. A listed file may shrink or disappear, never grow; each step removes the entries it fixes, and the list is empty at the end.
+While the refactor runs, the checker carries a **ratchet allowlist**: each file over its limit today, with its current line count. A listed file may shrink or disappear, never grow; each step removes the entries it fixes, and the list is empty at the end. While both branches run, a missing (deleted or renamed) entry is tolerated so the server branch never edits the checker; once they merge the list is emptied and a stale entry fails.
 
 ## Naming
 
@@ -281,7 +305,8 @@ While the refactor runs, the checker carries a **ratchet allowlist**: each file 
 - **Order:** the client root has an install-order test; the per-message pipeline and the on-open sequence have call-order tests; the key dispatcher has a case-by-case equivalence test against the old two-listener behaviour.
 - **Server:** routes, WebSocket channels and sessions run in-process through `createServer()` on port 0 with a temporary `HOME`, so they count in coverage. A few subprocess tests remain as end-to-end checks of the entries. No test may fall back to the configured port.
 - **Vendor:** one cached `loadGhostty()` (`vendor/tests/support/wasm.ts`) so new test files do not each compile the wasm. New tests do not reach private members through `as unknown as {…}` casts; they test the collaborator that now owns the state.
-- **Coverage targets** (`bun run test:coverage`, thresholds in `bunfig.toml` at the end of the refactor): app, server, CLI, config and pty ≥ 95% lines and ≥ 90% functions; vendored layer ≥ 85% lines and ≥ 80% functions; pure modules 100%.
+- **Listener snapshots.** Before the vendored facades are split, a test opens a `Terminal` on recording targets and snapshots every listener it adds (target, type, capture, order) and which of them `dispose()` removes. Every vendor split step leaves that snapshot unchanged; only the ADR 065 commit changes its "removed" column (and drops the empty `compositionupdate` listener). Until then a `DisposableStore` holds only the listeners that are removed today; the ones that leak stay as they are.
+- **Coverage targets** (`bun run test:coverage`): app, server, CLI, config and pty ≥ 95% lines and ≥ 90% functions; vendored layer ≥ 85% lines and ≥ 80% functions; pure modules 100%. Bun's `coverageThreshold` is one global setting, so `bunfig.toml` sets the common floor (85% lines, 80% functions) and `scripts/check-coverage.ts`, run by `test:coverage` after `bun test --coverage --coverage-reporter=lcov`, enforces the per-layer targets from `coverage/lcov.info`.
 
 ## Features
 
@@ -296,4 +321,4 @@ While the refactor runs, the checker carries a **ratchet allowlist**: each file 
 | Listener teardown | `Terminal.dispose` and `SelectionManager` release every listener | [ADR 065](../adrs/065.client.listener-teardown.md) | ⬜ |
 | Server composition | `createServer`, SessionStore, route table, `ws/` and `sessions/`, config split | [ADR 062](../adrs/062.server.composition.md) | ⬜ |
 | CLI command modules | `main.ts`, WebttyClient, one file per command with injected deps | [ADR 063](../adrs/063.cli.command-modules.md) | ⬜ |
-| Test strategy | test-support fakes, injected happy-dom, in-process server tests, vendor test mirror, coverage thresholds | [ADR 064](../adrs/064.architecture.test-strategy.md) | ⬜ |
+| Test strategy | test-support fakes, injected happy-dom, in-process server tests, vendor test mirror, listener snapshots, per-layer coverage check | [ADR 064](../adrs/064.architecture.test-strategy.md) | ⬜ |
