@@ -173,6 +173,23 @@ export interface MouseTrackingConfig {
 }
 
 /**
+ * The sequence for a key the official encoder does not send as xterm does, or null to
+ * encode the key. For Shift+Enter and Shift+Escape the encoder sends Ghostty's
+ * modifyOtherKeys `CSI 27;2;13~` and `CSI 27;2;27~`, which most apps do not read; xterm
+ * sends CR and ESC, as upstream did. Every other key is encoded: navigation and function
+ * keys follow the cursor key mode (Home is `ESC O H` under DECCKM) and the modifiers
+ * (Shift+Home is `CSI 1;2 H`). (webtty: upstream sent a fixed table for Enter, Tab,
+ * Backspace, Escape, the navigation keys and F1-F12, unmodified or with Shift, which
+ * ignored both.)
+ */
+export function plainKeySequence(key: Key, mods: Mods): string | null {
+  if (mods !== Mods.SHIFT) return null;
+  if (key === Key.ENTER) return '\r';
+  if (key === Key.ESCAPE) return '\x1b';
+  return null;
+}
+
+/**
  * Button code for a mouse motion report, from the pressed-button bitmask
  * (bit 0 left, bit 1 middle, bit 2 right). Motion adds 32 to the button, and
  * no button is button 3, so hover is 35. (webtty: upstream sent 32 for hover,
@@ -448,92 +465,15 @@ export class InputHandler {
     // Extract modifiers
     const mods = this.extractModifiers(event);
 
-    // Handle simple special keys that produce standard sequences
-    if (mods === Mods.NONE || mods === Mods.SHIFT) {
-      let simpleOutput: string | null = null;
-
-      switch (key) {
-        case Key.ENTER:
-          simpleOutput = '\r'; // Carriage return
-          break;
-        case Key.TAB:
-          if (mods === Mods.SHIFT) {
-            simpleOutput = '\x1b[Z'; // Backtab
-          } else {
-            simpleOutput = '\t'; // Tab
-          }
-          break;
-        case Key.BACKSPACE:
-          simpleOutput = '\x7F'; // DEL (most terminals use 0x7F for backspace)
-          break;
-        case Key.ESCAPE:
-          simpleOutput = '\x1B'; // ESC
-          break;
-        // Arrow keys are handled by the encoder (respects application cursor mode)
-        // Navigation keys
-        case Key.HOME:
-          simpleOutput = '\x1B[H';
-          break;
-        case Key.END:
-          simpleOutput = '\x1B[F';
-          break;
-        case Key.INSERT:
-          simpleOutput = '\x1B[2~';
-          break;
-        case Key.DELETE:
-          simpleOutput = '\x1B[3~';
-          break;
-        case Key.PAGE_UP:
-          simpleOutput = '\x1B[5~';
-          break;
-        case Key.PAGE_DOWN:
-          simpleOutput = '\x1B[6~';
-          break;
-        // Function keys
-        case Key.F1:
-          simpleOutput = '\x1BOP';
-          break;
-        case Key.F2:
-          simpleOutput = '\x1BOQ';
-          break;
-        case Key.F3:
-          simpleOutput = '\x1BOR';
-          break;
-        case Key.F4:
-          simpleOutput = '\x1BOS';
-          break;
-        case Key.F5:
-          simpleOutput = '\x1B[15~';
-          break;
-        case Key.F6:
-          simpleOutput = '\x1B[17~';
-          break;
-        case Key.F7:
-          simpleOutput = '\x1B[18~';
-          break;
-        case Key.F8:
-          simpleOutput = '\x1B[19~';
-          break;
-        case Key.F9:
-          simpleOutput = '\x1B[20~';
-          break;
-        case Key.F10:
-          simpleOutput = '\x1B[21~';
-          break;
-        case Key.F11:
-          simpleOutput = '\x1B[23~';
-          break;
-        case Key.F12:
-          simpleOutput = '\x1B[24~';
-          break;
-      }
-
-      if (simpleOutput !== null) {
-        event.preventDefault();
-        this.onDataCallback(simpleOutput);
-        this.recordKeyDownData(simpleOutput);
-        return;
-      }
+    // The few keys the encoder does not send as xterm does; every other key, navigation
+    // and function keys included, is encoded below, which follows the cursor key mode
+    // and the modifiers (webtty)
+    const plain = plainKeySequence(key, mods);
+    if (plain !== null) {
+      event.preventDefault();
+      this.onDataCallback(plain);
+      this.recordKeyDownData(plain);
+      return;
     }
 
     // Determine action (we only care about PRESS for now, not RELEASE or REPEAT)
