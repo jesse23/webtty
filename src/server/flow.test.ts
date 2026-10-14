@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { FELL_BEHIND, type FlowLimits, type FlowSocket, OutputPacer } from './flow';
+import { FELL_BEHIND, type FlowLimits, type FlowSocket, OutputPacer, splitChunks } from './flow';
 
 const LIMITS: FlowLimits = {
   highWater: 100,
@@ -207,6 +207,53 @@ describe('OutputPacer', () => {
     expect(slow.closed?.code).toBe(FELL_BEHIND);
     expect(fast.received.length).toBe(1200);
     expect(fast.closed).toBeNull();
+  });
+
+  test('paces a replay in chunk-sized pieces and counts it against the window', () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    const replay = 'r'.repeat(2500);
+    pacer.send(ws, replay);
+    // Pieces of 30 go out until 100 are unacknowledged; the rest is queued.
+    expect(ws.messages.map((m) => m.length)).toEqual([30, 30, 30, 30]);
+    // Over maxPending (1000), but a replay is allowed on top of it.
+    expect(ws.closed).toBeNull();
+    pacer.broadcast('live');
+    let acked = 0;
+    while (ws.received.length > acked) {
+      acked = ws.received.length;
+      pacer.ack(ws, acked);
+    }
+    expect(ws.received).toBe(`${replay}live`);
+    expect(Math.max(...ws.messages.map((m) => m.length))).toBeLessThanOrEqual(30);
+  });
+
+  test('a replay still leaves maxPending for live output', () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    pacer.send(ws, 'r'.repeat(2500));
+    for (let i = 0; i < 99; i++) pacer.broadcast('x'.repeat(10));
+    expect(ws.closed).toBeNull();
+    pacer.broadcast('x'.repeat(20));
+    expect(ws.closed?.code).toBe(FELL_BEHIND);
+  });
+
+  test('a legacy client gets a replay whole', () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, false);
+    pacer.send(ws, 'r'.repeat(2500));
+    expect(ws.messages).toEqual(['r'.repeat(2500)]);
+  });
+
+  test('splitChunks never cuts a surrogate pair', () => {
+    const data = `a${'😀'.repeat(5)}`;
+    const pieces = splitChunks(data, 4);
+    expect(pieces).toEqual(['a😀', '😀😀', '😀😀']);
+    expect(splitChunks('😀', 1)).toEqual(['\ud83d', '\ude00']);
+    expect(splitChunks('', 4)).toEqual([]);
   });
 
   test('skips a client that is no longer open', () => {

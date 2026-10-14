@@ -52,6 +52,21 @@ interface ClientFlow {
   blocked: boolean;
   pending: string[];
   pendingLength: number;
+  /** Queued characters past which the client is closed: the limit plus what {@link OutputPacer.send} queued. */
+  maxPending: number;
+}
+
+/** Splits `data` into pieces of at most `size` characters without cutting a surrogate pair. */
+export function splitChunks(data: string, size: number): string[] {
+  const pieces: string[] = [];
+  for (let i = 0; i < data.length; ) {
+    let end = Math.min(i + size, data.length);
+    const last = data.charCodeAt(end - 1);
+    if (end < data.length && end - i > 1 && last >= 0xd800 && last <= 0xdbff) end--;
+    pieces.push(data.slice(i, end));
+    i = end;
+  }
+  return pieces;
 }
 
 /** Paces one session's output to its clients. */
@@ -82,6 +97,7 @@ export class OutputPacer {
       blocked: false,
       pending: [],
       pendingLength: 0,
+      maxPending: this.limits.maxPending,
     });
     this.updatePause();
   }
@@ -92,10 +108,25 @@ export class OutputPacer {
     this.updatePause();
   }
 
-  /** Sends `data` to one client, in order after anything queued for it. */
+  /**
+   * Sends `data` (the banner or the scrollback replay) to one client, in order after
+   * anything queued for it. An acknowledging client gets it in pieces of
+   * {@link FlowLimits.chunk}, so a large replay is paced like live output instead of
+   * filling the send buffer at once. What it queues is allowed on top of
+   * {@link FlowLimits.maxPending}: the replay is already held as the scrollback, and a
+   * scrollback over the limit would otherwise close every client that connects. A legacy
+   * client gets it whole as before: Bun's shim accepts one large message, but drops and
+   * reorders pieces sent past its 16 MB backlog.
+   */
   send(ws: FlowSocket, data: string): void {
     const flow = this.flows.get(ws);
-    if (flow) this.write(ws, flow, data);
+    if (flow?.acks) {
+      const queued = flow.pendingLength;
+      for (const piece of splitChunks(data, this.limits.chunk)) this.write(ws, flow, piece, false);
+      flow.maxPending += flow.pendingLength - queued;
+    } else if (flow) {
+      this.write(ws, flow, data);
+    }
     this.updatePause();
   }
 
@@ -117,7 +148,8 @@ export class OutputPacer {
     this.updatePause();
   }
 
-  private write(ws: FlowSocket, flow: ClientFlow, data: string): void {
+  /** Sends or queues `data`; `bounded` is false for a queue allowed past `maxPending`. */
+  private write(ws: FlowSocket, flow: ClientFlow, data: string, bounded = true): void {
     if (ws.readyState !== ws.OPEN) return;
     if (!flow.acks) {
       ws.send(data);
@@ -130,7 +162,7 @@ export class OutputPacer {
     }
     flow.pending.push(data);
     flow.pendingLength += data.length;
-    if (flow.pendingLength > this.limits.maxPending) this.fellBehind(ws);
+    if (bounded && flow.pendingLength > flow.maxPending) this.fellBehind(ws);
   }
 
   private transmit(ws: FlowSocket, flow: ClientFlow, data: string): void {
