@@ -68,3 +68,25 @@ export function makeTmpHome(prefix: string): string {
 export function cleanupTmpHome(tmpHome: string): void {
   fs.rmSync(tmpHome, { recursive: true, force: true });
 }
+
+/** A temporary HOME set on this process, and how to put the old one back. */
+export interface TmpHome {
+  dir: string;
+  /** Restores HOME and removes the directory. */
+  restore: () => void;
+}
+
+/** Points this process's HOME at a fresh temp directory, so an in-process server reads no real config. */
+export function useTmpHome(prefix: string): TmpHome {
+  const original = process.env.HOME;
+  const dir = makeTmpHome(prefix);
+  process.env.HOME = dir;
+  return {
+    dir,
+    restore: () => {
+      if (original === undefined) delete process.env.HOME;
+      else process.env.HOME = original;
+      cleanupTmpHome(dir);
+    },
+  };
+}

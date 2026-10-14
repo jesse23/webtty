@@ -36,12 +36,14 @@ describe('routes golden — server', () => {
     }
   });
 
-  test('POST /api/server/stop answers "stopping" and then calls onStop once', async () => {
+  test('POST /api/server/stop answers "stopping" and then shuts the server down once', async () => {
     expect(await call('POST', '/api/server/stop')).toEqual({
       status: 200,
       headers: { ...plain(8), 'content-type': 'text/plain' },
       body: 'stopping',
     });
+    expect(h.live.server.httpServer.listening).toBe(false);
+    await h.live.stopped;
     expect(h.stops).toBe(1);
   });
 
