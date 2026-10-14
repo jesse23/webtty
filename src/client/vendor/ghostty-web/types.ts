@@ -292,6 +292,12 @@ export interface GhosttyTerminalConfig {
   cursorColor?: number;
   /** The 16 ANSI colours; an undefined entry keeps Ghostty's default. */
   palette?: (number | undefined)[];
+  /**
+   * The default cursor shape and blink, which DECSCUSR Ps 0 and RIS restore. Default
+   * block, not blinking. (webtty, ADR 049)
+   */
+  cursorStyle?: 'block' | 'underline' | 'bar';
+  cursorBlink?: boolean;
 }
 
 /**

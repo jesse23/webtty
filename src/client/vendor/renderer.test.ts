@@ -907,7 +907,13 @@ describe('overscan and copied scrolls (ADR 043)', () => {
   test(`a translucent cursor drawn again is not blended over itself`, async () => {
     const { term, provider } = await terminal();
     const theme = { cursor: 'rgba(255, 0, 0, 0.3)' };
-    for (const cursorStyle of ['block', 'bar', 'underline'] as const) {
+    // The shape is the engine's (ADR 049)
+    for (const [cursorStyle, ps] of [
+      ['block', 2],
+      ['bar', 6],
+      ['underline', 4],
+    ] as const) {
+      term.write(`\x1b[${ps} q`);
       const live = renderer(2, { theme, cursorStyle });
       live.r.render(term, true, 0, provider, 1);
       // Idle frames, a scroll away and back, and a frame that repaints the cursor row
@@ -927,6 +933,37 @@ describe('overscan and copied scrolls (ADR 043)', () => {
       }
       live.r.dispose();
     }
+    term.free();
+  });
+
+  test(`draws the cursor shape the engine reports, not the configured one (ADR 049)`, async () => {
+    const { term, provider } = await terminal();
+    // The same terminal with the shape left to the renderer's option
+    const optionShape = new Proxy(term, {
+      get: (t, k) => {
+        if (k === 'getCursor') {
+          return () => {
+            const { style: _s, blinking: _b, ...cursor } = t.getCursor();
+            return cursor;
+          };
+        }
+        const v = t[k as keyof typeof t];
+        return typeof v === 'function' ? v.bind(t) : v;
+      },
+    });
+    term.write('\x1b[4 q');
+    const live = renderer(2, { cursorStyle: 'block' });
+    live.r.render(term, true, 0, provider, 1);
+    const underline = renderer(2, { cursorStyle: 'underline' });
+    underline.r.render(optionShape, true, 0, provider, 1);
+    expect(live.shown()).toEqual(underline.shown());
+    // A later DECSCUSR repaints the cursor cell on the next frame
+    term.write('\x1b[6 q');
+    live.r.render(term, false, 0, provider, 1);
+    const bar = renderer(2, { cursorStyle: 'bar' });
+    bar.r.render(optionShape, true, 0, provider, 1);
+    expect(live.shown()).toEqual(bar.shown());
+    expect(live.shown()).not.toEqual(underline.shown());
     term.free();
   });
 

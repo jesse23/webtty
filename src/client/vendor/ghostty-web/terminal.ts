@@ -65,49 +65,6 @@ export function mouseCursorFor(link: ILink | undefined): 'pointer' | 'default' {
   return link ? 'pointer' : 'default';
 }
 
-/** Cursor shape set by an app through DECSCUSR. */
-export interface CursorShape {
-  style: 'block' | 'underline' | 'bar';
-  blink: boolean;
-}
-
-// DECSCUSR is CSI Ps SP q. A sequence split across writes leaves a prefix at the
-// end of a chunk, which is carried into the next scan.
-const DECSCUSR = /\x1b\[(\d*) q/g;
-const DECSCUSR_PREFIX = /\x1b(?:\[\d{0,3} ?)?$/;
-
-/**
- * Scans output for DECSCUSR and returns the last Ps from 0 to 6 (undefined if
- * none), plus the unfinished sequence at the end of the chunk to pass back in as
- * `carry` with the next one. (webtty: the renderer draws the cursor from these
- * options, not from Ghostty's render-state cursor style, so the style is read from
- * the output here; ADR 013, ADR 047.)
- */
-export function scanDecscusr(
-  data: string,
-  carry: string = ''
-): { ps: number | undefined; carry: string } {
-  const text = carry + data;
-  let ps: number | undefined;
-  for (const match of text.matchAll(DECSCUSR)) {
-    const value = match[1] === '' ? 0 : Number(match[1]);
-    if (value <= 6) ps = value;
-  }
-  return { ps, carry: DECSCUSR_PREFIX.exec(text)?.[0] ?? '' };
-}
-
-/**
- * Applies DECSCUSR Ps to the app's cursor shape: 1-6 set it, 0 clears it so the
- * configured `cursorStyle` / `cursorBlink` show again.
- */
-export function decscusrShape(ps: number): CursorShape | undefined {
-  if (ps === 0) return undefined;
-  return {
-    style: ps <= 2 ? 'block' : ps <= 4 ? 'underline' : 'bar',
-    blink: ps % 2 === 1,
-  };
-}
-
 /**
  * The mouse encoder's geometry and a client position in it (ADR 049). Ghostty needs a
  * whole cell size, and webtty's CSS cell is fractional, so the units are device-pixel
@@ -278,11 +235,6 @@ export class Terminal implements ITerminalCore {
   private wheelPace?: (event: WheelEvent) => Pace;
   private beforeRender?: (now: number) => void;
   private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
-  // DECSCUSR state: the app's cursor shape (undefined = options) and the
-  // unfinished sequence at the end of the last write
-  private appCursorShape?: CursorShape;
-  private decscusrCarry: string = '';
-  private readonly decoder = new TextDecoder();
 
   // Scrollbar interaction state
   private isDraggingScrollbar: boolean = false;
@@ -357,7 +309,8 @@ export class Terminal implements ITerminalCore {
 
       case 'cursorBlink':
       case 'cursorStyle':
-        this.applyCursorShape();
+        // The engine's default; the renderer draws what the engine reports (webtty, ADR 049)
+        this.wasmTerm?.setDefaultCursor(this.options.cursorStyle, this.options.cursorBlink);
         break;
 
       case 'theme':
@@ -447,14 +400,9 @@ export class Terminal implements ITerminalCore {
   /**
    * Convert terminal options to WASM terminal config.
    */
-  private buildWasmConfig(): GhosttyTerminalConfig | undefined {
+  private buildWasmConfig(): GhosttyTerminalConfig {
     const theme = this.options.theme;
     const scrollbackLines = this.options.scrollbackLines;
-
-    // If no theme and default scrollback, use defaults
-    if (!theme && scrollbackLines === undefined) {
-      return undefined;
-    }
 
     // Build palette array from theme colors
     // Order: black, red, green, yellow, blue, magenta, cyan, white,
@@ -487,6 +435,8 @@ export class Terminal implements ITerminalCore {
       bgColor: bg,
       cursorColor: cursor,
       palette: paletteColors,
+      cursorStyle: this.options.cursorStyle,
+      cursorBlink: this.options.cursorBlink,
     };
   }
 
@@ -725,17 +675,6 @@ export class Terminal implements ITerminalCore {
     if (effects.bell) this.bellEmitter.fire();
     if (effects.title !== null) this.setTitle(effects.title);
 
-    // DECSCUSR: the app's cursor shape (webtty)
-    const decscusr = scanDecscusr(
-      typeof data === 'string' ? data : this.decoder.decode(data, { stream: true }),
-      this.decscusrCarry
-    );
-    this.decscusrCarry = decscusr.carry;
-    if (decscusr.ps !== undefined) {
-      this.appCursorShape = decscusrShape(decscusr.ps);
-      this.applyCursorShape();
-    }
-
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();
 
@@ -857,22 +796,6 @@ export class Terminal implements ITerminalCore {
 
     // Reset title
     this.currentTitle = '';
-
-    // Back to the configured cursor shape (webtty)
-    this.appCursorShape = undefined;
-    this.decscusrCarry = '';
-    this.applyCursorShape();
-  }
-
-  /**
-   * Shows the app's DECSCUSR cursor shape, or the configured one when the app has
-   * not set one. The renderer repaints the cursor cell when the shape changes.
-   * (webtty)
-   */
-  private applyCursorShape(): void {
-    if (!this.renderer) return;
-    this.renderer.setCursorStyle(this.appCursorShape?.style ?? this.options.cursorStyle);
-    this.renderer.setCursorBlink(this.appCursorShape?.blink ?? this.options.cursorBlink);
   }
 
   /**

@@ -263,6 +263,50 @@ describe('official engine: cursor and modes', () => {
     t.free();
   });
 
+  test('the configured cursor is the default that Ps 0 and RIS restore (ADR 049)', () => {
+    const t = term(40, 10, { ...THEME, cursorStyle: 'bar', cursorBlink: true });
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
+    t.write('\x1b[2 q');
+    expect(t.getCursor()).toMatchObject({ style: 'block', blinking: false });
+    t.write('\x1b[0 q');
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
+    t.write('\x1b[4 q\x1bc');
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
+    t.free();
+  });
+
+  test('a new default shows at once only while the app has not set a shape', () => {
+    const t = term();
+    expect(t.getCursor()).toMatchObject({ style: 'block', blinking: false });
+    t.setDefaultCursor('underline', true);
+    expect(t.getCursor()).toMatchObject({ style: 'underline', blinking: true });
+    t.write('\x1b[6 q');
+    t.setDefaultCursor('block', false);
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: false });
+    t.write('\x1b[ q');
+    expect(t.getCursor()).toMatchObject({ style: 'block', blinking: false });
+    t.free();
+  });
+
+  test('follows Ghostty: mode 12 blinks, the shape is per screen, DECSTR restores', () => {
+    const t = term();
+    t.write('\x1b[6 q\x1b[?12h');
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
+    t.write('\x1b[?12l');
+    expect(t.getCursor().blinking).toBe(false);
+    t.write('\x1b[?1049h\x1b[2 q');
+    expect(t.getCursor().style).toBe('block');
+    t.write('\x1b[?1049l');
+    expect(t.getCursor().style).toBe('bar');
+    // A sequence split across writes, and Ps out of range
+    t.write('\x1b[4');
+    t.write(' q\x1b[7 q');
+    expect(t.getCursor().style).toBe('underline');
+    t.write('\x1b[!p');
+    expect(t.getCursor().style).toBe('block');
+    t.free();
+  });
+
   test('switches to the alternate screen and back', () => {
     const t = term(20, 4);
     t.write('main');

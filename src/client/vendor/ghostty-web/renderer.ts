@@ -29,7 +29,18 @@ export interface IRenderable {
    * Optional for buffers that cannot scroll. (webtty, ADR 042)
    */
   setViewportOffset?(linesFromBottom: number): void;
-  getCursor(): { x: number; y: number; visible: boolean };
+  /**
+   * The cursor. `style` and `blinking`, when given, are the shape and blink the engine
+   * reports (DECSCUSR over the configured default) and are drawn instead of the
+   * options. (webtty, ADR 049)
+   */
+  getCursor(): {
+    x: number;
+    y: number;
+    visible: boolean;
+    style?: 'block' | 'underline' | 'bar';
+    blinking?: boolean;
+  };
   getDimensions(): { cols: number; rows: number };
   isRowDirty(y: number): boolean;
   /** Returns true if a full redraw is needed (e.g., screen change) */
@@ -481,6 +492,9 @@ export class CanvasRenderer {
     // getCursor() calls update() internally to ensure fresh state.
     // Multiple update() calls are safe - dirty state persists until clearDirty().
     const cursor = buffer.getCursor();
+    // The engine's shape and blink; a change repaints the cursor row (webtty, ADR 049)
+    if (cursor.style !== undefined) this.setCursorStyle(cursor.style);
+    if (cursor.blinking !== undefined) this.setCursorBlink(cursor.blinking);
     const dims = buffer.getDimensions();
     const getLine = frameLines(buffer, dims.cols, dims.rows);
     this.currentLine = getLine;

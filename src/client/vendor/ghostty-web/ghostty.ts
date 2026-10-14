@@ -89,6 +89,11 @@ export interface GhosttyTerminal {
   /** Device-pixel cell size for size reports. */
   setCellPixelSize(cellWidthPx: number, cellHeightPx: number): void;
   /**
+   * The default cursor shape and blink (DECSCUSR Ps 0, RIS). They show at once only
+   * while the app has not set a shape. (ADR 049)
+   */
+  setDefaultCursor(style: RenderStateCursor['style'], blink: boolean): void;
+  /**
    * The view's `viewportY` (lines scrolled up from the bottom). The renderer calls
    * it first in every render.
    */
@@ -439,7 +444,14 @@ function resolveOfficialLayout(layout: VtLayout) {
       SCROLLBACK_MAX_BYTES: opt('SCROLLBACK_MAX_BYTES'),
       SCROLLBACK_MAX_LINES: opt('SCROLLBACK_MAX_LINES'),
       MODE_DEFAULT: opt('MODE_DEFAULT'),
+      DEFAULT_CURSOR_STYLE: opt('DEFAULT_CURSOR_STYLE'),
+      DEFAULT_CURSOR_BLINK: opt('DEFAULT_CURSOR_BLINK'),
     },
+    defaultCursorStyle: {
+      bar: layout.value('GhosttyTerminalCursorStyle', 'BAR'),
+      block: layout.value('GhosttyTerminalCursorStyle', 'BLOCK'),
+      underline: layout.value('GhosttyTerminalCursorStyle', 'UNDERLINE'),
+    } satisfies Record<RenderStateCursor['style'], number>,
     tdata: {
       CURSOR_X: tdata('CURSOR_X'),
       CURSOR_Y: tdata('CURSOR_Y'),
@@ -1166,6 +1178,17 @@ export class OfficialTerminal implements GhosttyTerminal {
     this.generation++;
   }
 
+  setDefaultCursor(style: RenderStateCursor['style'], blink: boolean): void {
+    const L = this.L;
+    const at = this.at;
+    this.dv().setInt32(at.u32, L.defaultCursorStyle[style], true);
+    this.setOption(L.opt.DEFAULT_CURSOR_STYLE, at.u32, 'DEFAULT_CURSOR_STYLE');
+    this.u8()[at.u8] = blink ? 1 : 0;
+    this.setOption(L.opt.DEFAULT_CURSOR_BLINK, at.u8, 'DEFAULT_CURSOR_BLINK');
+    // The cursor is read from the render state, which only a content change refreshes.
+    this.generation++;
+  }
+
   /**
    * Records the view's offset. Ghostty's viewport is not moved and nothing is
    * decoded: rows above the active screen come from the page cache, and the active
@@ -1613,6 +1636,9 @@ export class OfficialTerminal implements GhosttyTerminal {
     dv.setUint16(at.mode + L.mode.mode, 2027, true);
     dv.setUint8(at.mode + L.mode.value, 1);
     this.setOption(L.opt.MODE_DEFAULT, at.mode, 'MODE_DEFAULT 2027');
+
+    // The configured cursor, which DECSCUSR Ps 0 and RIS restore (ADR 049).
+    this.setDefaultCursor(config?.cursorStyle ?? 'block', config?.cursorBlink ?? false);
 
     const setColor = (option: number, value: number, what: string) => {
       this.writeRgb(at.u32, value);

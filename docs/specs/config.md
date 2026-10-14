@@ -91,7 +91,7 @@ spawn PTY with fresh: shell, term, colorTerm, scrollback
 - **Env overrides**: `PORT` overrides `config.port` at runtime. Applied after file load, never written back.
 - **Hot config reload**:
   - `port` / `host` — locked at startup (server socket already bound; restart required).
-  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `scrollbackLines`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed`, `padding`, `keyboardBindings` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the startup defaults; apps override them at runtime via DECSCUSR.
+  - `cols`, `rows`, `fontSize`, `fontFamily`, `cursorStyle`, `cursorStyleBlink`, `scrollback`, `scrollbackLines`, `theme`, `copyOnSelect`, `rightClickBehavior`, `mouseScrollSpeed`, `padding`, `keyboardBindings` — re-read on every tab reload. `cursorStyle` and `cursorStyleBlink` set the terminal's default cursor; apps override it at runtime via DECSCUSR (and blink via mode 12), and DECSCUSR 0 or a reset restores it.
   - `shell`, `term`, `colorTerm`, `scrollback` — re-read when a new PTY is spawned (i.e. first connection to a session that has no running shell).
   - An already-running session is never affected mid-flight.
   - Historical note: ADR 008/009/012 describe an earlier config flow that used a `cursorBlink` key and different HTML injection mechanics. Those ADRs are considered historical; this spec's `cursorStyle` / `cursorStyleBlink` behavior is authoritative.
@@ -111,8 +111,8 @@ All keys are optional — omit any key to use the default value.
 | `scrollbackLines` | number | `10000` | Terminal history in lines; `0` = no line limit. History is also capped at 32 MiB, so wide terminals with many styles can keep fewer lines, and Ghostty prunes whole pages, so it keeps a little under the limit (about 9,700 of 10,000). Fractions are floored; negative values are ignored. The client derives nothing from `scrollback`. See [ADR 046](../adrs/046.client.scrollback-lines.md) and [ADR 047](../adrs/047.client.official-engine-only.md). |
 | `cols` | number | `80` | Initial terminal width in columns |
 | `rows` | number | `24` | Initial terminal height in rows |
-| `cursorStyle` | string | `"bar"` | Default cursor shape: `"bar"` (vertical line), `"block"`, or `"underline"`. Apps override at runtime via DECSCUSR — this is the startup default only. |
-| `cursorStyleBlink` | boolean | `true` | Default blink state. Apps override at runtime via DECSCUSR — this is the startup default only. |
+| `cursorStyle` | string | `"bar"` | Default cursor shape: `"bar"` (vertical line), `"block"`, or `"underline"`. Apps override at runtime via DECSCUSR; `CSI 0 SP q` and a terminal reset restore it. |
+| `cursorStyleBlink` | boolean | `true` | Default blink state. Apps override at runtime via DECSCUSR or mode 12; `CSI 0 SP q` and a terminal reset restore it. |
 | `copyOnSelect` | boolean | `true` | Auto-copy selection to clipboard on mouseup (kitty / Windows Terminal style) |
 | `rightClickBehavior` | string | `"default"` | Right-click behavior: `"copyPaste"` copies selection + clears it if selection exists, otherwise native menu; `"default"` always shows native context menu. Invalid values fall back to `"default"` |
 | `mouseScrollSpeed` | number | `1` | Mouse wheel scroll speed multiplier for apps with mouse tracking (e.g. vim `set mouse=a`). `1` = one scroll report (SGR 64/65 under mode 1006) per wheel tick (default). Applies to line/page wheel deltas only: pixel deltas (trackpads, macOS Chromium/Safari wheels) always send one SGR event per cell height scrolled, 1:1 with the OS. Values `< 1` reduce rate (e.g. `0.5` fires every other tick); values `> 1` send multiple SGRs per tick. Must be `> 0`. |
@@ -213,7 +213,7 @@ All theme keys are optional; omitted keys fall back to the Campbell (Windows Ter
 | Hot config reload | Appearance re-read on tab reload; shell/PTY settings re-read on new PTY spawn; `port`/`host` locked for server lifetime | [ADR 009](../adrs/009.webtty.config-hot-reload.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — configurable clipboard copy matching VS Code / kitty conventions | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Server logs | `logs: true` appends server stdout/stderr to `~/.config/webtty/server.log` | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
-| Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime | [ADR 013](../adrs/013.client.cursor-style.md) | ✅ |
+| Cursor style | `cursorStyle` sets the default cursor shape; DECSCUSR sequences from apps override at runtime, and Ps 0 restores it | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
 | Padding | `padding` (px, default `0`) around the terminal canvas, coloured by `theme.padding` or `theme.background` | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |
 | Mouse scroll speed | `mouseScrollSpeed` scales SGR events per wheel tick for apps with mouse tracking; default `1` | [ADR 017](../adrs/017.client.mouse-scroll.md) | ✅ |
 | Scrollback in lines | `scrollbackLines` (default `10000`, `0` = no line limit) sets terminal history in lines under a 32 MiB ceiling; `scrollback` stays the server replay buffer, so existing configs keep their meaning | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 046](../adrs/046.client.scrollback-lines.md), [ADR 047](../adrs/047.client.official-engine-only.md) | ✅ |
