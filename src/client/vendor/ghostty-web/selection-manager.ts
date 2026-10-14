@@ -615,13 +615,15 @@ export class SelectionManager {
   }
 
   /**
-   * A mouse selection is made: copy it when the terminal's copyOnSelect is on, building
-   * its text once, and report the change. (webtty)
+   * A mouse selection is made: with the terminal's copyOnSelect on, copy it, building
+   * its text once, and clear it, as Claude Code and pi do with their own selections;
+   * report the change. (webtty)
    */
   private selectionMade(): void {
     if (this.terminal.options.copyOnSelect) {
       const text = this.getSelection();
       if (text) this.copyToClipboard(text);
+      this.clearSelection();
     }
     this.selectionChangedEmitter.fire();
   }

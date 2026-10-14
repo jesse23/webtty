@@ -147,29 +147,37 @@ describe('SelectionManager copy on select', () => {
     canvas.dispatch('click', { detail: 2, offsetX: 8 * 7, offsetY: 4, shiftKey: true });
     canvas.dispatch('click', { detail: 3, offsetX: 8, offsetY: 20, shiftKey: true });
     expect(writes).toEqual(['hello', 'world', 'second line']);
-    expect(m.getSelection()).toBe('second line');
+    expect(m.hasSelection()).toBe(false);
+  });
+
+  test('a copied selection is cleared, as Claude Code and pi clear theirs', () => {
+    const { m, canvas, changes } = manager(true);
+    drag(canvas);
+    expect(writes).toEqual(['hello']);
+    expect(m.hasSelection()).toBe(false);
+    expect(m.getSelectionRange()).toBeNull();
+    expect(changes()).toBe(1);
   });
 
   test('a press the app takes leaves the current selection', () => {
-    const { m, canvas } = manager(true);
+    const { m, canvas } = manager(false);
     drag(canvas);
     wasmTerm.write('\x1b[?1000h');
     canvas.dispatch('mousedown', { button: 0, offsetX: 8 * 7, offsetY: 20 });
     documentTarget.dispatch('mouseup', {});
     expect(m.getSelection()).toBe('hello');
-    wasmTerm.write('\x1b[?1000l');
-    drag(canvas);
-    expect(writes).toEqual(['hello', 'hello']);
   });
 
   test('nothing is copied or built with copyOnSelect off, but the change is reported', () => {
-    const { canvas, builds, changes } = manager(false);
+    const { m, canvas, builds, changes } = manager(false);
     drag(canvas);
     canvas.dispatch('click', { detail: 2, offsetX: 8 * 7, offsetY: 4 });
     canvas.dispatch('click', { detail: 3, offsetX: 8, offsetY: 20 });
     expect(writes).toEqual([]);
     expect(builds()).toBe(0);
     expect(changes()).toBe(3);
+    // The selection stays, to copy with Cmd+C, Ctrl+Shift+C or the menu.
+    expect(m.hasSelection()).toBe(true);
   });
 });
 
@@ -283,7 +291,8 @@ describe('SelectionManager gestures', () => {
     const terminal = {
       cols: wasmTerm.cols,
       rows: wasmTerm.rows,
-      options: { copyOnSelect: true },
+      // Off, so the selection a gesture makes stays to be read (on, it is copied and cleared)
+      options: { copyOnSelect: false },
       getViewportY: viewportY,
       scrollLines: () => {},
     } as unknown as Terminal;
@@ -358,15 +367,6 @@ describe('SelectionManager gestures', () => {
     expect(word(43)).toBe('quoted');
     expect(word(52)).toBe('paren');
     expect(word(59)).toBe('HOME');
-    expect(writes).toEqual([
-      '/usr/local/bin/foo.txt',
-      'a@b.c',
-      'x+y',
-      '~/q',
-      'quoted',
-      'paren',
-      'HOME',
-    ]);
     t.free();
   });
 
@@ -390,7 +390,6 @@ describe('SelectionManager gestures', () => {
     expect(m.getSelection()).toBe('one two');
     click(canvas, 3, 0, 2);
     expect(m.getSelection()).toBe('three');
-    expect(writes).toEqual(['one two', 'three']);
     t.free();
   });
 
@@ -420,7 +419,6 @@ describe('SelectionManager gestures', () => {
     m.clearSelection();
     output(3, { ctrlKey: true });
     expect(m.hasSelection()).toBe(false);
-    expect(writes).toEqual(['a.txt\nb.txt', 'a.txt\nb.txt', 'a.txt']);
     t.free();
   });
 
