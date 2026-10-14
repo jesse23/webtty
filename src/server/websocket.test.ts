@@ -230,6 +230,36 @@ describe('websocket', () => {
     30000,
   );
 
+  test.skipIf(process.platform === 'win32')(
+    'a client behind the output is sent the rest before the shell-exit close',
+    async () => {
+      await fetch(`${baseUrl}/api/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: 'ws-test-exit-tail' }),
+      });
+      const { ws, messages } = await connectWs(
+        `${wsBase}/ws/ws-test-exit-tail/pty?cols=80&rows=24&flow=1`,
+      );
+      const received = () => messages.reduce((n, m) => n + m.length, 0);
+      const ack = () => ws.send(JSON.stringify({ type: 'ack', chars: received() }));
+      await waitForPrompt(messages);
+      ack();
+      const closeCode = new Promise<number>((resolve) => ws.on('close', (c) => resolve(c)));
+
+      // More than the 2 Mi-character window, so the tail is still queued when the shell exits.
+      ws.send(`seq 1 400000; echo TAIL-$((40+2)); exit${NL}`);
+      await new Promise((r) => setTimeout(r, 1000));
+      expect(messages.join('')).not.toContain('TAIL-42');
+      ws.on('message', ack);
+      ack();
+
+      expect(await closeCode).toBe(4001);
+      expect(messages.join('')).toContain('TAIL-42');
+    },
+    15000,
+  );
+
   test('session is removed and tab closed when shell exits', async () => {
     await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',

@@ -21,6 +21,9 @@ export interface FlowLimits {
   legacyBuffered: number;
 }
 
+/** How long {@link OutputPacer.end} waits for an acknowledgement before it closes anyway, in ms. */
+export const END_FLUSH_MS = 2000;
+
 export const DEFAULT_FLOW_LIMITS: FlowLimits = {
   highWater: 2 * 1024 * 1024,
   lowWater: 512 * 1024,
@@ -54,6 +57,8 @@ interface ClientFlow {
   pendingLength: number;
   /** Queued characters past which the client is closed: the limit plus what {@link OutputPacer.send} queued. */
   maxPending: number;
+  /** Set by {@link OutputPacer.end}: the client is closed with `code` once its queue is sent. */
+  ending: { code: number; reason: string; wait: () => void; done: () => void } | null;
 }
 
 /** Splits `data` into pieces of at most `size` characters without cutting a surrogate pair. */
@@ -98,14 +103,56 @@ export class OutputPacer {
       pending: [],
       pendingLength: 0,
       maxPending: this.limits.maxPending,
+      ending: null,
     });
     this.updatePause();
   }
 
   /** Stops pacing `ws` (closed) and drops its queue. */
   remove(ws: FlowSocket): void {
-    if (!this.flows.delete(ws)) return;
+    const flow = this.flows.get(ws);
+    if (!flow) return;
+    this.flows.delete(ws);
+    flow.ending?.done();
     this.updatePause();
+  }
+
+  /**
+   * Closes every client with `code` once the output queued for it has been sent, as
+   * its acknowledgements allow, so the tail of the output is not lost when the shell
+   * exits. A client that does not acknowledge for `ms` is closed anyway; the queue
+   * no longer grows, so a client that keeps acknowledging is closed within
+   * {@link FlowLimits.maxPending}.
+   *
+   * @returns A promise that resolves once every client is closed.
+   */
+  end(code: number, reason: string, ms = END_FLUSH_MS): Promise<void> {
+    const waits: Promise<void>[] = [];
+    for (const [ws, flow] of this.flows) {
+      if (flow.pending.length === 0) {
+        this.close(ws, code, reason);
+        continue;
+      }
+      waits.push(
+        new Promise((resolve) => {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          flow.ending = {
+            code,
+            reason,
+            wait: () => {
+              clearTimeout(timer);
+              timer = setTimeout(() => this.close(ws, code, reason), ms);
+            },
+            done: () => {
+              clearTimeout(timer);
+              resolve();
+            },
+          };
+          flow.ending.wait();
+        }),
+      );
+    }
+    return Promise.all(waits).then(() => {});
   }
 
   /**
@@ -145,6 +192,11 @@ export class OutputPacer {
       flow.blocked = false;
       this.flush(ws, flow);
     }
+    if (flow.ending && flow.pending.length === 0) {
+      this.close(ws, flow.ending.code, flow.ending.reason);
+      return;
+    }
+    flow.ending?.wait();
     this.updatePause();
   }
 
@@ -191,6 +243,14 @@ export class OutputPacer {
   private fellBehind(ws: FlowSocket): void {
     this.flows.delete(ws);
     ws.close(FELL_BEHIND, 'fell behind');
+  }
+
+  private close(ws: FlowSocket, code: number, reason: string): void {
+    const flow = this.flows.get(ws);
+    this.flows.delete(ws);
+    if (ws.readyState === ws.OPEN) ws.close(code, reason);
+    flow?.ending?.done();
+    this.updatePause();
   }
 
   private updatePause(): void {

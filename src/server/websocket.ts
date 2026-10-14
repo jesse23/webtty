@@ -212,11 +212,6 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
 
       session.pty.onExit(() => {
         sessionRegistry.delete(session.id);
-        for (const client of session.clients) {
-          if (client.readyState === client.OPEN) {
-            client.close(WS_CLOSE.SESSION_GONE, 'shell exited');
-          }
-        }
         for (const sub of session.subscribers) {
           if (sub.readyState === sub.OPEN) {
             sub.close(WS_CLOSE.SESSION_GONE, 'shell exited');
@@ -224,7 +219,11 @@ export function createWebSocketServer(httpServer: http.Server): WebSocketServer 
         }
         session.subscribers.clear();
         session.pty = null;
-        if (sessionRegistry.size === 0) onLastSessionClosed?.();
+        // A client behind the output is sent what is queued for it before it is closed,
+        // so the last lines the shell wrote are not lost (ADR 048).
+        session.output.end(WS_CLOSE.SESSION_GONE, 'shell exited').then(() => {
+          if (sessionRegistry.size === 0) onLastSessionClosed?.();
+        });
       });
 
       const banner = sessionBanner();

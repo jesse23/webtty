@@ -256,6 +256,81 @@ describe('OutputPacer', () => {
     expect(splitChunks('', 4)).toEqual([]);
   });
 
+  test('end closes at once a client with nothing queued', async () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    const legacy = new FakeSocket();
+    pacer.add(ws, true);
+    pacer.add(legacy, false);
+    pacer.broadcast('x'.repeat(50));
+    await pacer.end(4001, 'shell exited');
+    expect(ws.closed).toEqual({ code: 4001, reason: 'shell exited' });
+    expect(legacy.closed?.code).toBe(4001);
+  });
+
+  test('end sends the queue as acks allow, then closes', async () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    pacer.broadcast('a'.repeat(100));
+    for (let i = 0; i < 25; i++) pacer.broadcast('b'.repeat(10));
+    pacer.broadcast('END');
+    let ended = false;
+    const done = pacer.end(4001, 'shell exited', 60_000).then(() => {
+      ended = true;
+    });
+    expect(ws.closed).toBeNull();
+    pacer.ack(ws, 100);
+    await Promise.resolve();
+    expect(ended).toBe(false);
+    expect(ws.closed).toBeNull();
+    // Still blocked after the first flush.
+    expect(ws.received.length).toBe(220);
+    while (!ws.closed) pacer.ack(ws, ws.received.length);
+    await done;
+    expect(ws.received).toBe(`${'a'.repeat(100)}${'b'.repeat(250)}END`);
+    expect(ws.closed?.code).toBe(4001);
+  });
+
+  test('end closes a client still behind after the timeout', async () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    pacer.broadcast('a'.repeat(100));
+    pacer.broadcast('lost');
+    await pacer.end(4001, 'shell exited', 10);
+    expect(ws.closed?.code).toBe(4001);
+    expect(ws.received).toBe('a'.repeat(100));
+  });
+
+  test('end waits for a client that keeps acknowledging', async () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    for (let i = 0; i < 50; i++) pacer.broadcast('c'.repeat(10));
+    const done = pacer.end(4001, 'shell exited', 30);
+    // Each ack comes within the timeout, though the flush takes longer than it.
+    while (!ws.closed) {
+      await Bun.sleep(15);
+      pacer.ack(ws, ws.received.length);
+    }
+    await done;
+    expect(ws.received.length).toBe(500);
+    expect(ws.messages.length).toBeGreaterThan(8);
+  });
+
+  test('end resolves when a client behind closes on its own', async () => {
+    const { pacer } = setup(null);
+    const ws = new FakeSocket();
+    pacer.add(ws, true);
+    pacer.broadcast('a'.repeat(100));
+    pacer.broadcast('b');
+    const done = pacer.end(4001, 'shell exited', 60_000);
+    pacer.remove(ws);
+    await done;
+    expect(ws.closed).toBeNull();
+  });
+
   test('skips a client that is no longer open', () => {
     const { pacer } = setup();
     const ws = new FakeSocket();

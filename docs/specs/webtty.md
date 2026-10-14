@@ -58,7 +58,7 @@ PTY output is paced per client by acknowledgements (ADR 048). A client that conn
 | Client closed with `4003` (fell behind; it reconnects and gets the replay) | queue over 16 Mi characters |
 | Legacy client (no `?flow=1`) | sent straight through; closed with `4003` once `bufferedAmount` passes 8 MB |
 
-Scrollback replay and the banner count against the same window, sent in pieces of up to 64 Ki characters; what the replay queues is allowed on top of the 16 Mi limit. Frames are text frames.
+Scrollback replay and the banner count against the same window, sent in pieces of up to 64 Ki characters; what the replay queues is allowed on top of the 16 Mi limit. When the shell exits, each client is sent what is still queued for it, as its acknowledgements allow, before it is closed with `4001`; one that sends no acknowledgement for 2 s is closed at once. Frames are text frames.
 
 Session IDs appear directly in the URL path (`/s/:id`), so they must be valid URL path segments:
 
