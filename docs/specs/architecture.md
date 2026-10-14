@@ -162,7 +162,8 @@ src/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md
       tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/)
         support/                wasm.ts (the one WASM path, a cached loadGhostty(), countedGhostty()), fake-canvas.ts, fake-event-target.ts,
-                                engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours)
+                                engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours),
+                                selection-fixture.ts (a SelectionManager on a recording canvas and document)
         fixtures/               PTY captures (was vendor/fixtures/)
       ghostty-web/              Biome-excluded; see "The vendored layer"
 scripts/
@@ -192,7 +193,8 @@ ghostty-web/
   selection-manager.ts  facade: SelectionManager state + API (SelectionHost)                (≤ 300)
   interfaces.ts  buffer.ts (IBufferSource)  event-emitter.ts  types.ts (re-export shim until removed)
   search.ts  glide.ts  wheel.ts  mouse-route.ts       webtty-original, kept in place
-  link-detector.ts  link-types.ts  providers/  addons/fit.ts  fn-table.ts
+  link-detector.ts  link-types.ts  addons/fit.ts  fn-table.ts
+  providers/            osc8-link-provider.ts  url-regex-provider.ts  open-link.ts (openLinkOnModifier, the one activation rule)
   lifecycle/            disposable-store.ts (DisposableStore, listen, toDisposable) – webtty-original
   engine/               every wasm call; no DOM
     engine-types.ts  cell-types.ts  wasm-exports.ts  vt-layout.ts  official-layout.ts  key-tables.ts  scratch.ts
