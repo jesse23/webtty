@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createDomWindow, type DomWindow } from '../test-support/dom-window';
 import { Ghostty, Terminal } from '../vendor/ghostty-web';
-import { browserEnv } from './browser-env';
+import { browserEnv, frameWindow } from './browser-env';
 
 const WASM = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -80,5 +80,26 @@ describe('browserEnv', () => {
     expect(term).toBeInstanceOf(Terminal);
     expect([term.cols, term.rows]).toEqual([40, 10]);
     term.dispose();
+  });
+
+  test("frameWindow reads the window's pixel ratio live and frames through env", () => {
+    const { window } = dom;
+    const env = browserEnv(window);
+    const frames: string[] = [];
+    env.requestAnimationFrame = () => {
+      frames.push('request');
+      return 3;
+    };
+    env.cancelAnimationFrame = (id) => {
+      frames.push(`cancel ${id}`);
+    };
+    const view = frameWindow(env);
+    Object.defineProperty(window, 'devicePixelRatio', { value: 2, configurable: true });
+    expect(view.devicePixelRatio).toBe(2);
+    Object.defineProperty(window, 'devicePixelRatio', { value: 1.5, configurable: true });
+    expect(view.devicePixelRatio).toBe(1.5);
+    expect(view.requestAnimationFrame(() => {})).toBe(3);
+    view.cancelAnimationFrame(3);
+    expect(frames).toEqual(['request', 'cancel 3']);
   });
 });

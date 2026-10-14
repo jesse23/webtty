@@ -3,12 +3,13 @@ export const ACK_EVERY = 64 * 1024;
 /** How long after the last output a smaller count is acknowledged, in ms. */
 export const ACK_IDLE_MS = 100;
 
-interface Timers {
+/** The idle timer's clock, the page's timers by default; the client root passes its env's. */
+export interface AckTimers {
   set(fn: () => void, ms: number): unknown;
   clear(handle: unknown): void;
 }
 
-const windowTimers: Timers = {
+const windowTimers: AckTimers = {
   set: (fn, ms) => setTimeout(fn, ms),
   clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
@@ -27,7 +28,7 @@ export class OutputAck {
 
   constructor(
     private send: (message: string) => void,
-    private timers: Timers = windowTimers,
+    private timers: AckTimers = windowTimers,
   ) {}
 
   /** Records that `chars` more characters of output have been parsed. */

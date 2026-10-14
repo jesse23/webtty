@@ -58,3 +58,20 @@ export function browserEnv(win: Window & typeof globalThis = window): ClientEnv 
     createTerminal: (options) => new Terminal(options),
   };
 }
+
+/** The window as the views that paint on animation frames use it (edge strips, composer, kitty overlay). */
+export type FrameWindow = Pick<
+  Window,
+  'devicePixelRatio' | 'requestAnimationFrame' | 'cancelAnimationFrame'
+>;
+
+/** `env`'s frames and its window's pixel ratio, read live, as one FrameWindow. */
+export function frameWindow(env: ClientEnv): FrameWindow {
+  return {
+    get devicePixelRatio() {
+      return env.window.devicePixelRatio;
+    },
+    requestAnimationFrame: (callback) => env.requestAnimationFrame(callback),
+    cancelAnimationFrame: (id) => env.cancelAnimationFrame(id),
+  };
+}

@@ -14,6 +14,8 @@ const V = 'src/client/vendor/ghostty-web/';
 describe('limitFor', () => {
   const cases: [string, number][] = [
     ['src/client/output-ack.ts', SOURCE_LIMIT],
+    ['src/client/index.ts', 20],
+    ['src/client/app/start-client.ts', SOURCE_LIMIT],
     ['src/server/app.ts', SOURCE_LIMIT],
     ['scripts/build.ts', SOURCE_LIMIT],
     ['src/client/test-support/fake-socket.ts', SOURCE_LIMIT],

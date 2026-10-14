@@ -16,8 +16,12 @@ export const VENDOR_LIMIT = 600;
 /** Test files (aim 600). */
 export const TEST_LIMIT = 800;
 
-/** The vendored facades and the two engine files with limits of their own (ADR 061). */
+/**
+ * Files with limits of their own: the browser entry, which only starts the composition
+ * root (ADR 060), and the vendored facades and two engine files (ADR 061).
+ */
 export const OWN_LIMITS: Record<string, number> = {
+  'src/client/index.ts': 20,
   [`${VENDOR_ROOT}ghostty.ts`]: 300,
   [`${VENDOR_ROOT}terminal.ts`]: 600,
   [`${VENDOR_ROOT}renderer.ts`]: 500,
@@ -42,7 +46,10 @@ export function limitFor(file: string): SizeLimit {
   if (file in EXEMPT) return { max: Number.POSITIVE_INFINITY, reason: EXEMPT[file] };
   if (isTestFile(file)) return { max: TEST_LIMIT, reason: 'test file' };
   if (file in OWN_LIMITS)
-    return { max: OWN_LIMITS[file], reason: 'facade or engine file, limit in the SPEC tree' };
+    return {
+      max: OWN_LIMITS[file],
+      reason: 'entry, facade or engine file, limit in the SPEC tree',
+    };
   if (file.startsWith(VENDOR_ROOT)) return { max: VENDOR_LIMIT, reason: 'vendored source' };
   return { max: SOURCE_LIMIT, reason: 'source' };
 }
