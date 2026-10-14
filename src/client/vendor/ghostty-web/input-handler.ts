@@ -228,7 +228,6 @@ export class InputHandler {
   private mouseConfig?: MouseTrackingConfig;
   private keydownListener: ((e: KeyboardEvent) => void) | null = null;
   private keypressListener: ((e: KeyboardEvent) => void) | null = null;
-  private pasteListener: ((e: ClipboardEvent) => void) | null = null;
   private beforeInputListener: ((e: InputEvent) => void) | null = null;
   private compositionStartListener: ((e: CompositionEvent) => void) | null = null;
   private compositionUpdateListener: ((e: CompositionEvent) => void) | null = null;
@@ -242,9 +241,6 @@ export class InputHandler {
   private lastMouseCell: { col: number; row: number } | null = null; // Cell of the last mouse report
   private lastKeyDownData: string | null = null;
   private lastKeyDownTime = 0;
-  private lastPasteData: string | null = null;
-  private lastPasteTime = 0;
-  private lastPasteSource: 'paste' | 'beforeinput' | null = null;
   private lastCompositionData: string | null = null;
   private lastCompositionTime = 0;
   private lastBeforeInputData: string | null = null;
@@ -320,11 +316,9 @@ export class InputHandler {
     this.keydownListener = this.handleKeyDown.bind(this);
     this.container.addEventListener('keydown', this.keydownListener);
 
-    this.pasteListener = this.handlePaste.bind(this);
-    this.container.addEventListener('paste', this.pasteListener);
-    if (this.inputElement && this.inputElement !== this.container) {
-      this.inputElement.addEventListener('paste', this.pasteListener);
-    }
+    // Paste is not handled here: webtty's capture listener on the container takes every
+    // paste event first and sends it (ADR 037), and a cancelled paste fires no
+    // insertFromPaste beforeinput. (webtty)
 
     if (this.inputElement) {
       this.beforeInputListener = this.handleBeforeInput.bind(this);
@@ -523,39 +517,6 @@ export class InputHandler {
   }
 
   /**
-   * Handle paste event from clipboard
-   * @param event - ClipboardEvent
-   */
-  private handlePaste(event: ClipboardEvent): void {
-    if (this.isDisposed) return;
-
-    // Prevent default paste behavior
-    event.preventDefault();
-    event.stopPropagation();
-
-    // Get clipboard data
-    const clipboardData = event.clipboardData;
-    if (!clipboardData) {
-      console.warn('No clipboard data available');
-      return;
-    }
-
-    // Get text from clipboard
-    const text = clipboardData.getData('text/plain');
-    if (!text) {
-      console.warn('No text in clipboard');
-      return;
-    }
-
-    if (this.shouldIgnorePasteEvent(text, 'paste')) {
-      return;
-    }
-
-    this.emitPasteData(text);
-    this.recordPasteData(text, 'paste');
-  }
-
-  /**
    * Handle beforeinput event (mobile/IME input)
    * @param event - InputEvent
    */
@@ -585,20 +546,6 @@ export class InputHandler {
       case 'deleteContentForward':
         output = '\x1B[3~';
         break;
-      case 'insertFromPaste':
-        if (!data) {
-          return;
-        }
-        if (this.shouldIgnorePasteEvent(data, 'beforeinput')) {
-          event.preventDefault();
-          event.stopPropagation();
-          return;
-        }
-        event.preventDefault();
-        event.stopPropagation();
-        this.emitPasteData(data);
-        this.recordPasteData(data, 'beforeinput');
-        return;
       default:
         return;
     }
@@ -854,33 +801,11 @@ export class InputHandler {
   }
 
   /**
-   * Emit paste data with bracketed paste support
-   */
-  private emitPasteData(text: string): void {
-    const hasBracketedPaste = this.getModeCallback?.(2004) ?? false;
-
-    if (hasBracketedPaste) {
-      this.onDataCallback('\x1b[200~' + text + '\x1b[201~');
-    } else {
-      this.onDataCallback(text);
-    }
-  }
-
-  /**
    * Record keydown data for beforeinput de-duplication
    */
   private recordKeyDownData(data: string): void {
     this.lastKeyDownData = data;
     this.lastKeyDownTime = this.getNow();
-  }
-
-  /**
-   * Record paste data for beforeinput de-duplication
-   */
-  private recordPasteData(data: string, source: 'paste' | 'beforeinput'): void {
-    this.lastPasteData = data;
-    this.lastPasteTime = this.getNow();
-    this.lastPasteSource = source;
   }
 
   /**
@@ -949,26 +874,6 @@ export class InputHandler {
   }
 
   /**
-   * Check if paste should be ignored due to a recent paste event from another source
-   */
-  private shouldIgnorePasteEvent(data: string, source: 'paste' | 'beforeinput'): boolean {
-    if (!this.lastPasteData) {
-      return false;
-    }
-    if (this.lastPasteSource === source) {
-      return false;
-    }
-    const now = this.getNow();
-    const isDuplicate =
-      now - this.lastPasteTime < InputHandler.BEFORE_INPUT_IGNORE_MS && this.lastPasteData === data;
-    if (isDuplicate) {
-      this.lastPasteData = null;
-      this.lastPasteSource = null;
-    }
-    return isDuplicate;
-  }
-
-  /**
    * Get current time in milliseconds
    */
   private getNow(): number {
@@ -991,14 +896,6 @@ export class InputHandler {
     if (this.keypressListener) {
       this.container.removeEventListener('keypress', this.keypressListener);
       this.keypressListener = null;
-    }
-
-    if (this.pasteListener) {
-      this.container.removeEventListener('paste', this.pasteListener);
-      if (this.inputElement && this.inputElement !== this.container) {
-        this.inputElement.removeEventListener('paste', this.pasteListener);
-      }
-      this.pasteListener = null;
     }
 
     if (this.beforeInputListener && this.inputElement) {

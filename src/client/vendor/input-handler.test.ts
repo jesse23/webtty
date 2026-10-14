@@ -93,6 +93,48 @@ describe('InputHandler wheel', () => {
   });
 });
 
+describe('InputHandler paste', () => {
+  // webtty's capture listener on the container takes every paste and stops it (ADR 037),
+  // so the handler's own paste path never ran.
+  test('sends nothing for a paste or an insertFromPaste beforeinput', async () => {
+    const ghostty = await Ghostty.load(WASM);
+    const listeners = new Map<string, ((e: object) => void)[]>();
+    const element = {
+      addEventListener: (type: string, listener: (e: object) => void) =>
+        listeners.set(type, [...(listeners.get(type) ?? []), listener]),
+      removeEventListener: () => {},
+    } as unknown as HTMLElement;
+    const sent: string[] = [];
+    const handler = new InputHandler(
+      ghostty,
+      element,
+      (data) => sent.push(data),
+      () => {},
+      undefined,
+      undefined,
+      () => true,
+      undefined,
+      element,
+    );
+    const paste = {
+      clipboardData: { getData: () => 'a\nb' },
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    };
+    for (const listener of listeners.get('paste') ?? []) listener(paste);
+    const input = {
+      inputType: 'insertFromPaste',
+      data: 'a\nb',
+      isComposing: false,
+      preventDefault: () => {},
+      stopPropagation: () => {},
+    };
+    for (const listener of listeners.get('beforeinput') ?? []) listener(input);
+    expect(sent).toEqual([]);
+    handler.dispose();
+  });
+});
+
 describe('plainKeySequence', () => {
   test('sends CR and ESC for Shift+Enter and Shift+Escape, as xterm does', () => {
     expect(plainKeySequence(Key.ENTER, Mods.SHIFT)).toBe('\r');
