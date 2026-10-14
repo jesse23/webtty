@@ -288,12 +288,40 @@ describe('official engine: cursor and modes', () => {
     t.free();
   });
 
-  test('follows Ghostty: mode 12 blinks, the shape is per screen, DECSTR restores', () => {
-    const t = term();
-    t.write('\x1b[6 q\x1b[?12h');
+  test('mode 12 does not change the blink; DECSCUSR does, and Ps 0 restores the config', () => {
+    const t = term(40, 10, { ...THEME, cursorStyle: 'bar', cursorBlink: true });
+    // vim's t_vs / t_ve, as Ghostty with cursor-style-blink set (ADR 049)
+    t.write('\x1b[?12l\x1b[?25h');
     expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
-    t.write('\x1b[?12l');
+    expect(t.getMode(12)).toBe(true);
+    t.write('\x1b[?12h');
+    expect(t.getCursor().blinking).toBe(true);
+    // DECSCUSR steady, then mode 12 on in the same chunk and in the next
+    t.write('\x1b[2 q\x1b[?12h');
+    expect(t.getCursor()).toMatchObject({ style: 'block', blinking: false });
+    t.write('\x1b[?12;25h');
     expect(t.getCursor().blinking).toBe(false);
+    t.write('\x1b[1 q\x1b[?12l');
+    expect(t.getCursor()).toMatchObject({ style: 'block', blinking: true });
+    t.write('\x1b[4 q');
+    expect(t.getCursor()).toMatchObject({ style: 'underline', blinking: false });
+    t.write('\x1b[?12h\x1b[0 q\x1b[?12l');
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
+    // A DECSCUSR split across writes, after the blink default changed
+    t.setDefaultCursor('bar', false);
+    expect(t.getCursor().blinking).toBe(false);
+    t.write('\x1b[5 ');
+    t.write('q\x1b[?12l');
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: true });
+    t.write('\x1b');
+    t.write('c\x1b[?12h');
+    expect(t.getCursor()).toMatchObject({ style: 'bar', blinking: false });
+    t.free();
+  });
+
+  test('follows Ghostty: the shape is per screen, DECSTR restores', () => {
+    const t = term();
+    t.write('\x1b[6 q');
     t.write('\x1b[?1049h\x1b[2 q');
     expect(t.getCursor().style).toBe('block');
     t.write('\x1b[?1049l');

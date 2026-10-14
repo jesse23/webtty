@@ -453,6 +453,7 @@ function resolveOfficialLayout(layout: VtLayout) {
       SCROLLBACK_MAX_BYTES: opt('SCROLLBACK_MAX_BYTES'),
       SCROLLBACK_MAX_LINES: opt('SCROLLBACK_MAX_LINES'),
       MODE_DEFAULT: opt('MODE_DEFAULT'),
+      MODE: opt('MODE'),
       DEFAULT_CURSOR_STYLE: opt('DEFAULT_CURSOR_STYLE'),
       DEFAULT_CURSOR_BLINK: opt('DEFAULT_CURSOR_BLINK'),
     },
@@ -899,6 +900,40 @@ const MOUSE_REPORT_MAX = 64;
  * any-event tracking, and the UTF-8, SGR, urxvt and SGR-pixels formats.
  */
 const MOUSE_MODES = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
+/** DEC private mode 12, AT&T cursor blink (ATT610). */
+const MODE_CURSOR_BLINK = 12;
+/** Bytes as one char each, for scanning ASCII sequences in byte output. */
+const LATIN1 = new TextDecoder('latin1');
+
+// What sets the cursor blink while mode 12 is ignored: DECSCUSR (CSI Ps SP q), DECSTR
+// (CSI ! p) and RIS (ESC c). The last two restore the default, as Ps 0 does.
+const CURSOR_BLINK_SEQ = /\x1b(?:\[(\d*) q|\[!p|c)/g;
+const CURSOR_BLINK_PREFIX = /^\x1b(?:\[(?:\d{0,3} ?|!)?)?$/;
+
+/**
+ * Scans output for the sequences that set the cursor blink while DEC mode 12 is
+ * ignored, and returns the last one as a DECSCUSR Ps from 0 to 6 (DECSTR and RIS
+ * as 0; undefined if none), plus the unfinished sequence at the end of the chunk to
+ * pass back in as `carry` with the next one. Most chunks hold none of them and are
+ * not scanned. (webtty, ADR 049: Ghostty ignores mode 12 when `cursor-style-blink`
+ * is set, in its app's stream handler, which libghostty-vt does not include.)
+ */
+export function scanCursorBlink(
+  data: string,
+  carry: string = ''
+): { ps: number | undefined; carry: string } {
+  const text = carry + data;
+  let ps: number | undefined;
+  if (carry !== '' || text.includes(' q') || text.includes('!p') || text.includes('\x1bc')) {
+    for (const match of text.matchAll(CURSOR_BLINK_SEQ)) {
+      const value = match[1] === undefined || match[1] === '' ? 0 : Number(match[1]);
+      if (value <= 6) ps = value;
+    }
+  }
+  const esc = text.lastIndexOf('\x1b');
+  const tail = esc >= 0 && text.length - esc <= 6 ? text.slice(esc) : '';
+  return { ps, carry: CURSOR_BLINK_PREFIX.test(tail) ? tail : '' };
+}
 
 function blankCell(): GhosttyCell {
   return {
@@ -1029,6 +1064,12 @@ export class OfficialTerminal implements GhosttyTerminal {
   private cursorVisible = true;
   private cursorBlinking = false;
   private cursorStyle: RenderStateCursor['style'] = 'block';
+  // The blink DECSCUSR set, or the default while it has not set one; DEC mode 12 is
+  // ignored, so Ghostty's mode bit is put back to it after every write (ADR 049).
+  private blinkDefault = false;
+  private blinkIsDefault = true;
+  private blink = false;
+  private blinkCarry = '';
   private defFg = 0xffffff;
   private defBg = 0;
   private readonly palette = new Uint8Array(256 * 3);
@@ -1162,6 +1203,16 @@ export class OfficialTerminal implements GhosttyTerminal {
       this.u8().set(bytes, ptr);
       ex.ghostty_terminal_vt_write(this.term, ptr, bytes.length);
       ex.ghostty_wasm_free(ptr, bytes.length);
+      const scan = scanCursorBlink(
+        typeof data === 'string' ? data : LATIN1.decode(bytes),
+        this.blinkCarry
+      );
+      this.blinkCarry = scan.carry;
+      if (scan.ps !== undefined) {
+        this.blinkIsDefault = scan.ps === 0;
+        this.blink = scan.ps === 0 ? this.blinkDefault : scan.ps % 2 === 1;
+      }
+      this.syncBlink();
     }
     this.generation++;
     if (this.titleChanged) this.readTitle();
@@ -1214,6 +1265,9 @@ export class OfficialTerminal implements GhosttyTerminal {
     this.setOption(L.opt.DEFAULT_CURSOR_STYLE, at.u32, 'DEFAULT_CURSOR_STYLE');
     this.u8()[at.u8] = blink ? 1 : 0;
     this.setOption(L.opt.DEFAULT_CURSOR_BLINK, at.u8, 'DEFAULT_CURSOR_BLINK');
+    this.blinkDefault = blink;
+    if (this.blinkIsDefault) this.blink = blink;
+    this.syncBlink();
     // The cursor is read from the render state, which only a content change refreshes.
     this.generation++;
   }
@@ -1601,6 +1655,23 @@ export class OfficialTerminal implements GhosttyTerminal {
     u8[ptr + C.r] = (rgb >>> 16) & 0xff;
     u8[ptr + C.g] = (rgb >>> 8) & 0xff;
     u8[ptr + C.b] = rgb & 0xff;
+  }
+
+  /**
+   * Puts Ghostty's mode 12 bit, which its render state reports as the cursor blink,
+   * back to the blink DECSCUSR set. Ghostty with `cursor-style-blink` set ignores mode
+   * 12 (`setMode` in its `termio/stream_handler.zig`), and webtty's `cursorStyleBlink`
+   * is always set, so a program's `CSI ? 12 l` (vim's `t_ve`) no longer stops the
+   * blink for good. (webtty, ADR 049)
+   */
+  private syncBlink(): void {
+    if (this.getMode(MODE_CURSOR_BLINK) === this.blink) return;
+    const at = this.at;
+    const M = this.L.mode;
+    const dv = this.dv();
+    dv.setUint16(at.mode + M.mode, MODE_CURSOR_BLINK, true);
+    dv.setUint8(at.mode + M.value, this.blink ? 1 : 0);
+    this.setOption(this.L.opt.MODE, at.mode, 'MODE 12');
   }
 
   private setOption(option: number, value: number, what: string): void {
