@@ -3,8 +3,8 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config';
+import { findGhosttyWasm } from './http/static-files';
 import { handleRequest } from './routes';
-import { findGhosttyWasm } from './static';
 import { closeAllSessions, createWebSocketServer, setLastSessionClosedHandler } from './websocket';
 
 const __filename = fileURLToPath(import.meta.url);

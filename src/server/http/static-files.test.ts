@@ -1,9 +1,9 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import { findGhosttyWasm, mimeType, serveFile } from './static';
+import { findGhosttyWasm, mimeType, serveFile } from './static-files';
 
-const PROJECT_ROOT = path.resolve(import.meta.dir, '..', '..');
+const PROJECT_ROOT = path.resolve(import.meta.dir, '..', '..', '..');
 
 describe('mimeType', () => {
   test('returns correct type for known extensions', () => {

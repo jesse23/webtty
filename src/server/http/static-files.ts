@@ -1,3 +1,5 @@
+// Static files for the HTTP server: MIME types, the wasm lookup and serveFile (ADR 062).
+// A small service module; the caller passes the package root and file paths in.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';

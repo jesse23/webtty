@@ -5,6 +5,7 @@ import { homedir } from 'node:os';
 import path from 'node:path';
 import { loadConfig, toClientConfig } from '../config';
 import { getVersion } from '../version';
+import { GHOSTTY_WASM, serveFile } from './http/static-files';
 import {
   createSession,
   generateId,
@@ -14,7 +15,6 @@ import {
   sessionToJson,
   setLastUsedId,
 } from './session';
-import { GHOSTTY_WASM, serveFile } from './static';
 import { broadcastToSubscribers, closeSession } from './websocket';
 
 const MAX_BODY = 64 * 1024;
