@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { fitDimensions } from './ghostty-web/addons/fit';
+import { FitAddon, fitDimensions } from './ghostty-web/addons/fit';
+import type { ITerminalCore } from './ghostty-web/interfaces';
 
 const NONE = { top: 0, right: 0, bottom: 0, left: 0 };
 const pad = (p: number) => ({ top: p, right: p, bottom: p, left: p });
@@ -32,5 +33,28 @@ describe('fitDimensions', () => {
   test('never goes below the minimum grid', () => {
     expect(fitDimensions(5, 5, NONE, 10, 20)).toEqual({ cols: 2, rows: 1 });
     expect(fitDimensions(100, 100, pad(60), 10, 20)).toEqual({ cols: 2, rows: 1 });
+  });
+});
+
+// webtty sizes the grid from proposeDimensions alone (ADR 033).
+describe('FitAddon.proposeDimensions', () => {
+  test("fits the element's client size, less its padding, in renderer cells", () => {
+    const win = globalThis.window;
+    globalThis.window = {
+      getComputedStyle: () => ({ getPropertyValue: () => '10px' }),
+    } as unknown as Window & typeof globalThis;
+    try {
+      const addon = new FitAddon();
+      expect(addon.proposeDimensions()).toBeUndefined();
+      addon.activate({
+        element: { clientWidth: 820, clientHeight: 420 },
+        renderer: { getMetrics: () => ({ width: 10, height: 20 }) },
+      } as unknown as ITerminalCore);
+      expect(addon.proposeDimensions()).toEqual({ cols: 80, rows: 20 });
+      addon.dispose();
+      expect(addon.proposeDimensions()).toBeUndefined();
+    } finally {
+      globalThis.window = win;
+    }
   });
 });

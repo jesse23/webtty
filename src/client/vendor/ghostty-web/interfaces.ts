@@ -69,10 +69,7 @@ export interface ITerminalAddon {
 }
 
 export interface ITerminalCore {
-  cols: number;
-  rows: number;
   element?: HTMLElement;
-  textarea?: HTMLTextAreaElement;
 }
 
 // ============================================================================

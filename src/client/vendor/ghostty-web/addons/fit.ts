@@ -1,16 +1,16 @@
 /**
- * FitAddon - Auto-resize terminal to fit container
- *
- * Provides automatic terminal resizing to fit its container element.
- * Compatible with xterm.js FitAddon API.
+ * FitAddon - Proposes the grid that fits the terminal's container
  *
  * Usage:
  * ```typescript
  * const fitAddon = new FitAddon();
  * term.loadAddon(fitAddon);
- * fitAddon.fit();              // Manual fit
- * fitAddon.observeResize();    // Auto-fit on resize
+ * const dims = fitAddon.proposeDimensions();
+ * if (dims) term.resize(dims.cols, dims.rows);
  * ```
+ *
+ * (webtty: upstream's fit() and observeResize() are removed; webtty resizes the
+ * terminal itself from proposeDimensions, ADR 033.)
  */
 
 import type { ITerminalAddon, ITerminalCore } from '../interfaces';
@@ -21,7 +21,6 @@ import type { ITerminalAddon, ITerminalCore } from '../interfaces';
 
 const MINIMUM_COLS = 2;
 const MINIMUM_ROWS = 1;
-const RESIZE_DEBOUNCE_MS = 100; // Debounce time for ResizeObserver
 
 // ============================================================================
 // Types
@@ -65,11 +64,6 @@ export function fitDimensions(
 
 export class FitAddon implements ITerminalAddon {
   private _terminal?: ITerminalCore;
-  private _resizeObserver?: ResizeObserver;
-  private _resizeDebounceTimer?: ReturnType<typeof setTimeout>;
-  private _lastCols?: number;
-  private _lastRows?: number;
-  private _isResizing: boolean = false;
 
   /**
    * Activate the addon (called by Terminal.loadAddon)
@@ -82,74 +76,7 @@ export class FitAddon implements ITerminalAddon {
    * Dispose the addon and clean up resources
    */
   public dispose(): void {
-    // Disconnect ResizeObserver
-    if (this._resizeObserver) {
-      this._resizeObserver.disconnect();
-      this._resizeObserver = undefined;
-    }
-
-    // Clear pending debounce timer
-    if (this._resizeDebounceTimer) {
-      clearTimeout(this._resizeDebounceTimer);
-      this._resizeDebounceTimer = undefined;
-    }
-
-    // Clear stored dimensions
-    this._lastCols = undefined;
-    this._lastRows = undefined;
-
     this._terminal = undefined;
-  }
-
-  /**
-   * Fit the terminal to its container
-   *
-   * Calculates optimal dimensions and resizes the terminal.
-   * Does nothing if dimensions cannot be calculated or haven't changed.
-   */
-  public fit(): void {
-    // Prevent re-entrant calls during resize
-    if (this._isResizing) {
-      return;
-    }
-
-    const dims = this.proposeDimensions();
-    if (!dims || !this._terminal) {
-      return;
-    }
-
-    // Access terminal to check current dimensions
-    const terminal = this._terminal as any;
-    const currentCols = terminal.cols;
-    const currentRows = terminal.rows;
-
-    // Check if dimensions actually changed (prevent feedback loops)
-    // Compare against BOTH proposed dimensions AND current terminal dimensions
-    if (
-      (dims.cols === this._lastCols && dims.rows === this._lastRows) ||
-      (dims.cols === currentCols && dims.rows === currentRows)
-    ) {
-      return;
-    }
-
-    // Store dimensions before resize
-    this._lastCols = dims.cols;
-    this._lastRows = dims.rows;
-
-    // Set flag to prevent re-entrant calls
-    this._isResizing = true;
-
-    try {
-      // Resize terminal
-      if (terminal.resize && typeof terminal.resize === 'function') {
-        terminal.resize(dims.cols, dims.rows);
-      }
-    } finally {
-      // Clear flag after a short delay to allow DOM to settle
-      setTimeout(() => {
-        this._isResizing = false;
-      }, 50);
-    }
   }
 
   /**
@@ -217,50 +144,5 @@ export class FitAddon implements ITerminalAddon {
       metrics.width,
       metrics.height
     );
-  }
-
-  /**
-   * Observe the terminal's container for resize events
-   *
-   * Sets up a ResizeObserver to automatically call fit() when the
-   * container size changes. Resize events are debounced to avoid
-   * excessive calls during window drag operations.
-   *
-   * Call dispose() to stop observing.
-   */
-  public observeResize(): void {
-    if (!this._terminal?.element) {
-      return;
-    }
-
-    // Already observing
-    if (this._resizeObserver) {
-      return;
-    }
-
-    // Create ResizeObserver that watches for external size changes
-    this._resizeObserver = new ResizeObserver((entries) => {
-      // Ignore resize events while we're actively resizing
-      if (this._isResizing) {
-        return;
-      }
-
-      // Only trigger if the observed element's content rect changed
-      const entry = entries[0];
-      if (!entry) return;
-
-      // Debounce resize events
-      if (this._resizeDebounceTimer) {
-        clearTimeout(this._resizeDebounceTimer);
-      }
-
-      this._resizeDebounceTimer = setTimeout(() => {
-        this.fit();
-      }, RESIZE_DEBOUNCE_MS);
-    });
-
-    // Observe the terminal element itself (the container we want to fit into)
-    // This gives us stable resize events when the CONTAINER changes, not when our canvas changes
-    this._resizeObserver.observe(this._terminal.element);
   }
 }

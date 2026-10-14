@@ -362,9 +362,6 @@ export interface ILink {
 
   /** Optional: called when mouse enters/leaves the link */
   hover?(isHovered: boolean): void;
-
-  /** Optional: called to clean up resources */
-  dispose?(): void;
 }
 
 /**

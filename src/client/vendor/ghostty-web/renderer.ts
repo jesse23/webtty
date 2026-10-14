@@ -237,7 +237,6 @@ export class CanvasRenderer {
   private _devicePixelRatio: number;
   private stopWatchingDevicePixelRatio?: () => void;
   private metrics: FontMetrics;
-  private palette: string[];
 
   // Cursor blinking state
   private cursorVisible: boolean = true;
@@ -351,26 +350,6 @@ export class CanvasRenderer {
         this.canvasStale = true;
       });
     }
-
-    // Build color palette (16 ANSI colors)
-    this.palette = [
-      this.theme.black,
-      this.theme.red,
-      this.theme.green,
-      this.theme.yellow,
-      this.theme.blue,
-      this.theme.magenta,
-      this.theme.cyan,
-      this.theme.white,
-      this.theme.brightBlack,
-      this.theme.brightRed,
-      this.theme.brightGreen,
-      this.theme.brightYellow,
-      this.theme.brightBlue,
-      this.theme.brightMagenta,
-      this.theme.brightCyan,
-      this.theme.brightWhite,
-    ];
 
     // Measure font metrics
     this.metrics = this.measureFont();
@@ -1201,34 +1180,6 @@ export class CanvasRenderer {
   // ==========================================================================
   // Public API
   // ==========================================================================
-
-  /**
-   * Update theme colors
-   */
-  public setTheme(theme: ITheme): void {
-    this.theme = { ...DEFAULT_THEME, ...theme };
-    this.canvasStale = true;
-
-    // Rebuild palette
-    this.palette = [
-      this.theme.black,
-      this.theme.red,
-      this.theme.green,
-      this.theme.yellow,
-      this.theme.blue,
-      this.theme.magenta,
-      this.theme.cyan,
-      this.theme.white,
-      this.theme.brightBlack,
-      this.theme.brightRed,
-      this.theme.brightGreen,
-      this.theme.brightYellow,
-      this.theme.brightBlue,
-      this.theme.brightMagenta,
-      this.theme.brightCyan,
-      this.theme.brightWhite,
-    ];
-  }
 
   /**
    * Update font size
