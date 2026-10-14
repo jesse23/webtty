@@ -45,7 +45,7 @@ src/client:
 | `src/client/vendor/ghostty-web/**` imports nothing outside itself. | same |
 | App code (`src/client/**` outside `vendor/`) imports vendor code only through `vendor/ghostty-web` (the barrel), never a deep path. Tests may deep-import. | same |
 | `src/client/features/<a>/**` never imports `src/client/features/<b>/**`. Features reach each other only through handles the composition root passes in. | same |
-| Inside the vendored tree, the parts of a split facade (`engine/`, `core/`, `render/`, `input/`, `selection/`) import narrow interfaces (`engine/engine-types.ts`, `core/host-types.ts`, `render/renderable.ts`), never the facade class as a value, so no runtime import cycle can form. | review + `tsc` |
+| Inside the vendored tree, the parts of a split facade (`engine/`, `core/`, `render/`, `input/`, `selection/`) import narrow interfaces (`engine/engine-types.ts`, `core/host-types.ts`, `render/renderable.ts`), never the facade class as a value, so no runtime import cycle can form. | same (a value import of a facade, and any runtime cycle), plus review |
 | A file under a `test-support/` folder is never named `*.test.ts`, and no file imports a `*.test.ts` file. | same |
 | Test files (`*.test.ts`) may cross the client/server line (contract tests); the import rules above apply to source files only. | same |
 | The checker counts `.ts` files only, excluding `*.d.ts`; fixtures, the wasm, JSON, Markdown, HTML and CSS are not source. | same |
@@ -160,7 +160,10 @@ src/
       ghostty-web/              Biome-excluded; see "The vendored layer"
 scripts/
   build.ts                      unchanged outputs
-  check-architecture.ts         size, naming and import rules with the ratchet allowlist + check-architecture.test.ts
+  check-architecture.ts         entry: walks src/ and scripts/, runs the rules below, applies the allowlist (+ test)
+  architecture/                 the checker's parts, each with its test: source-file.ts (paths, layers), size-limits.ts,
+                                import-scan.ts, import-rules.ts (one table entry per rule), import-cycles.ts,
+                                naming-rules.ts, ratchet.ts, ratchet-allowlist.ts (the data, with each entry's step)
   check-coverage.ts             per-layer coverage targets over bun's lcov report (run by test:coverage)
   check-pkg-manager.ts  clean-pkg-scripts.ts   package-manager guard and publish-time script cleanup (headers; pure parts tested)
   update-ghostty-vt.ts          CLI only (--commit, --verify)
@@ -276,7 +279,7 @@ Counted in lines of `.ts` source (not `*.d.ts`), comments and blank lines includ
 | Test files | ≤ 600 | 800 |
 | Functions | ≤ 60 lines | not checked; hot paths (`decodeRow`, `render`) say why when longer |
 
-While the refactor runs, the checker carries a **ratchet allowlist**: each file over its limit today, with its current line count. A listed file may shrink or disappear, never grow; each step removes the entries it fixes, and the list is empty at the end. While both branches run, a missing (deleted or renamed) entry is tolerated so the server branch never edits the checker; once they merge the list is emptied and a stale entry fails.
+While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/architecture/ratchet-allowlist.ts`): each file over its limit today, with its current line count, and each import or naming rule broken today, keyed `<rule> <file> -> <target>` or `<rule> <file>`, each with the step that removes it. A listed file may shrink or disappear, never grow; each step removes the entries it fixes, and the list is empty at the end. While both branches run, a missing (deleted or renamed) entry is tolerated so the server branch never edits the checker; once they merge the list is emptied and a stale entry fails.
 
 ## Naming
 
@@ -313,7 +316,7 @@ While the refactor runs, the checker carries a **ratchet allowlist**: each file 
 | Feature | Description | ADR | Done? |
 |---|---|---|---|
 | Architecture SPEC and conventions | Layers, folders, module kinds, naming, size limits, comments | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
-| Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet, import rules | [ADR 059](../adrs/059.architecture.code-organisation.md) | ⬜ |
+| Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet, import rules | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
 | Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ⬜ |
 | Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` | [ADR 060](../adrs/060.client.feature-modules.md) | ⬜ |
 | Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
