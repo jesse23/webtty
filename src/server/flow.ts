@@ -17,7 +17,10 @@ export interface FlowLimits {
   chunk: number;
   /** Queued characters past which the client is closed with {@link FELL_BEHIND}. */
   maxPending: number;
-  /** `bufferedAmount` (bytes) past which a legacy client is closed with {@link FELL_BEHIND}. */
+  /**
+   * `bufferedAmount` (bytes) past which a legacy client is closed with {@link FELL_BEHIND}.
+   * Under Bun the close frame is stuck behind the native backlog and the client sees 1006.
+   */
   legacyBuffered: number;
 }
 

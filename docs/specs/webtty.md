@@ -56,7 +56,7 @@ PTY output is paced per client by acknowledgements (ADR 048). A client that conn
 | Client unblocked (queue sent, coalesced into ≤ 64 Ki-character messages) | 512 Ki characters unacknowledged |
 | PTY paused | while every client is blocked, if the PTY can pause (node-pty; `Bun.Terminal` cannot) |
 | Client closed with `4003` (fell behind; it reconnects and gets the replay) | queue over 16 Mi characters |
-| Legacy client (no `?flow=1`) | sent straight through; closed with `4003` once `bufferedAmount` passes 8 MB |
+| Legacy client (no `?flow=1`) | sent straight through; closed with `4003` once `bufferedAmount` passes 8 MB (under Bun the close frame is stuck behind the shim's 16 MB backlog and the tab sees `1006`; either way it reconnects to the replay) |
 
 Scrollback replay and the banner count against the same window, sent in pieces of up to 64 Ki characters; what the replay queues is allowed on top of the 16 Mi limit. When the shell exits, each client is sent what is still queued for it, as its acknowledgements allow, before it is closed with `4001`; one that sends no acknowledgement for 2 s is closed at once. Frames are text frames.
 
