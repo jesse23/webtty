@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { LinkDetector } from '../ghostty-web/link-detector';
-import type { ILink, ILinkProvider } from '../ghostty-web/link-types';
+import { LinkDetector } from '../../ghostty-web/link-detector';
+import type { ILink, ILinkProvider } from '../../ghostty-web/link-types';
 
 // LinkDetector on a fake buffer: the inclusive range hit test, provider precedence, the
 // row scan cache and dispose.

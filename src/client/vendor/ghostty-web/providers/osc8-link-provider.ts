@@ -1,30 +1,25 @@
-/**
- * OSC 8 Hyperlink Provider
- *
- * Detects hyperlinks created with OSC 8 escape sequences.
- * Supports multi-line links that wrap across lines.
- *
- * OSC 8 format: \x1b]8;;URL\x07TEXT\x1b]8;;\x07
- *
- * The Ghostty WASM automatically assigns hyperlink_id to cells,
- * so we just need to scan for contiguous regions with the same ID.
- */
+// Derived from coder/ghostty-web lib/providers/osc8-link-provider.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// OSC 8 hyperlinks (strategy: an ILinkProvider): runs of cells on a row that carry the
+// same hyperlink URI, written as \x1b]8;;URL\x07TEXT\x1b]8;;\x07, read from the screen
+// or the scrollback (ADR 061).
 
-import type { IBufferRange, ILink, ILinkProvider } from '../types';
+import type { IBufferRange, ILink, ILinkProvider } from '../link-types';
+import { type LinkOpener, openLinkOnModifier, windowOpen } from './open-link';
 
 /**
- * OSC 8 Hyperlink Provider
- *
- * Detects OSC 8 hyperlinks by scanning for hyperlink_id in cells.
- * Automatically handles multi-line links since Ghostty WASM preserves
- * hyperlink_id across wrapped lines.
+ * Detects OSC 8 hyperlinks by scanning a row for cells with a hyperlink and grouping
+ * neighbours with the same URI. Each link covers one row: a link wrapped onto the next
+ * row is found again, as its own link, when that row is scanned.
  */
 export class OSC8LinkProvider implements ILinkProvider {
-  constructor(private terminal: ITerminalForOSC8Provider) {}
+  /** `open` opens an activated link; the page's `window.open` by default. */
+  constructor(
+    private terminal: ITerminalForOSC8Provider,
+    private readonly open: LinkOpener = windowOpen
+  ) {}
 
   /**
    * Provide all OSC 8 links on the given row
-   * Note: This may return links that span multiple rows
    */
   provideLinks(y: number, callback: (links: ILink[] | undefined) => void): void {
     const links: ILink[] = [];
@@ -99,12 +94,8 @@ export class OSC8LinkProvider implements ILinkProvider {
         links.push({
           text: uri,
           range,
-          activate: (event) => {
-            // Open link if Ctrl/Cmd is pressed
-            if (event.ctrlKey || event.metaKey) {
-              window.open(uri, '_blank', 'noopener,noreferrer');
-            }
-          },
+          // Opens with Ctrl/Cmd held (ADR 061: one rule for both providers)
+          activate: (event) => openLinkOnModifier(uri, event, this.open),
         });
       }
     }

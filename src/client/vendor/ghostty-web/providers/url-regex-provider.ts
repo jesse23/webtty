@@ -1,14 +1,10 @@
-/**
- * URL Regex Link Provider
- *
- * Detects plain text URLs using regex pattern matching.
- * Supports common protocols but excludes file paths.
- *
- * This provider runs after OSC8LinkProvider, so explicit hyperlinks
- * take precedence over regex-detected URLs.
- */
+// Derived from coder/ghostty-web lib/providers/url-regex-provider.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// Plain-text URLs (strategy: an ILinkProvider): URLs with a known scheme found on one row
+// by a regex, trailing punctuation dropped. It runs after the OSC 8 provider, so explicit
+// hyperlinks win (ADR 061).
 
-import type { IBufferRange, ILink, ILinkProvider } from '../types';
+import type { IBufferRange, ILink, ILinkProvider } from '../link-types';
+import { type LinkOpener, openLinkOnModifier, windowOpen } from './open-link';
 
 /**
  * URL Regex Provider
@@ -38,7 +34,11 @@ export class UrlRegexProvider implements ILinkProvider {
    */
   private static readonly TRAILING_PUNCTUATION = /[.,;!?)\]]+$/;
 
-  constructor(private terminal: ITerminalForUrlProvider) {}
+  /** `open` opens an activated link; the page's `window.open` by default. */
+  constructor(
+    private terminal: ITerminalForUrlProvider,
+    private readonly open: LinkOpener = windowOpen
+  ) {}
 
   /**
    * Provide all regex-detected URLs on the given row
@@ -80,12 +80,8 @@ export class UrlRegexProvider implements ILinkProvider {
             start: { x: startX, y },
             end: { x: endX, y },
           },
-          activate: (event) => {
-            // Open link if Ctrl/Cmd is pressed
-            if (event.ctrlKey || event.metaKey) {
-              window.open(url, '_blank', 'noopener,noreferrer');
-            }
-          },
+          // Opens with Ctrl/Cmd held (ADR 061: one rule for both providers)
+          activate: (event) => openLinkOnModifier(url, event, this.open),
         });
       }
 
