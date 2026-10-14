@@ -1,3 +1,5 @@
+// Tests for the package version: the walk up to package.json on a temporary tree, and the
+// bundled CLI and server entries reporting the version of the package they ship in (ADR 062).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,7 +10,7 @@ import {
   makeTmpHome,
   waitForServer,
 } from './test-support/server-harness';
-import { getVersion } from './version';
+import { findPackageVersion, getVersion } from './version';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 const FAKE_VERSION = '9.9.9';
@@ -18,6 +20,48 @@ describe('getVersion', () => {
   test('matches the version in package.json', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     expect(getVersion()).toBe(pkg.version);
+  });
+
+  test('a second call returns the cached version', () => {
+    expect(getVersion()).toBe(getVersion());
+  });
+});
+
+describe('findPackageVersion', () => {
+  let root: string;
+  let leaf: string;
+
+  beforeAll(() => {
+    root = makeTmpHome('version-walk');
+    leaf = path.join(root, 'pkg', 'nested', 'deeper');
+    fs.mkdirSync(leaf, { recursive: true });
+    // Walking up from `leaf`: a broken file, then another package, then webtty.
+    fs.writeFileSync(path.join(root, 'pkg', 'nested', 'deeper', 'package.json'), '{not json');
+    fs.writeFileSync(
+      path.join(root, 'pkg', 'nested', 'package.json'),
+      JSON.stringify({ name: 'other', version: '1.0.0' }),
+    );
+    fs.writeFileSync(
+      path.join(root, 'pkg', 'package.json'),
+      JSON.stringify({ name: 'webtty', version: '2.3.4' }),
+    );
+  });
+
+  afterAll(() => cleanupTmpHome(root));
+
+  test('skips unreadable and unrelated package.json files on the way up', () => {
+    expect(findPackageVersion(leaf)).toBe('2.3.4');
+  });
+
+  test('a webtty package.json without a version does not count', () => {
+    const bare = path.join(root, 'bare');
+    fs.mkdirSync(bare);
+    fs.writeFileSync(path.join(bare, 'package.json'), JSON.stringify({ name: 'webtty' }));
+    expect(findPackageVersion(bare)).toBe(findPackageVersion(root));
+  });
+
+  test("is 'unknown' when the walk reaches the root without a webtty package", () => {
+    expect(findPackageVersion(root)).toBe('unknown');
   });
 });
 
