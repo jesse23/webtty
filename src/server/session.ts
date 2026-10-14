@@ -34,29 +34,6 @@ export function setLastUsedId(id: string | null): void {
   lastUsedId = id;
 }
 
-const ID_RE = /^[a-z0-9\-_.]{1,64}$/;
-
-/**
- * Returns `true` if `id` is a valid session identifier (lowercase alphanumeric + `-_.`, max 64 chars).
- *
- * @param id - The session ID to validate.
- * @returns `true` if the ID matches the valid format, `false` otherwise.
- */
-export function isValidId(id: string): boolean {
-  return ID_RE.test(id);
-}
-
-/**
- * Generates a random 8-character hex session ID.
- *
- * @returns A random session ID.
- */
-export function generateId(): string {
-  return Math.floor(Math.random() * 0xffffffff)
-    .toString(16)
-    .padStart(8, '0');
-}
-
 /**
  * Creates a new session, registers it in {@link sessionRegistry}, and returns it.
  *

@@ -8,13 +8,12 @@ import { getVersion } from '../version';
 import { GHOSTTY_WASM, serveFile } from './http/static-files';
 import {
   createSession,
-  generateId,
-  isValidId,
   lastUsedId,
   sessionRegistry,
   sessionToJson,
   setLastUsedId,
 } from './session';
+import { generateId, isValidId } from './sessions/session-id';
 import { broadcastToSubscribers, closeSession } from './websocket';
 
 const MAX_BODY = 64 * 1024;
