@@ -152,6 +152,7 @@ src/
         graphics/               image-store.ts, image-decoder.ts, placements.ts, kitty-limits.ts, overlay-canvas.ts (+ dispose), kitty-graphics.ts (facade)
         kitty-feature.ts
     test-support/               fake-terminal.ts, fake-socket.ts, manual-clock.ts, recording-target.ts, dom-window.ts
+    test-support.test.ts        the fakes' self-tests (a test-support/ folder holds no *.test.ts)
     vendor/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md
       tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/)
@@ -185,7 +186,7 @@ ghostty-web/
   interfaces.ts  buffer.ts (IBufferSource)  event-emitter.ts  types.ts (re-export shim until removed)
   search.ts  glide.ts  wheel.ts  mouse-route.ts       webtty-original, kept in place
   link-detector.ts  providers/  addons/fit.ts  fn-table.ts
-  lifecycle/            disposable-store.ts (DisposableStore, listen) – webtty-original
+  lifecycle/            disposable-store.ts (DisposableStore, listen, toDisposable) – webtty-original
   engine/               every wasm call; no DOM
     engine-types.ts  cell-types.ts  wasm-exports.ts  vt-layout.ts  official-layout.ts  key-tables.ts  scratch.ts
     wasm-loader.ts  engine-context.ts  official-terminal.ts  render-state.ts  scrollback-pages.ts
@@ -226,7 +227,7 @@ Other patterns used, each in one named place: **Command map** for shortcut dispa
 
 ### Disposables
 
-`listen(target, type, fn, options)` adds a listener and returns a `Disposable` that removes it with the same `capture` flag. `DisposableStore` collects disposables and disposes them once, in reverse order; disposing twice is a no-op. Every class that adds a listener, a timer, an interval or a `requestAnimationFrame` loop owns a store and releases it in `dispose()`.
+`listen(target, type, fn, options)` adds a listener and returns a `Disposable` that removes it with the same `capture` flag. `toDisposable(fn)` wraps a timer or frame cancel. `DisposableStore` collects disposables and disposes them once, in reverse order; disposing twice is a no-op, and a disposable added after `dispose()` is disposed at once. Every class that adds a listener, a timer, an interval or a `requestAnimationFrame` loop owns a store and releases it in `dispose()`.
 
 ### The client composition root
 

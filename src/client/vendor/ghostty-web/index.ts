@@ -1,8 +1,6 @@
-/**
- * Public API for @cmux/ghostty-terminal
- *
- * Main entry point following xterm.js conventions
- */
+// Derived from coder/ghostty-web lib/index.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// The vendored layer's public barrel: the only path webtty's app code imports vendor code
+// through (ADR 060, ADR 061). It follows xterm.js' naming.
 
 // Main Terminal class
 export { Terminal } from './terminal';
@@ -51,3 +49,7 @@ export { OSC8LinkProvider } from './providers/osc8-link-provider';
 export { UrlRegexProvider } from './providers/url-regex-provider';
 export { LinkDetector } from './link-detector';
 export type { ILink, ILinkProvider, IBufferCellPosition } from './types';
+
+// webtty's teardown (ADR 060, ADR 065)
+export { DisposableStore, listen, toDisposable } from './lifecycle/disposable-store';
+export type { Disposable, ListenerTarget } from './lifecycle/disposable-store';

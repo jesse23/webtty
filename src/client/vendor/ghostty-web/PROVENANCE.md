@@ -8,7 +8,7 @@ Vendored copy of [coder/ghostty-web](https://github.com/coder/ghostty-web), MIT 
 
 `bun run build` writes the notice to `dist/THIRD_PARTY_LICENSES`.
 
-webtty edits to these files are tracked in git from the commit that added them; diff against that commit to see them.
+webtty edits to these files are tracked in git from the commit that added them; diff against that commit to see them. Lines moved out of a file into a subfolder (ADR 061) are followed with `git log --follow` and the **Moves and splits** table below.
 
 ## Local changes
 
@@ -46,3 +46,22 @@ webtty edits to these files are tracked in git from the commit that added them; 
 - `ghostty.ts`, `types.ts`, `terminal.ts`, `interfaces.ts`, `index.ts`: desktop notifications (ADR 056). The binding installs Ghostty's `DESKTOP_NOTIFICATION` callback when the new `GhosttyTerminalConfig.desktopNotifications` is on (default true): it copies the request's `title` (`''` for OSC 9) and `body` out as UTF-8, reading only what the struct's `size` covers. `TerminalEffects` gains `notifications`, every request since `readEffects`, in order, and `DesktopNotification` is exported. `Terminal` gains the `desktopNotifications` option, passed to the engine, and `onDesktopNotification`, fired for each. Upstream ignored OSC 9 and OSC 777.
 - `ghostty.ts`, `terminal.ts`, `selection-manager.ts`: OSC 133 prompt jumps and output selection (ADR 057). The binding adds `promptJumpRow` (Ghostty's viewport put on webtty's top row with `ROW`, moved with `GHOSTTY_SCROLL_VIEWPORT_DELTA_PROMPT`, read back with `GHOSTTY_TERMINAL_DATA_SCROLLBAR` and put back at the bottom; `scrollViewport` writes its value as an `isize`) and `selectOutput` (`ghostty_terminal_select_output`). `Terminal` adds `jumpToPrompt`, Ghostty's `jump_to_prompt`, scrolling the view with `scrollToLine`. A triple click with Ctrl or Cmd held selects the command's output instead of the line, as in Ghostty. Upstream had neither.
 - `fn-table.ts`: not from ghostty-web. Copied unmodified (below its added header) from [gkoreli/ghostty-vt-js](https://github.com/gkoreli/ghostty-vt-js) at `248de81a188b71a1919d3c5c5bce2f99a836b5b1`, `packages/ghostty-vt-js/src/wasm/fn-table.ts`, MIT, Copyright (c) 2026 ghostty-vt-js contributors ([LICENSE.ghostty-vt-js](LICENSE.ghostty-vt-js)); `bun run build` adds the notice to `dist/THIRD_PARTY_LICENSES`.
+- `index.ts`: the barrel's header names its origin and its role as the only path webtty's app code imports (ADR 060, ADR 061), and it exports the webtty-original `DisposableStore`, `listen`, `toDisposable`, `Disposable` and `ListenerTarget` (`lifecycle/disposable-store.ts`).
+
+## webtty-original files
+
+Not from upstream; each starts with, or will start with when it is next touched, `// webtty (ADR NNN), not from upstream.`
+
+- `glide.ts`, `wheel.ts` (ADR 045), `mouse-route.ts` (ADR 051), `search.ts` (ADR 055).
+- `lifecycle/disposable-store.ts` (ADR 060, ADR 065): `DisposableStore`, `listen` and `toDisposable`, the one teardown primitive of the app and, from ADR 065, of this layer.
+
+## Layout
+
+- `lifecycle/`: teardown (`disposable-store.ts`). webtty-original.
+
+## Moves and splits
+
+Each commit that moves code out of an upstream-derived file appends its rows here (ADR 061). The moved lines keep their `(webtty, ADR NNN)` tags, and the new file starts with `// Derived from coder/ghostty-web lib/<original>.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).`
+
+| From (upstream file: symbols) | To | Commit subject |
+|---|---|---|
