@@ -107,6 +107,8 @@ export interface Config {
   copyOnSelect: boolean;
   /** What a right-click does when the app does not take it; see {@link RightClickBehavior}. */
   rightClickBehavior: RightClickBehavior;
+  /** Let programs write the clipboard with OSC 52 (write only: reads are never answered). `false` ignores the writes. */
+  clipboardWrite: boolean;
   /** Mouse wheel scroll speed multiplier for apps with mouse tracking. `1` = one SGR per tick. Values `< 1` reduce rate; values `> 1` send multiple SGRs per tick. Must be `> 0`. */
   mouseScrollSpeed: number;
   /** Padding in px around the terminal canvas, on all four sides. `0` = none. Coloured by `theme.padding`, or `theme.background` if that is unset. */
@@ -185,6 +187,7 @@ export const DEFAULT_CONFIG: Config = {
   cursorStyleBlink: true,
   copyOnSelect: true,
   rightClickBehavior: 'contextMenu' as RightClickBehavior,
+  clipboardWrite: true,
   mouseScrollSpeed: 1,
   padding: 0,
   logs: false,
@@ -301,6 +304,7 @@ export function loadConfig(): Config {
     ...(typeof p.rightClickBehavior === 'string' && {
       rightClickBehavior: parseRightClickBehavior(p.rightClickBehavior),
     }),
+    ...(typeof p.clipboardWrite === 'boolean' && { clipboardWrite: p.clipboardWrite }),
     ...(typeof p.mouseScrollSpeed === 'number' &&
       p.mouseScrollSpeed > 0 && { mouseScrollSpeed: p.mouseScrollSpeed }),
     ...(typeof p.padding === 'number' &&

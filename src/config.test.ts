@@ -240,6 +240,23 @@ describe('loadConfig — reads and merges', () => {
     expect(loadConfig().copyOnSelect).toBe(false);
   });
 
+  test('defaults clipboardWrite to true', () => {
+    writeConfig(JSON.stringify({}));
+    expect(loadConfig().clipboardWrite).toBe(true);
+  });
+
+  test('overrides clipboardWrite when set to false', () => {
+    writeConfig(JSON.stringify({ clipboardWrite: false }));
+    expect(loadConfig().clipboardWrite).toBe(false);
+  });
+
+  test('ignores a clipboardWrite that is not a boolean', () => {
+    for (const value of ['false', 0, null]) {
+      writeConfig(JSON.stringify({ clipboardWrite: value }));
+      expect(loadConfig().clipboardWrite).toBe(true);
+    }
+  });
+
   test('overrides rightClickBehavior when set to copyPaste', () => {
     writeConfig(JSON.stringify({ rightClickBehavior: 'copyPaste' }));
     expect(loadConfig().rightClickBehavior).toBe('copyPaste');

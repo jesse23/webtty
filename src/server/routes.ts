@@ -122,6 +122,7 @@ export async function handleRequest(
       theme: config.theme,
       copyOnSelect: config.copyOnSelect,
       rightClickBehavior: config.rightClickBehavior,
+      clipboardWrite: config.clipboardWrite,
       mouseScrollSpeed: config.mouseScrollSpeed,
       padding: config.padding,
       keyboardBindings: config.keyboardBindings,
