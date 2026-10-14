@@ -685,6 +685,8 @@ describe('Terminal focus reports', () => {
       element: unknown;
       handleFocusGained(): void;
       handleFocusLost(e: { relatedTarget: unknown }): void;
+      handleWindowBlur(): void;
+      handleVisibilityChange(): void;
       writeInternal(data: string): void;
     };
     internals.wasmTerm = wasmTerm;
@@ -699,6 +701,8 @@ describe('Terminal focus reports', () => {
       write: (data: string) => internals.writeInternal(data),
       focusIn: () => internals.handleFocusGained(),
       focusOut: (relatedTarget: unknown = null) => internals.handleFocusLost({ relatedTarget }),
+      windowBlur: () => internals.handleWindowBlur(),
+      visibility: () => internals.handleVisibilityChange(),
       inside,
     };
   }
@@ -743,6 +747,34 @@ describe('Terminal focus reports', () => {
     focusOut();
     focusOut();
     expect(sent).toEqual(['\x1b[I', '\x1b[O']);
+    wasmTerm.free();
+  });
+
+  test('a window blur, or a tab hidden and shown with no blur (Chrome), is a change', async () => {
+    const { wasmTerm, sent, write, focusIn, windowBlur, visibility, inside } = await focusTerm();
+    const doc = globalThis.document;
+    const page = { visibilityState: 'visible', hasFocus: () => true, activeElement: inside };
+    globalThis.document = page as unknown as Document;
+    try {
+      focusIn();
+      write('\x1b[?1004h');
+      windowBlur();
+      focusIn();
+      page.visibilityState = 'hidden';
+      visibility();
+      page.visibilityState = 'visible';
+      visibility();
+      expect(sent).toEqual(['\x1b[I', '\x1b[O', '\x1b[I', '\x1b[O', '\x1b[I']);
+      // Shown with focus elsewhere in the page, or in another window: still unfocused.
+      page.visibilityState = 'hidden';
+      visibility();
+      page.activeElement = {};
+      page.visibilityState = 'visible';
+      visibility();
+      expect(sent).toHaveLength(6);
+    } finally {
+      globalThis.document = doc;
+    }
     wasmTerm.free();
   });
 

@@ -239,8 +239,15 @@ for (const type of ['keydown', 'mousedown', 'paste', 'drop'] as const) {
   window.addEventListener(type, () => clipboardWriter.userInput(), { capture: true });
 }
 
+/** The terminal has focus: its tab is shown, its window focused, and focus is inside it (ADR 053). */
+const terminalFocused = (): boolean =>
+  document.visibilityState === 'visible' &&
+  document.hasFocus() &&
+  container.contains(document.activeElement);
+
 // The title and the bell mark (ADR 053). Ghostty clears the mark when the terminal
-// gains focus (a window focus reaches the container as a focusin too) or gets a key.
+// gains focus (a window focus reaches the container as a focusin too; Chrome switching
+// back to the tab only shows it) or gets a key.
 term.onTitleChange((title) => tabTitle.title(title));
 term.onBell(() => tabTitle.bell());
 container.addEventListener('focusin', () => tabTitle.attended());
@@ -251,7 +258,7 @@ window.addEventListener('keydown', () => tabTitle.attended(), { capture: true })
 // next key or click after the first one that activates the page (not Esc), a gesture
 // browsers accept (ADR 056).
 const notifier = new DesktopNotifier(browserNotifications(), sessionId, replay, {
-  focused: () => document.hasFocus() && container.contains(document.activeElement),
+  focused: terminalFocused,
   name: () => tabTitle.name,
   mark: () => tabTitle.bell(),
   focus: () => {
@@ -268,6 +275,11 @@ for (const type of ['keydown', 'mousedown'] as const) {
   );
 }
 container.addEventListener('focusin', () => notifier.attended());
+document.addEventListener('visibilitychange', () => {
+  if (!terminalFocused()) return;
+  tabTitle.attended();
+  notifier.attended();
+});
 window.addEventListener('keydown', () => notifier.attended(), { capture: true });
 
 function connect(): void {

@@ -540,10 +540,13 @@ export class Terminal implements ITerminalCore {
       // focus() on a background window moves activeElement without a focusin; catch
       // the container still holding focus when the window comes back. (webtty)
       window.addEventListener('focus', this.handleWindowFocus);
-      // Terminal focus for mode 1004: a window blur or focus reaches the focused element
-      // as focusout / focusin too. (webtty, ADR 053)
+      // Terminal focus for mode 1004: a window blur or focus usually reaches the focused
+      // element as focusout / focusin too, but Chrome switching tabs only changes the
+      // page's visibility, so blur and visibility are watched as well. (webtty, ADR 053)
       parent.addEventListener('focusin', this.handleFocusGained);
       parent.addEventListener('focusout', this.handleFocusLost);
+      window.addEventListener('blur', this.handleWindowBlur);
+      document.addEventListener('visibilitychange', this.handleVisibilityChange);
 
       // Add accessibility attributes for screen readers and extensions
       parent.setAttribute('role', 'textbox');
@@ -1268,6 +1271,20 @@ export class Terminal implements ITerminalCore {
     this.setFocused(false);
   };
 
+  /** The window lost focus: the terminal has none, whatever element is active. (webtty, ADR 053) */
+  private handleWindowBlur = (): void => {
+    this.setFocused(false);
+  };
+
+  /**
+   * The tab was hidden or shown. Chrome fires no blur or focus for a tab switch, so the
+   * focus is read again here. (webtty, ADR 053)
+   */
+  private handleVisibilityChange = (): void => {
+    const shown = document.visibilityState === 'visible' && document.hasFocus();
+    this.setFocused(shown && !!this.element?.contains(document.activeElement));
+  };
+
   private setFocused(focused: boolean): void {
     if (focused === this.focused) return;
     this.focused = focused;
@@ -1461,6 +1478,8 @@ export class Terminal implements ITerminalCore {
     if (this.isOpen && typeof document !== 'undefined') {
       document.removeEventListener('mouseup', this.handleMouseUp);
       window.removeEventListener('focus', this.handleWindowFocus);
+      window.removeEventListener('blur', this.handleWindowBlur);
+      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
     }
 
     // Clean up scrollbar timers
