@@ -141,8 +141,8 @@ export function mouseReportText(bytes: Uint8Array): string {
 
 /**
  * A cell's size in whole device pixels, for Ghostty's size reports
- * (XTWINOPS 14/16/18/19 t, mode 2048). Computed as kitty.ts's `deviceCellSize`
- * sizes image frames: the CSS cell times `devicePixelRatio`, rounded, at least 1.
+ * (XTWINOPS 14/16/18/19 t, mode 2048). Computed as the kitty feature's
+ * `deviceCellSize` (features/kitty/protocol/cell-geometry.ts) sizes image frames: the CSS cell times `devicePixelRatio`, rounded, at least 1.
  * (webtty, ADR 042)
  */
 export function deviceCellPixels(cssCell: number, dpr: number): number {

@@ -21,7 +21,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
     'src/client/features/kitty/graphics.ts': { lines: 662, step: KITTY_SPLIT },
-    'src/client/features/kitty/kitty.ts': { lines: 384, step: KITTY_SPLIT },
     // 565 at the checker's commit; the folder moves lengthened its imports by 3 lines.
     'src/client/index.ts': { lines: 568, step: CLIENT_ROOT },
     'src/client/vendor/ghostty-web/ghostty.ts': { lines: 3061, step: ENGINE_SPLIT },

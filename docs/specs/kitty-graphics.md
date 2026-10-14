@@ -24,7 +24,7 @@ the rejected alternatives.
 ```
 PTY ──► server ──► WebSocket ──► ws.onmessage
                                     │
-                        KittyGraphics.feed(data)   (features/kitty/kitty.ts)
+                        KittyGraphics.feed(data)   (features/kitty/graphics.ts)
                           │            │
                      text segments   APC commands
                           │            │
@@ -77,7 +77,7 @@ it (`OPT_SIZE`, [ADR 042](../adrs/042.client.official-vt-engine.md)). Until
 [ADR 047](../adrs/047.client.official-engine-only.md) the client answered
 `14/16/18 t` itself on the Coder engine.
 
-Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` (`deviceCellPixels`, the same as `kitty.ts`'s `deviceCellSize` that frames are scaled by) and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
+Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` (`deviceCellPixels`, the same as `deviceCellSize` in `features/kitty/protocol/cell-geometry.ts` that frames are scaled by) and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
 
 ## Limits
 
@@ -126,8 +126,14 @@ reuses the same image id.
 ```
 src/client/
   features/kitty/
-    kitty.ts         ← pure: APC splitter, key=value parser, kitty reply builder, clear scanner (unit tested)
-    kitty.test.ts
+    protocol/        ← pure, one concern per file, each with its x.test.ts (100% lines):
+      apc-splitter.ts      APC sequences out of the PTY stream, with the size limit
+      apc-command.ts       key=value parser (parseKittyApc) and num()
+      chunk-assembler.ts   m=1 chunk reassembly, with the transmission cap
+      kitty-reply.ts       the reply builder, honouring q=1 / q=2
+      png-size.ts          PNG IHDR width and height, from bytes or base64
+      cell-geometry.ts     device cell size, per-axis scale, cells an image covers
+      control-scanner.ts   sequences that clear placements, across chunk boundaries
     graphics.ts      ← browser: decode, placement table, overlay canvas, scroll tracking
     graphics.test.ts ← state handling against a stubbed DOM and image decoder
   index.ts           ← wires ws.onmessage through KittyGraphics

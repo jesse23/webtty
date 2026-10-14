@@ -1,25 +1,21 @@
 import type { Terminal } from '../../vendor/ghostty-web';
+import { type KittyKeys, num, parseKittyApc } from './protocol/apc-command';
+import { ApcSplitter } from './protocol/apc-splitter';
+import { axisScale, cellSpan } from './protocol/cell-geometry';
 import {
-  ApcSplitter,
-  axisScale,
   ChunkAssembler,
-  ControlScanner,
-  cellSpan,
-  type KittyKeys,
-  kittyReply,
   MAX_TRANSMISSION_BYTES,
-  num,
-  parseKittyApc,
-  pngSize,
-  pngSizeFromBytes,
   type Transmission,
-} from './kitty';
+} from './protocol/chunk-assembler';
+import { ControlScanner } from './protocol/control-scanner';
+import { kittyReply } from './protocol/kitty-reply';
+import { pngSize, pngSizeFromBytes } from './protocol/png-size';
 
 // Sizes Ghostty reports to programs (CSI 14t/16t) are device pixels, as in kitty:
 // programs such as terminal-browser divide them by the display's
 // scale factor to get CSS pixels, so reporting CSS pixels makes their content
 // render at the wrong size. On a 2x display this means 4x the pixels per
-// full-window frame. Cell sizes are whole device pixels (see kitty.ts), so the
+// full-window frame. Cell sizes are whole device pixels (see protocol/cell-geometry.ts), so the
 // CSS-to-device scale is per axis. See ADR 032.
 interface Scale {
   x: number;

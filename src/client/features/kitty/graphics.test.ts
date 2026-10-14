@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { deflateSync } from 'node:zlib';
 import { KittyGraphics, type Limits } from './graphics';
-import { deviceCellSize } from './kitty';
+import { deviceCellSize } from './protocol/cell-geometry';
 
 // KittyGraphics needs a DOM, a canvas and image decoding. These tests stub just
 // enough of them to drive its state handling: what is placed, what is answered,
