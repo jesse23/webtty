@@ -198,8 +198,8 @@ ghostty-web/
     engine-types.ts  cell-types.ts  wasm-exports.ts  vt-layout.ts  official-layout.ts  key-tables.ts  scratch.ts
     wasm-loader.ts  engine-context.ts  official-terminal.ts  render-state.ts  row-ref.ts  scrollback-pages.ts
     selection-binding.ts  search-binding.ts  mouse-encoder-binding.ts  paste-focus-binding.ts  key-encoder-binding.ts
-    engine-effects.ts (FnTable callbacks, clipboard write, readTitle)  grid-refs.ts (grid and screen refs, hyperlinkAt, graphemes)
-    engine-config.ts (applyConfig, colour reads and writes)  cursor-blink.ts  text-mime.ts  kitty-keyboard-reply.ts
+    engine-effects.ts (FnTable callbacks, clipboard write, readTitle)  grid-refs.ts (grid and screen refs, row wrap, hyperlinkAt)
+    engine-config.ts (applyConfig, colour writes, the DECSCUSR blink)  cursor-blink.ts  text-mime.ts  kitty-keyboard-reply.ts
   core/                 Terminal's collaborators; import core/host-types.ts, never terminal.ts
     host-types.ts  terminal-constants.ts  terminal-geometry.ts  options-proxy.ts  dom-setup.ts
     viewport.ts  focus-tracker.ts  find-controller.ts  write-pipeline.ts  render-loop.ts
@@ -327,7 +327,7 @@ While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/a
 | Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet, import rules | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
 | Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
-| Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
+| Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ✅ |
 | Vendored terminal, renderer, input and selection split | facades at their paths, parts in `core/`, `render/`, `input/`, `selection/` | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
 | Listener teardown | `Terminal.dispose` and `SelectionManager` release every listener | [ADR 065](../adrs/065.client.listener-teardown.md) | ⬜ |
 | Server composition | `createServer`, SessionStore, route table, `ws/` and `sessions/`, config split | [ADR 062](../adrs/062.server.composition.md) | ⬜ |
