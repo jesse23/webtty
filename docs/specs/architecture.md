@@ -191,7 +191,7 @@ ghostty-web/
   selection-manager.ts  facade: SelectionManager state + API (SelectionHost)                (≤ 300)
   interfaces.ts  buffer.ts (IBufferSource)  event-emitter.ts  types.ts (re-export shim until removed)
   search.ts  glide.ts  wheel.ts  mouse-route.ts       webtty-original, kept in place
-  link-detector.ts  providers/  addons/fit.ts  fn-table.ts
+  link-detector.ts  link-types.ts  providers/  addons/fit.ts  fn-table.ts
   lifecycle/            disposable-store.ts (DisposableStore, listen, toDisposable) – webtty-original
   engine/               every wasm call; no DOM
     engine-types.ts  cell-types.ts  wasm-exports.ts  vt-layout.ts  official-layout.ts  key-tables.ts  scratch.ts

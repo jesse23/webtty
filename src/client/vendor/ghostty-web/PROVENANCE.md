@@ -58,6 +58,10 @@ Not from upstream; each starts with, or will start with when it is next touched,
 ## Layout
 
 - `lifecycle/`: teardown (`disposable-store.ts`). webtty-original.
+- `input/`: keyboard and mouse input (`key-types.ts`).
+- `engine/`: the binding to the official wasm (`cell-types.ts`, `engine-types.ts`).
+- `link-types.ts`: the link detection contract, beside `link-detector.ts` and `providers/`.
+- `types.ts`: a re-export shim for the files above until its importers move (ADR 061).
 
 ## Moves and splits
 
@@ -65,3 +69,7 @@ Each commit that moves code out of an upstream-derived file appends its rows her
 
 | From (upstream file: symbols) | To | Commit subject |
 |---|---|---|
+| `types.ts`: `KeyEncoderOption`, `KeyAction`, `Key`, `Mods`, `KeyEvent` | `input/key-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
+| `types.ts`: `DirtyState`, `RenderStateCursor`, `GhosttyCell`, `CellFlags` | `engine/cell-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
+| `types.ts`: `GhosttyTerminalConfig` | `engine/engine-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
+| `types.ts`: `IBufferCellPosition`, `IBufferRange`, `ILink`, `ILinkProvider` | `link-types.ts` | refactor(client): the vendor types.ts split into domain-named type files |
