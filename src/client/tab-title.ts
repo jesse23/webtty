@@ -1,6 +1,13 @@
 /**
- * Output quiet for this long after a connect ends the replay; bells before it are the
- * replay's (ADR 053). The server sends the whole replay as one burst at connect.
+ * The size, in characters, of the pieces the server sends the replay in (its
+ * `FlowLimits.chunk`, ADR 048): every piece but the last is this long, or one shorter
+ * where it would split a surrogate pair. A shorter message ends the replay (ADR 053).
+ */
+export const REPLAY_PIECE = 64 * 1024;
+
+/**
+ * Output quiet for this long, after the previous message was parsed, also ends the
+ * replay: for a replay whose last piece is full length (ADR 053).
  */
 export const REPLAY_QUIET_MS = 1000;
 
@@ -13,14 +20,16 @@ const BELL_MARK = '🔔 ';
  *
  * The server replays the session's recent output on every connect. A title in it is
  * applied (it is the title the program last set), but a bell in it is not a new bell:
- * bells are ignored from each connect until the output first pauses for
+ * bells are ignored from each connect through the first message shorter than
+ * {@link REPLAY_PIECE}, the replay's last piece, or until the output pauses for
  * {@link REPLAY_QUIET_MS}.
  */
 export class TabTitle {
   private appTitle = '';
   private ringing = false;
   private replaying = false;
-  private lastOutput: number | null = null;
+  private lastParsed: number | null = null;
+  private lastWasTail = false;
 
   constructor(
     private readonly sessionId: string,
@@ -53,15 +62,25 @@ export class TabTitle {
   /** A connection opened: the output that follows starts with the replay. */
   connected(): void {
     this.replaying = true;
-    this.lastOutput = null;
+    this.lastParsed = null;
+    this.lastWasTail = false;
   }
 
-  /** Output arrived at `now` (ms) and is about to be parsed. */
-  output(now: number): void {
-    if (this.replaying && this.lastOutput !== null && now - this.lastOutput >= REPLAY_QUIET_MS) {
+  /** A message of `chars` characters arrived at `now` (ms) and is about to be parsed. */
+  output(chars: number, now: number): void {
+    if (
+      this.replaying &&
+      this.lastParsed !== null &&
+      (this.lastWasTail || now - this.lastParsed >= REPLAY_QUIET_MS)
+    ) {
       this.replaying = false;
     }
-    this.lastOutput = now;
+    this.lastWasTail = chars < REPLAY_PIECE - 1;
+  }
+
+  /** The message passed to {@link output} was parsed at `now` (ms). */
+  parsed(now: number): void {
+    this.lastParsed = now;
   }
 
   private update(): void {

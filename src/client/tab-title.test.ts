@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { REPLAY_QUIET_MS, TabTitle } from './tab-title';
+import { DEFAULT_FLOW_LIMITS } from '../server/flow';
+import { REPLAY_PIECE, REPLAY_QUIET_MS, TabTitle } from './tab-title';
 
 function setup(bellTitle = true) {
   const titles: string[] = [];
@@ -8,11 +9,12 @@ function setup(bellTitle = true) {
   return { tab, titles, last };
 }
 
-/** Connects and parses one replay message at time 0, then the replay is over at `gap`. */
-function afterReplay(tab: TabTitle, gap = REPLAY_QUIET_MS): void {
+/** Connects and parses a one-message replay, then a live message arrives. */
+function afterReplay(tab: TabTitle): void {
   tab.connected();
-  tab.output(0);
-  tab.output(gap);
+  tab.output(100, 0);
+  tab.parsed(0);
+  tab.output(10, 0);
 }
 
 describe('TabTitle', () => {
@@ -44,21 +46,44 @@ describe('TabTitle', () => {
     expect(titles).toHaveLength(count + 1);
   });
 
-  test('ignores the bells of the replay, until the output pauses', () => {
+  test('ignores the bells of the replay, through its last piece', () => {
     const { tab, last } = setup();
     tab.connected();
-    tab.output(0);
-    tab.bell();
-    // The replay's messages arrive back to back.
-    tab.output(REPLAY_QUIET_MS - 1);
-    tab.bell();
-    tab.output(REPLAY_QUIET_MS * 2 - 2);
-    tab.bell();
+    // Full pieces, the second one short of a surrogate pair, then the shorter last one.
+    for (const chars of [REPLAY_PIECE, REPLAY_PIECE - 1, 10]) {
+      tab.output(chars, 0);
+      tab.bell();
+      tab.parsed(0);
+    }
     expect(last()).toBe('main | webtty');
-    // A message after a pause is live output.
-    tab.output(REPLAY_QUIET_MS * 3);
+    // The next message is live output, however soon it comes.
+    tab.output(REPLAY_PIECE, 0);
     tab.bell();
     expect(last()).toBe('🔔 main | webtty');
+  });
+
+  test('a replay ending on a full piece is over when the output pauses after it', () => {
+    const { tab, last } = setup();
+    tab.connected();
+    tab.output(REPLAY_PIECE, 0);
+    // Slow to parse: the pause counts from the end of the parse.
+    tab.parsed(REPLAY_QUIET_MS);
+    tab.output(10, REPLAY_QUIET_MS * 2 - 1);
+    tab.bell();
+    tab.parsed(REPLAY_QUIET_MS * 2 - 1);
+    expect(last()).toBe('main | webtty');
+    // The short message ended it too: the next is live, as is one after a pause.
+    tab.output(10, REPLAY_QUIET_MS * 2);
+    tab.bell();
+    expect(last()).toBe('🔔 main | webtty');
+
+    const other = setup();
+    other.tab.connected();
+    other.tab.output(REPLAY_PIECE, 0);
+    other.tab.parsed(0);
+    other.tab.output(10, REPLAY_QUIET_MS);
+    other.tab.bell();
+    expect(other.last()).toBe('🔔 main | webtty');
   });
 
   test('a reconnect replays again, and its bells are ignored', () => {
@@ -66,15 +91,19 @@ describe('TabTitle', () => {
     afterReplay(tab);
     tab.connected();
     // The first message is the replay, however long after the connect it arrives.
-    tab.output(REPLAY_QUIET_MS * 10);
+    tab.output(10, REPLAY_QUIET_MS * 10);
     tab.bell();
     expect(last()).toBe('main | webtty');
+  });
+
+  test("the replay's piece size is the server's", () => {
+    expect(REPLAY_PIECE).toBe(DEFAULT_FLOW_LIMITS.chunk);
   });
 
   test('applies titles from the replay', () => {
     const { tab, last } = setup();
     tab.connected();
-    tab.output(0);
+    tab.output(10, 0);
     tab.title('htop');
     expect(last()).toBe('htop | webtty');
   });

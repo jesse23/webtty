@@ -240,7 +240,7 @@ function connect(): void {
   ws = socket;
   // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
   clipboardWriter.connected();
-  // ... and ignore its bells until the output pauses (ADR 053)
+  // ... and ignore its bells until the replay's last piece (ADR 053)
   tabTitle.connected();
   const ack = new OutputAck((message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(message);
@@ -264,8 +264,9 @@ function connect(): void {
   ws.onmessage = (event: MessageEvent<string>) => {
     // term.write() parses synchronously, so the output has been parsed once feed()
     // returns: acknowledging it now lets a slow tab slow the server down.
-    tabTitle.output(performance.now());
+    tabTitle.output(event.data.length, performance.now());
     graphics.feed(event.data);
+    tabTitle.parsed(performance.now());
     ack.parsed(event.data.length);
     smoothScroll.onOutput();
   };
