@@ -119,7 +119,7 @@ src/
       browser-env.ts            adapter: ClientEnv, everything start-client touches outside its own objects (see below)
       client-context.ts         types: ClientContext, Feature, Disposable
       client-config.ts          service + type: ClientConfig (from src/config types), loadClientConfig(fetch)
-      terminal-options.ts       util (pure): toTerminalOptions(config, theme)
+      terminal-options.ts       util (pure): toTerminalOptions(config, theme, ghostty)
       terminal-theme.ts         util (pure): toTerminalTheme (was theme.ts)
       platform.ts               util: detectMac(navigator), isTerminalFocused(doc, container)
     connection/
@@ -259,7 +259,7 @@ Everything between these steps runs synchronously after the awaits of step 1, so
 | container capture `keydown` | key dispatcher |
 | document `visibilitychange` | repaint on visible → kitty overlay → title and notifier attended |
 
-`ClientEnv` (`app/browser-env.ts`) carries every global the root touches, each with the browser's own as the production value, so the root runs on fakes: `window` (`location`, `devicePixelRatio`, `matchMedia`, `close`, `focus`), `document` (including `fonts.ready`), `navigator`, `fetch`, `WebSocket`, `ResizeObserver`, `Notification`, `performance.now`, `setTimeout`/`clearTimeout`, `requestAnimationFrame`/`cancelAnimationFrame`, and two factories, `loadEngine(url)` (`Ghostty.load`) and `createTerminal(options)` (`new Terminal`).
+`ClientEnv` (`app/browser-env.ts`) carries every global the root touches, each with the browser's own as the production value, so the root runs on fakes: `window` (`location`, `devicePixelRatio`, `matchMedia`, `close`, `focus`, and its `addEventListener`/`removeEventListener` for the window listeners), `document` (including `fonts.ready`), `navigator`, `fetch`, `WebSocket`, `ResizeObserver`, `Notification`, `performance.now`, `setTimeout`/`clearTimeout`, `requestAnimationFrame`/`cancelAnimationFrame`, and two factories, `loadEngine(url)` (`Ghostty.load`) and `createTerminal(options)` (`new Terminal`).
 
 Features get what they need from `ClientContext` (`term`, `container`, `config`, `terminalTheme`, `mac`, `doc`, `win`) and from handles the root passes explicitly (the connection, the fitter, the find bar, `clearScreen`). There is no service locator and no event bus.
 
