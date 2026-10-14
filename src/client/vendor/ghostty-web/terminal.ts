@@ -1439,8 +1439,11 @@ export class Terminal implements ITerminalCore {
    * Handle wheel events for scrolling (Phase 2)
    */
   private handleWheel = (e: WheelEvent): void => {
-    // Always prevent default browser scrolling
-    e.preventDefault();
+    // Cancel only pinch and ctrl+wheel, which would zoom the page. A cancelled wheel
+    // event makes Chrome hold the gesture's next event until the page has handled it,
+    // which put scrolling about a frame behind native; nothing else on the page scrolls,
+    // and overscroll-behavior stops rubber-banding and swipe-back. (webtty, ADR 045)
+    if (e.ctrlKey) e.preventDefault();
     e.stopPropagation();
 
     // Allow custom handler to override

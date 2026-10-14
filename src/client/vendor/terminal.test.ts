@@ -350,3 +350,34 @@ describe('Terminal link hover', () => {
     wasmTerm.free();
   });
 });
+
+describe('Terminal wheel events', () => {
+  // A cancelled wheel event makes Chrome hold the gesture's next one until the page has
+  // handled it: only zooming (pinch, ctrl+wheel) is cancelled (ADR 045).
+  const wheel = (ctrlKey: boolean) => {
+    let cancelled = false;
+    const e = {
+      ctrlKey,
+      deltaX: 0,
+      deltaY: 10,
+      deltaMode: 0,
+      preventDefault: () => {
+        cancelled = true;
+      },
+      stopPropagation: () => {},
+    };
+    const term = new Terminal({ ghostty: {} as never }) as unknown as {
+      handleWheel: (e: unknown) => void;
+    };
+    term.handleWheel(e);
+    return cancelled;
+  };
+
+  test('a scroll is not cancelled', () => {
+    expect(wheel(false)).toBe(false);
+  });
+
+  test('pinch and ctrl+wheel are cancelled, so the page does not zoom', () => {
+    expect(wheel(true)).toBe(true);
+  });
+});

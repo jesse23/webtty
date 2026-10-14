@@ -13,6 +13,12 @@ body,
   background: #000;
 }
 
+html,
+body {
+  /* Wheel events are not cancelled (ADR 045): no rubber-band and no swipe-back. */
+  overscroll-behavior: none;
+}
+
 #terminal {
   position: relative;
   /* The overscan canvas (ADR 043) extends below the box; clip, unlike hidden, cannot be
