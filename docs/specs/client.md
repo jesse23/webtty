@@ -170,7 +170,7 @@ Both can be active simultaneously. The canvas-based terminal has no DOM text sel
 
 The terminal has the one `contextmenu` listener (`handleContextMenu`). Keys, text and paste clear the selection; mouse reports do not, so a Shift selection survives the app's hover and clicks until Shift+right-click or the menu's Copy uses it. A menu not preceded by a right press (or macOS Ctrl+click) since the last key is a keyboard menu and follows `rightClickBehavior` even while the app tracks the mouse. While the terminal has focus, the Menu key and Shift+F10 are sent to the app as keys, so the browser opens no keyboard menu there. `"paste"` fires `Terminal.onPasteRequest`, which `index.ts` answers with the same clipboard read as Ctrl+V.
 
-What a double or triple click selects, and the text either path copies, is Ghostty's (`ghostty_terminal_select_word`, `ghostty_terminal_select_line`, `ghostty_terminal_selection_format_alloc`): soft-wrapped rows are joined without a newline ([ADR 050](../adrs/050.client.selection-from-libghostty-vt.md)).
+What a double or triple click selects, and the text either path copies, is Ghostty's (`ghostty_terminal_select_word`, `ghostty_terminal_select_line`, `ghostty_terminal_selection_format_alloc`): soft-wrapped rows are joined without a newline ([ADR 050](../adrs/050.client.selection-from-libghostty-vt.md)). A triple click with Ctrl or Cmd held selects the output of the command under the pointer instead (`ghostty_terminal_select_output`, from OSC 133 marks; nothing outside output), as in Ghostty ([ADR 057](../adrs/057.client.shell-integration-prompt-jumps.md)).
 
 ## Copy, Paste and Clear Keys
 
@@ -220,6 +220,35 @@ Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of th
 - **The bar** (`find-bar.ts`) is a DOM overlay at the top right, outside `#terminal`, coloured from the theme, with a labelled field, the count in a live region, ↑ (next), ↓ (previous) and × buttons. Typing searches after 150 ms; closing ends the search, clears the highlights and refocuses the terminal, and the field keeps its text for the next open.
 
 `Terminal` (vendored) keeps the needle (also across `reset`), runs the search for at most 4 ms a frame before each render, and reads the matches again when they changed, at most every ten times the last read took; the renderer finds the matches in view by binary search on the newest-to-oldest list, and repaints a row only when its matches change. Find has no side effects, so the replay on connect needs no special handling.
+
+## Shell Prompts (OSC 133)
+
+Shells that mark their prompts with OSC 133 (`133;A` prompt, `133;B` command line, `133;C` output, `133;D;<status>` end) get Ghostty's `jump_to_prompt` and output selection ([ADR 057](../adrs/057.client.shell-integration-prompt-jumps.md)):
+
+| Platform | Key | Action |
+|---|---|---|
+| macOS | Cmd+↑, Cmd+Shift+↑ | to the previous prompt |
+| macOS | Cmd+↓, Cmd+Shift+↓ | to the next prompt |
+| others | Ctrl+Shift+↑ / Ctrl+Shift+↓ | to the previous / next prompt |
+| all | Ctrl/Cmd + triple click | select the command's output (see Copy Behavior) |
+
+- **The move is Ghostty's** (`GHOSTTY_SCROLL_VIEWPORT_DELTA_PROMPT`): the prompt becomes the view's top row; up from the bottom goes to the nearest prompt above the screen's top row; past the last prompt the view goes to the bottom. The binding's `promptJumpRow` puts Ghostty's viewport on webtty's top row, moves it, reads it back (`GHOSTTY_TERMINAL_DATA_SCROLLBAR`) and returns it to the bottom; `Terminal.jumpToPrompt` scrolls the view with `scrollToLine`, and output still pulls a scrolled view to the bottom.
+- The keys are always consumed, as Ghostty's are not `performable:`: without marks, or on the alternate screen, they do nothing and do not reach the app. They go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win.
+- Nothing is sent anywhere, so the replay needs no special handling; its marks come with it.
+
+**Getting the marks.** webtty does not inject shell integration (ADR 057 records it as a follow-up):
+
+- **fish 4.0 and later** send them with no setup.
+- **zsh and bash** (bash 3.2 too) send none. Source Ghostty's integration script at the top of `~/.zshrc` / `~/.bashrc`, from a Ghostty install or a copy of [`src/shell-integration`](https://github.com/ghostty-org/ghostty/tree/main/src/shell-integration) (GPLv3); with `GHOSTTY_SHELL_FEATURES` unset it only sends the marks:
+
+  ```sh
+  # ~/.zshrc (macOS app path; on Linux typically /usr/share/ghostty/shell-integration)
+  source /Applications/Ghostty.app/Contents/Resources/ghostty/shell-integration/zsh/ghostty-integration
+  # ~/.bashrc
+  source /Applications/Ghostty.app/Contents/Resources/ghostty/shell-integration/bash/ghostty.bash
+  ```
+
+- starship (1.26) does not send them.
 
 ## Program Clipboard Writes
 
@@ -291,6 +320,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
 | Copy, paste and clear keys | Ghostty's defaults for the browser's platform: Ctrl+Shift+C and Ctrl+Insert copy and Shift+Insert pastes outside macOS (Ctrl+C stays the interrupt; Ctrl+Shift+C with no selection goes to the app), Cmd+K clears the screen and scrollback on macOS (at an OSC 133 prompt with FF for the shell to redraw; the app's key on the alternate screen); `keyboardBindings` win | [ADR 054](../adrs/054.client.copy-paste-clear-keys.md) | ✅ |
 | Find in the scrollback | Cmd+F (macOS) or Ctrl+Shift+F opens a find bar; libghostty-vt's search over scrollback and screen (ASCII case-insensitive, across soft wraps), every match highlighted and the selected one distinct in Ghostty's colours, Enter / Shift+Enter (Cmd+G / Cmd+Shift+G) to the next (older) and previous match with Ghostty's `k/n` count, the view jumping to a match out of view and kept on it while output streams, Escape to close; `keyboardBindings` win | [ADR 055](../adrs/055.client.find-in-scrollback.md) | ✅ |
+| Shell prompts (OSC 133) | Cmd+↑ / Cmd+↓ (also with Shift) on macOS, Ctrl+Shift+↑ / Ctrl+Shift+↓ elsewhere jump the view to the previous / next prompt, as Ghostty's `jump_to_prompt` (libghostty-vt's `DELTA_PROMPT`), consumed even with no prompt; Ctrl/Cmd+triple-click selects a command's output; marks from fish 4 natively, or zsh and bash with Ghostty's integration script sourced by hand; no injection yet; `keyboardBindings` win | [ADR 057](../adrs/057.client.shell-integration-prompt-jumps.md) | ✅ |
 | Desktop notifications | OSC 9 and OSC 777 `notify`, parsed by Ghostty (ConEmu's `9;<n>` forms excluded), shown as browser notifications while the terminal is not focused, one a second and the same one once in five seconds; permission asked on the next key or click after the first one; the 🔔 title mark without permission; replayed ones ignored; `desktopNotifications: false` turns them off | [ADR 056](../adrs/056.client.desktop-notifications.md) | ✅ |
 | Focus reports, title and bell | Mode 1004 focus reports encoded by Ghostty, sent on each change and when the mode is set; the tab title is the program's OSC 0/2 title (`<title> \| webtty`, the session id while it has none); a bell puts 🔔 in front of it until the terminal is focused or a key is pressed, and bells replayed on connect are ignored; `bellTitle: false` turns the mark off | [ADR 053](../adrs/053.client.focus-reports-title-and-bell.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
