@@ -19,7 +19,7 @@ import {
   sessionBody,
 } from '../test-support/route-harness';
 import { getVersion } from '../version';
-import { readJson } from './routes';
+import { readJson } from './http/request-body';
 import type { Session } from './sessions/session';
 
 const h = new RouteHarness();

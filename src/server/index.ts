@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../config';
 import { findGhosttyWasm } from './http/static-files';
-import { handleRequest } from './routes';
+import { createRequestHandler } from './routes/route-table';
 import { SessionStore } from './sessions/session-store';
 import { WS_CLOSE } from './ws/close-codes';
 import { createWebSocketServer } from './ws/ws-upgrade';
@@ -51,8 +51,16 @@ process.on('unhandledRejection', (reason) => {
   console.error('[webtty] unhandledRejection:', reason);
 });
 
+const handleRequest = createRequestHandler({
+  store,
+  loadConfig,
+  wasmPath,
+  clientDistPath,
+  onStop: shutdown,
+});
+
 const httpServer = http.createServer((req, res) => {
-  handleRequest(req, res, store, wasmPath, clientDistPath, shutdown).catch((err) => {
+  handleRequest(req, res).catch((err) => {
     console.error('[webtty] unhandled route error:', err);
     if (!res.headersSent) {
       res.writeHead(500);

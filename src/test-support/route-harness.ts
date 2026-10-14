@@ -5,7 +5,8 @@ import fs from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import path from 'node:path';
-import { handleRequest } from '../server/routes';
+import { loadConfig } from '../config';
+import { createRequestHandler } from '../server/routes/route-table';
 import type { Session } from '../server/sessions/session';
 import { SessionStore } from '../server/sessions/session-store';
 import { FakePty } from './fake-pty';
@@ -81,8 +82,15 @@ export class RouteHarness {
     fs.writeFileSync(path.join(this.tmpHome, 'secret.txt'), 'secret');
 
     const server = http.createServer((req, res) => {
-      const onStop = () => this.stops++;
-      handleRequest(req, res, this.store, this.wasmPath, distDir, onStop).catch(() => {
+      // Built per request so a store replaced by reset() is the one the routes see.
+      const handleRequest = createRequestHandler({
+        store: this.store,
+        loadConfig,
+        wasmPath: this.wasmPath,
+        clientDistPath: distDir,
+        onStop: () => this.stops++,
+      });
+      handleRequest(req, res).catch(() => {
         if (!res.headersSent) {
           res.writeHead(500);
           res.end('Internal Server Error');

@@ -141,7 +141,7 @@ webtty is an npm CLI — no `Info.plist`, no bundle. A `webtty://` scheme would 
 
 ### PID-based navigation — detail
 
-**New server route** (`src/server/routes.ts`):
+**New server route** (`src/server/routes/page-routes.ts`):
 
 ```
 GET /p/<pid>
