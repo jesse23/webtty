@@ -630,21 +630,17 @@ export class Terminal implements ITerminalCore {
       };
 
       // Create input handler
-      this.inputHandler = new InputHandler(
-        this.ghostty!,
-        parent,
-        this.handleInput,
-        (mode: number) => {
-          // Query terminal mode state (e.g., mode 1 for application cursor mode)
-          return this.wasmTerm?.getMode(mode, false) ?? false;
-        },
-        () => {
-          // Handle Cmd+C copy - returns true if there was a selection to copy
-          return this.copySelection();
-        },
-        this.textarea,
-        mouseConfig
-      );
+      this.inputHandler = new InputHandler({
+        ghostty: this.ghostty!,
+        container: parent,
+        onData: this.handleInput,
+        // Query terminal mode state (e.g., mode 1 for application cursor mode)
+        getMode: (mode: number) => this.wasmTerm?.getMode(mode, false) ?? false,
+        // Handle Cmd+C copy - returns true if there was a selection to copy
+        onCopy: () => this.copySelection(),
+        inputElement: this.textarea,
+        mouseConfig,
+      });
 
       // Create selection manager (pass textarea for context menu positioning)
       this.selectionManager = new SelectionManager(

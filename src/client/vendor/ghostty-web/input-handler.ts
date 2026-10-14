@@ -27,6 +27,26 @@ export { plainKeySequence } from './input/key-encoding';
 /** What the terminal sends input through; mouseReport is true for a mouse report (webtty, ADR 051). */
 export type InputSink = (data: string, mouseReport?: boolean) => void;
 
+/** What an InputHandler is built from. */
+export interface InputHandlerOptions {
+  /** Creates the key encoder (the Ghostty factory). */
+  ghostty: Pick<Ghostty, 'createKeyEncoder'>;
+  /** The element the keyboard, composition and press listeners go on. */
+  container: HTMLElement;
+  /** Receives terminal data (escape sequences to send to the PTY). */
+  onData: InputSink;
+  /** Reads a terminal mode; mode 1 (DECCKM) picks the cursor key sequences. */
+  getMode?: (mode: number) => boolean;
+  /** Copies the selection for Cmd+C; true when there was one. */
+  onCopy?: () => boolean;
+  /** The element whose beforeinput events carry IME and mobile text (the textarea). */
+  inputElement?: HTMLElement;
+  /** How mouse tracking is read and reports encoded; no reports without it. */
+  mouseConfig?: MouseTrackingConfig;
+  /** The echo guard's clock in ms; `performance.now()` by default. */
+  now?: () => number;
+}
+
 /**
  * Attaches keyboard, IME and mouse listeners to a container and converts their events
  * to terminal input data.
@@ -38,37 +58,19 @@ export class InputHandler {
   private readonly getMode?: (mode: number) => boolean;
   private readonly onCopy?: () => boolean;
   private readonly mouse: MouseReporter;
-  private readonly echoes = new EchoGuard();
+  private readonly echoes: EchoGuard;
   private readonly listeners = new DisposableStore();
   private isComposing = false;
 
-  /**
-   * Create a new InputHandler
-   * @param ghostty - Ghostty instance (for creating KeyEncoder)
-   * @param container - DOM element to attach listeners to
-   * @param onData - Callback for terminal data (escape sequences to send to PTY); mouseReport
-   *   is true for a mouse report (webtty, ADR 051)
-   * @param getMode - Optional callback to query terminal mode state (for application cursor mode)
-   * @param onCopy - Optional callback to handle copy (Cmd+C/Ctrl+C with selection)
-   * @param inputElement - Optional input element for beforeinput events
-   * @param mouseConfig - Optional mouse tracking configuration
-   */
-  constructor(
-    ghostty: Ghostty,
-    container: HTMLElement,
-    onData: InputSink,
-    getMode?: (mode: number) => boolean,
-    onCopy?: () => boolean,
-    inputElement?: HTMLElement,
-    mouseConfig?: MouseTrackingConfig
-  ) {
-    this.encoder = ghostty.createKeyEncoder();
-    this.container = container;
-    this.onData = onData;
-    this.getMode = getMode;
-    this.onCopy = onCopy;
-    this.mouse = new MouseReporter(container, mouseConfig, onData);
-    this.attach(inputElement);
+  constructor(options: InputHandlerOptions) {
+    this.encoder = options.ghostty.createKeyEncoder();
+    this.container = options.container;
+    this.onData = options.onData;
+    this.getMode = options.getMode;
+    this.onCopy = options.onCopy;
+    this.echoes = new EchoGuard(options.now);
+    this.mouse = new MouseReporter(options.container, options.mouseConfig, options.onData);
+    this.attach(options.inputElement);
   }
 
   /** Makes the container focusable and adds the listeners, in upstream's order. */

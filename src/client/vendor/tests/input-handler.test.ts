@@ -1,8 +1,11 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { createDomWindow, type DomWindow } from '../../test-support/dom-window';
+import { ManualClock } from '../../test-support/manual-clock';
 import type { Ghostty } from '../ghostty-web/ghostty';
+import { Key, KeyAction, type KeyEvent, Mods } from '../ghostty-web/input/key-types';
 import {
   InputHandler,
+  type InputHandlerOptions,
   type MouseEventReport,
   type MouseTrackingConfig,
 } from '../ghostty-web/input-handler';
@@ -34,28 +37,22 @@ beforeEach(() => {
 
 afterEach(() => dom.close());
 
-interface HandlerOptions {
-  appCursor?: boolean;
-  getMode?: (mode: number) => boolean;
-  onCopy?: () => boolean;
-  mouse?: MouseTrackingConfig;
-}
-
 /** An InputHandler on the test's container and textarea, recording what it sends. */
-function handler(options: HandlerOptions = {}): InputHandler {
-  const getMode = options.getMode ?? ((mode: number) => mode === 1 && !!options.appCursor);
-  return new InputHandler(
+function handler(
+  options: Partial<InputHandlerOptions> & { appCursor?: boolean } = {},
+): InputHandler {
+  const { appCursor, ...rest } = options;
+  return new InputHandler({
     ghostty,
     container,
-    (data, mouseReport) => {
+    onData: (data, mouseReport) => {
       sent.push(data);
       reports.push(mouseReport ?? false);
     },
-    getMode,
-    options.onCopy,
-    textarea,
-    options.mouse,
-  );
+    getMode: (mode) => mode === 1 && !!appCursor,
+    inputElement: textarea,
+    ...rest,
+  });
 }
 
 /** Fires a keydown on the container; returns whether it was prevented and whether it propagated. */
@@ -136,7 +133,7 @@ describe('InputHandler set-up and teardown', () => {
 
   test('without an input element there is no beforeinput listener', () => {
     const spy = spyOn(container, 'addEventListener');
-    new InputHandler(ghostty, container, (data) => sent.push(data)).dispose();
+    new InputHandler({ ghostty, container, onData: (data) => sent.push(data) }).dispose();
     expect(spy.mock.calls.map(([type]) => type)).not.toContain('beforeinput');
   });
 });
@@ -218,6 +215,29 @@ describe('InputHandler keys', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0].slice(0, 2)).toEqual(['Failed to encode key:', 'ArrowUp']);
     warn.mockRestore();
+  });
+});
+
+describe('InputHandler key encoder', () => {
+  test('the key encoder comes from the injected factory', () => {
+    const events: KeyEvent[] = [];
+    handler({
+      ghostty: {
+        createKeyEncoder: () => ({
+          setOption: () => {},
+          encode: (event) => {
+            events.push(event);
+            return new TextEncoder().encode('<key>');
+          },
+          dispose: () => {},
+        }),
+      },
+    });
+    keydown('F1', 'F1');
+    expect(sent).toEqual(['<key>']);
+    expect(events).toEqual([
+      { action: KeyAction.PRESS, key: Key.F1, mods: Mods.NONE, utf8: undefined },
+    ]);
   });
 });
 
@@ -351,6 +371,18 @@ describe('InputHandler beforeinput', () => {
     expect(sent).toEqual(['a', 'a']);
   });
 
+  test('the echo window is 100 ms on the injected clock', () => {
+    const clock = new ManualClock();
+    handler({ now: clock.now });
+    keydown('KeyA', 'a');
+    clock.advance(99);
+    beforeinput('insertText', 'a');
+    keydown('KeyA', 'a');
+    clock.advance(100);
+    beforeinput('insertText', 'a');
+    expect(sent).toEqual(['a', 'a', 'a']);
+  });
+
   test('a different beforeinput after a keydown is sent', () => {
     handler();
     keydown('KeyA', 'a');
@@ -439,7 +471,7 @@ describe('InputHandler mouse', () => {
 
   test('presses on the container, moves and releases on the document, as mouse reports', () => {
     const config = tracking();
-    handler({ mouse: config });
+    handler({ mouseConfig: config });
     mouse(container, 'mousedown', { button: 0, buttons: 1 });
     mouse(dom.document.body, 'mousemove', { buttons: 1, clientX: -40 });
     mouse(dom.document.body, 'mouseup', { button: 0 });
@@ -452,7 +484,7 @@ describe('InputHandler mouse', () => {
   // for a wheel over the padding, where the container is the target, and sent the tick
   // twice.
   test('sends nothing for a wheel event on the container, even with mouse tracking', () => {
-    handler({ mouse: tracking() });
+    handler({ mouseConfig: tracking() });
     container.dispatchEvent(new dom.window.WheelEvent('wheel', { deltaY: 40, bubbles: true }));
     expect(sent).toEqual([]);
   });

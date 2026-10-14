@@ -901,15 +901,12 @@ describe('Terminal input and the selection', () => {
     const fire = (type: string, e: object) => {
       for (const l of listeners.get(type) ?? []) l(e);
     };
-    const handler = new InputHandler(
+    const handler = new InputHandler({
       ghostty,
-      container as unknown as HTMLElement,
-      (term as unknown as { handleInput(d: string, m?: boolean): void }).handleInput,
-      undefined,
-      undefined,
-      undefined,
-      { hasMouseTracking: () => true, encode: () => '\x1b[<35;4;4M' },
-    );
+      container: container as unknown as HTMLElement,
+      onData: (term as unknown as { handleInput(d: string, m?: boolean): void }).handleInput,
+      mouseConfig: { hasMouseTracking: () => true, encode: () => '\x1b[<35;4;4M' },
+    });
     const mods = { shiftKey: false, altKey: false, ctrlKey: false, metaKey: false };
     fire('mousemove', { ...mods, target: container, buttons: 0, clientX: 1, clientY: 1 });
     fire('mousedown', {
