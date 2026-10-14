@@ -6,6 +6,7 @@ import {
   type DesktopNotification,
   EventEmitter,
   type IEvent,
+  type Pace,
   type Terminal,
 } from '../vendor/ghostty-web';
 
@@ -45,6 +46,16 @@ export class FakeTerminal {
   wasmTerm: object | undefined;
   /** Whether there is a selection, for `copySelection`. */
   hasSelection = false;
+  /** What `clearScreen` returns: false stands for the alternate screen (ADR 054). */
+  clearable = true;
+  /** What `hasMouseTracking` returns. */
+  mouseTracking = false;
+  /** The cursor, as kitty graphics reads it. */
+  readonly buffer = { active: { cursorX: 0, cursorY: 0 } };
+  /** The wheel handler, wheel pace and before-render hook last attached; the test calls them. */
+  wheelHandler: ((event: WheelEvent) => boolean) | undefined;
+  wheelPace: ((event: WheelEvent) => Pace) | undefined;
+  beforeRender: ((now: number) => void) | undefined;
   /** Everything passed to `write`, in order. */
   readonly written: (string | Uint8Array)[] = [];
   /** Every command called, as `name` or `name:arg`, in order. */
@@ -137,6 +148,41 @@ export class FakeTerminal {
       remeasureFont: () => this.calls.push('remeasureFont'),
     };
     return this.renderer;
+  }
+
+  /** Records the open; the real one builds the canvas and the input handler in `parent`. */
+  async open(parent: HTMLElement): Promise<void> {
+    this.calls.push(`open:#${parent.id}`);
+  }
+
+  dispose(): void {
+    this.calls.push('dispose');
+  }
+
+  /** Records the clear; returns {@link clearable}. */
+  clearScreen(): boolean {
+    this.calls.push('clearScreen');
+    return this.clearable;
+  }
+
+  resyncFocus(): void {
+    this.calls.push('resyncFocus');
+  }
+
+  hasMouseTracking(): boolean {
+    return this.mouseTracking;
+  }
+
+  attachCustomWheelEventHandler(handler?: (event: WheelEvent) => boolean): void {
+    this.wheelHandler = handler;
+  }
+
+  attachWheelPace(pace?: (event: WheelEvent) => Pace): void {
+    this.wheelPace = pace;
+  }
+
+  attachBeforeRender(callback?: (now: number) => void): void {
+    this.beforeRender = callback;
   }
 
   jumpToPrompt(delta: number): void {

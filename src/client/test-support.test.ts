@@ -10,6 +10,7 @@ import { FakeTerminal } from './test-support/fake-terminal';
 import { FakeWindow } from './test-support/fake-window';
 import { ManualClock } from './test-support/manual-clock';
 import { RecordingTarget, recordListeners } from './test-support/recording-target';
+import { AT_ONCE } from './vendor/ghostty-web';
 
 describe('ManualClock', () => {
   test('runs timeouts in due order when time advances, with now() at each due time', () => {
@@ -259,6 +260,34 @@ describe('FakeTerminal', () => {
       'render:dirty@2',
       'remeasureFont',
     ]);
+  });
+
+  test('records open, clear, focus resync and dispose, and keeps the attached hooks', async () => {
+    const term = new FakeTerminal();
+    const parent = { id: 'terminal' } as HTMLElement;
+    await term.open(parent);
+    expect(term.clearScreen()).toBe(true);
+    term.clearable = false;
+    expect(term.clearScreen()).toBe(false);
+    term.resyncFocus();
+    term.dispose();
+    expect(term.calls).toEqual([
+      'open:#terminal',
+      'clearScreen',
+      'clearScreen',
+      'resyncFocus',
+      'dispose',
+    ]);
+    expect(term.hasMouseTracking()).toBe(false);
+    const handler = () => true;
+    const pace = () => AT_ONCE;
+    const hook = () => {};
+    term.attachCustomWheelEventHandler(handler);
+    term.attachWheelPace(pace);
+    term.attachBeforeRender(hook);
+    expect([term.wheelHandler, term.wheelPace, term.beforeRender]).toEqual([handler, pace, hook]);
+    term.attachCustomWheelEventHandler();
+    expect(term.wheelHandler).toBeUndefined();
   });
 });
 
