@@ -13,9 +13,12 @@ describe('server-harness', () => {
   test('waitForServerDown throws when server keeps responding', async () => {
     const realFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('[]', { status: 200 })) as unknown as typeof fetch;
-    await expect(waitForServerDown('http://127.0.0.1:1', 50)).rejects.toThrow(
-      'Server did not shut down in time',
-    );
-    globalThis.fetch = realFetch;
+    try {
+      await expect(waitForServerDown('http://127.0.0.1:1', 50)).rejects.toThrow(
+        'Server did not shut down in time',
+      );
+    } finally {
+      globalThis.fetch = realFetch;
+    }
   });
 });
