@@ -35,11 +35,18 @@ The client's folders, module kinds, dependency rules, size limits and test conve
 
 ```
 src/client/
-  index.ts             ← browser entry, bundled to dist/client-browser.js
+  index.ts             ← browser entry, bundled to dist/client-browser.js: await startClient(browserEnv())
   client.html          ← HTML shell (no inline script), copied to dist/client.html
   index.css            ← terminal and find-bar styles, copied to dist/client.css
-  *.ts                 ← app modules: the connection, layout and features (moving into app/, connection/,
-                          layout/ and features/ as ADR 060 lands)
+  app/                 ← start-client.ts, the composition root (the SPEC's 13 steps, one disposer);
+                          connect-pty.ts (its step 7); ClientEnv (browser-env.ts), ClientContext, the config
+                          loader, terminal options and theme, platform checks
+  connection/          ← PtyConnection, close codes and policy, status line, the output pipeline, OutputAck,
+                          ReplayWindow
+  layout/              ← the Fitter and layout feature, edge strips, repaint on visible, canvas selectors
+  features/            ← one folder per feature, each with its install<Name>(ctx, deps) in <name>-feature.ts:
+                          tab-title, notifications, clipboard, paste, find, keyboard, compose, scroll, kitty
+  test-support/        ← fakes for the tests: terminal, socket, window, ResizeObserver, clock, ClientEnv, context
   vendor/
     ghostty-web/       ← derived from coder/ghostty-web lib/ at 1858a59 and heavily modified by webtty, MIT LICENSE,
                           PROVENANCE.md (upstream pin, local changes, moves and splits);

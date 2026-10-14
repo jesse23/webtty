@@ -117,6 +117,7 @@ src/
     client.html  index.css      (paths fixed: copied by scripts/build.ts)
     app/
       start-client.ts           composition root: bootstrap, install features in the documented order, connect
+      connect-pty.ts            wiring: step 7, the PtyConnection's host (created, open, output, close) and its per-socket ack
       browser-env.ts            adapter: ClientEnv, everything start-client touches outside its own objects (see below)
       client-context.ts         types: ClientContext, Feature, Disposable
       client-config.ts          service + type: ClientConfig (from src/config types), loadClientConfig(fetch)
@@ -155,7 +156,7 @@ src/
                                 test-support/graphics-harness.ts
         kitty-feature.ts
     test-support/               fake-terminal.ts, fake-socket.ts, fake-window.ts, fake-resize-observer.ts, fake-context.ts,
-                                manual-clock.ts, recording-target.ts, dom-window.ts
+                                fake-client-env.ts, manual-clock.ts, recording-target.ts, dom-window.ts
     test-support.test.ts        the fakes' self-tests (a test-support/ folder holds no *.test.ts)
     vendor/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md
@@ -322,7 +323,7 @@ While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/a
 |---|---|---|---|
 | Architecture SPEC and conventions | Layers, folders, module kinds, naming, size limits, comments | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
 | Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet, import rules | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
-| Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ⬜ |
+| Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
 | Vendored terminal, renderer, input and selection split | facades at their paths, parts in `core/`, `render/`, `input/`, `selection/` | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
