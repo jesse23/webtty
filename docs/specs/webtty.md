@@ -8,7 +8,7 @@
 
 webtty runs CLI/TUI applications in a browser tab. Point a browser at a running webtty server and you get a full terminal — colors, cursor, resize, keyboard input — backed by a real PTY on the host machine.
 
-The goal is zero client-side installation and full TUI support on any platform. webtty uses `ghostty-web` as the terminal renderer (WASM-backed, same API as xterm.js) and `@lydell/node-pty` for cross-platform PTY support.
+The goal is zero client-side installation and full TUI support on any platform. webtty emulates the terminal with Ghostty's official libghostty-vt (WebAssembly, vendored and signature-checked), draws it with a canvas renderer and input layer derived from ghostty-web (vendored and maintained in this repo; see ADR 041 and ADR 047), and uses `@lydell/node-pty` for cross-platform PTY support.
 
 **Persona:** Developers who want shell or TUI app access from any browser tab.
 
