@@ -1,9 +1,6 @@
 import { describe, expect, mock, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
-import path from 'node:path';
-import { findGhosttyWasm, mimeType, serveFile } from './static-files';
-
-const PROJECT_ROOT = path.resolve(import.meta.dir, '..', '..', '..');
+import { mimeType, serveFile } from './static-files';
 
 describe('mimeType', () => {
   test('returns correct type for known extensions', () => {
@@ -26,43 +23,6 @@ describe('mimeType', () => {
   test('works with full paths', () => {
     expect(mimeType('/dist/client-browser.js')).toBe('application/javascript');
     expect(mimeType('/dist/ghostty-vt.wasm')).toBe('application/wasm');
-  });
-});
-
-describe('findGhosttyWasm', () => {
-  const VENDORED = path.join('src', 'client', 'vendor', 'ghostty-vt', 'ghostty-vt-small.wasm');
-  const BUILT = path.join('dist', 'ghostty-vt-small.wasm');
-
-  test('prefers the wasm copied into dist/ by the build', () => {
-    const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) => String(p).endsWith(BUILT));
-    expect(findGhosttyWasm(PROJECT_ROOT)).toBe(path.join(PROJECT_ROOT, BUILT));
-    existsSpy.mockRestore();
-  });
-
-  test('falls back to the vendored wasm when dist/ has none', () => {
-    const realExistsSync = fs.existsSync.bind(fs);
-    const existsSpy = spyOn(fs, 'existsSync').mockImplementation((p) => {
-      const s = String(p);
-      return s.endsWith(BUILT) ? false : realExistsSync(s);
-    });
-    const wasmPath = findGhosttyWasm(PROJECT_ROOT);
-    expect(wasmPath).toBe(path.join(PROJECT_ROOT, VENDORED));
-    expect(realExistsSync(wasmPath)).toBe(true);
-    existsSpy.mockRestore();
-  });
-
-  test('exits naming the missing file', () => {
-    const existsSpy = spyOn(fs, 'existsSync').mockReturnValue(false);
-    const exitSpy = spyOn(process, 'exit').mockImplementation((() => {}) as () => never);
-    const errorSpy = spyOn(console, 'error').mockImplementation(() => {});
-
-    findGhosttyWasm(PROJECT_ROOT);
-
-    expect(exitSpy).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith('Error: Could not find ghostty-vt-small.wasm.');
-    existsSpy.mockRestore();
-    exitSpy.mockRestore();
-    errorSpy.mockRestore();
   });
 });
 

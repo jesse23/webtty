@@ -1,5 +1,5 @@
-// Static files for the HTTP server: MIME types, the wasm lookup and serveFile (ADR 062).
-// A small service module; the caller passes the package root and file paths in.
+// Static files for the HTTP server: MIME types, the wasm's file name and serveFile (ADR 062).
+// A small service module; where the files are on disk is server-paths.ts's job.
 import fs from 'node:fs';
 import type http from 'node:http';
 import path from 'node:path';
@@ -30,25 +30,6 @@ export function mimeType(filePath: string): string {
 
 /** The wasm the client loads: Ghostty's official libghostty-vt (ADR 042, ADR 047). */
 export const GHOSTTY_WASM = 'ghostty-vt-small.wasm';
-
-/**
- * Locates {@link GHOSTTY_WASM}, preferring the copy the build puts in `dist/` (npm install)
- * over the vendored source copy (local dev). Exits the process if neither exists.
- *
- * @returns The absolute path to the wasm file.
- * @throws Exits the process with code 1 if the wasm cannot be found.
- */
-export function findGhosttyWasm(projectRoot: string): string {
-  const candidates = [
-    path.join(projectRoot, 'dist', GHOSTTY_WASM),
-    path.join(projectRoot, 'src', 'client', 'vendor', 'ghostty-vt', GHOSTTY_WASM),
-  ];
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-  console.error(`Error: Could not find ${GHOSTTY_WASM}.`);
-  process.exit(1);
-}
 
 /**
  * Reads `filePath` from disk and writes it to `res` with the correct Content-Type header.
