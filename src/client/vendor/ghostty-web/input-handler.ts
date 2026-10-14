@@ -1,265 +1,46 @@
-/**
- * InputHandler - Converts browser keyboard events to terminal input
- *
- * Handles:
- * - Keyboard event listening on a container element
- * - Mapping KeyboardEvent.code to USB HID Key codes
- * - Extracting modifier keys (Ctrl, Alt, Shift, Meta)
- * - Encoding keys using Ghostty's KeyEncoder
- * - Emitting data for Terminal to send to PTY
- *
- * Limitations:
- * - Does not handle IME/composition events (CJK input) - to be added later
- * - Captures all keyboard input (preventDefault on everything)
- */
+// Derived from coder/ghostty-web lib/input-handler.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// Keyboard, IME and mouse input (facade): `InputHandler` owns the listeners on the
+// container, the input element and the document, and hands each event to the key encoding,
+// the text-input echo guard or the mouse reporter in input/ (ADR 047, ADR 049, ADR 061).
+import type { KeyEncoder } from './engine/engine-types';
+import type { Ghostty } from './ghostty';
+import {
+  encodeKeyPress,
+  isPrintableKey,
+  keyForCode,
+  keyMods,
+  plainKeySequence,
+} from './input/key-encoding';
+import { type MouseTrackingConfig, MouseReporter } from './input/mouse-report';
+import { beforeInputText, EchoGuard, removeCompositionText } from './input/text-input';
+import { DisposableStore, type ListenerTarget, listen } from './lifecycle/disposable-store';
 
-import type { Ghostty, MouseButton, MouseInput } from './ghostty';
-import { pressToApp } from './mouse-route';
-import type { KeyEncoder } from './ghostty';
-import { Key, KeyAction, KeyEncoderOption, Mods } from './types';
+export {
+  MOUSE_BUTTONS,
+  type MouseEventReport,
+  type MouseTrackingConfig,
+  motionButton,
+  mouseMods,
+} from './input/mouse-report';
+export { plainKeySequence } from './input/key-encoding';
 
-/**
- * Map KeyboardEvent.code values to USB HID Key enum values
- * Based on: https://developer.mozilla.org/en-US/docs/Web/API/KeyboardEvent/code
- */
-const KEY_MAP: Record<string, Key> = {
-  // Letters
-  KeyA: Key.A,
-  KeyB: Key.B,
-  KeyC: Key.C,
-  KeyD: Key.D,
-  KeyE: Key.E,
-  KeyF: Key.F,
-  KeyG: Key.G,
-  KeyH: Key.H,
-  KeyI: Key.I,
-  KeyJ: Key.J,
-  KeyK: Key.K,
-  KeyL: Key.L,
-  KeyM: Key.M,
-  KeyN: Key.N,
-  KeyO: Key.O,
-  KeyP: Key.P,
-  KeyQ: Key.Q,
-  KeyR: Key.R,
-  KeyS: Key.S,
-  KeyT: Key.T,
-  KeyU: Key.U,
-  KeyV: Key.V,
-  KeyW: Key.W,
-  KeyX: Key.X,
-  KeyY: Key.Y,
-  KeyZ: Key.Z,
-
-  // Numbers
-  Digit1: Key.ONE,
-  Digit2: Key.TWO,
-  Digit3: Key.THREE,
-  Digit4: Key.FOUR,
-  Digit5: Key.FIVE,
-  Digit6: Key.SIX,
-  Digit7: Key.SEVEN,
-  Digit8: Key.EIGHT,
-  Digit9: Key.NINE,
-  Digit0: Key.ZERO,
-
-  // Special keys
-  Enter: Key.ENTER,
-  Escape: Key.ESCAPE,
-  Backspace: Key.BACKSPACE,
-  Tab: Key.TAB,
-  Space: Key.SPACE,
-
-  // Punctuation
-  Minus: Key.MINUS,
-  Equal: Key.EQUAL,
-  BracketLeft: Key.BRACKET_LEFT,
-  BracketRight: Key.BRACKET_RIGHT,
-  Backslash: Key.BACKSLASH,
-  Semicolon: Key.SEMICOLON,
-  Quote: Key.QUOTE,
-  Backquote: Key.GRAVE,
-  Comma: Key.COMMA,
-  Period: Key.PERIOD,
-  Slash: Key.SLASH,
-
-  // Function keys
-  CapsLock: Key.CAPS_LOCK,
-  F1: Key.F1,
-  F2: Key.F2,
-  F3: Key.F3,
-  F4: Key.F4,
-  F5: Key.F5,
-  F6: Key.F6,
-  F7: Key.F7,
-  F8: Key.F8,
-  F9: Key.F9,
-  F10: Key.F10,
-  F11: Key.F11,
-  F12: Key.F12,
-
-  // Special function keys
-  PrintScreen: Key.PRINT_SCREEN,
-  ScrollLock: Key.SCROLL_LOCK,
-  Pause: Key.PAUSE,
-  Insert: Key.INSERT,
-  Home: Key.HOME,
-  PageUp: Key.PAGE_UP,
-  Delete: Key.DELETE,
-  End: Key.END,
-  PageDown: Key.PAGE_DOWN,
-
-  // Arrow keys
-  ArrowRight: Key.RIGHT,
-  ArrowLeft: Key.LEFT,
-  ArrowDown: Key.DOWN,
-  ArrowUp: Key.UP,
-
-  // Keypad
-  NumLock: Key.NUM_LOCK,
-  NumpadDivide: Key.KP_DIVIDE,
-  NumpadMultiply: Key.KP_MULTIPLY,
-  NumpadSubtract: Key.KP_MINUS,
-  NumpadAdd: Key.KP_PLUS,
-  NumpadEnter: Key.KP_ENTER,
-  Numpad1: Key.KP_1,
-  Numpad2: Key.KP_2,
-  Numpad3: Key.KP_3,
-  Numpad4: Key.KP_4,
-  Numpad5: Key.KP_5,
-  Numpad6: Key.KP_6,
-  Numpad7: Key.KP_7,
-  Numpad8: Key.KP_8,
-  Numpad9: Key.KP_9,
-  Numpad0: Key.KP_0,
-  NumpadDecimal: Key.KP_PERIOD,
-
-  // International
-  IntlBackslash: Key.INTL_BACKSLASH,
-  ContextMenu: Key.CONTEXT_MENU,
-
-  // Additional function keys
-  F13: Key.F13,
-  F14: Key.F14,
-  F15: Key.F15,
-  F16: Key.F16,
-  F17: Key.F17,
-  F18: Key.F18,
-  F19: Key.F19,
-  F20: Key.F20,
-  F21: Key.F21,
-  F22: Key.F22,
-  F23: Key.F23,
-  F24: Key.F24,
-};
+/** What the terminal sends input through; mouseReport is true for a mouse report (webtty, ADR 051). */
+export type InputSink = (data: string, mouseReport?: boolean) => void;
 
 /**
- * InputHandler class
- * Attaches keyboard event listeners to a container and converts
- * keyboard events to terminal input data
+ * Attaches keyboard, IME and mouse listeners to a container and converts their events
+ * to terminal input data.
  */
-/**
- * Mouse tracking configuration
- */
-export interface MouseTrackingConfig {
-  /** Check if any mouse tracking mode is enabled */
-  hasMouseTracking: () => boolean;
-  /**
-   * The report for a mouse event at a client position, encoded by Ghostty's mouse
-   * encoder in the app's tracking mode and format, or '' when the app does not get one.
-   * (webtty: upstream encoded SGR or X10 itself, ADR 049)
-   */
-  encode: (event: MouseEventReport) => string;
-}
-
-/** A mouse event to report, at a client (viewport) position. (webtty, ADR 049) */
-export type MouseEventReport = Omit<MouseInput, 'x' | 'y'> & { clientX: number; clientY: number };
-
-/**
- * The sequence for a key the official encoder does not send as xterm does, or null to
- * encode the key. For Shift+Enter and Shift+Escape the encoder sends Ghostty's
- * modifyOtherKeys `CSI 27;2;13~` and `CSI 27;2;27~`, which most apps do not read; xterm
- * sends CR and ESC, as upstream did. Every other key is encoded: navigation and function
- * keys follow the cursor key mode (Home is `ESC O H` under DECCKM) and the modifiers
- * (Shift+Home is `CSI 1;2 H`). (webtty: upstream sent a fixed table for Enter, Tab,
- * Backspace, Escape, the navigation keys and F1-F12, unmodified or with Shift, which
- * ignored both.)
- */
-export function plainKeySequence(key: Key, mods: Mods): string | null {
-  if (mods !== Mods.SHIFT) return null;
-  if (key === Key.ENTER) return '\r';
-  if (key === Key.ESCAPE) return '\x1b';
-  return null;
-}
-
-/**
- * Ghostty's button for `MouseEvent.button`: 0 left, 1 middle, 2 right, and 3/4 back
- * and forward, which Ghostty reports as buttons 8/9 (codes 128/129). (webtty: upstream
- * sent `MouseEvent.button` as the code, so back was a release and forward Shift.)
- */
-export const MOUSE_BUTTONS: readonly MouseButton[] = ['left', 'middle', 'right', 'eight', 'nine'];
-
-/**
- * The button a motion report carries, from the pressed-button bitmask (bit n is
- * `MouseEvent.button` n): the lowest one held, or none, which Ghostty reports as 35.
- * (webtty: upstream sent 32 for hover, the same code as a left-button drag.)
- */
-export function motionButton(pressed: number): MouseButton | null {
-  for (let i = 0; i < MOUSE_BUTTONS.length; i++) {
-    if (pressed & (1 << i)) return MOUSE_BUTTONS[i];
-  }
-  return null;
-}
-
-/**
- * The modifiers of a mouse event. Ghostty reports Shift (+4), Alt (+8) and Ctrl (+16),
- * not Super. (webtty: upstream sent Meta as +8 and dropped Alt.)
- */
-export function mouseMods(
-  e: Pick<MouseEvent, 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>
-): number {
-  return (
-    (e.shiftKey ? Mods.SHIFT : 0) |
-    (e.altKey ? Mods.ALT : 0) |
-    (e.ctrlKey ? Mods.CTRL : 0) |
-    (e.metaKey ? Mods.SUPER : 0)
-  );
-}
-
 export class InputHandler {
-  private encoder: KeyEncoder;
-  private container: HTMLElement;
-  private inputElement?: HTMLElement;
-  // mouseReport is true for a mouse report, which leaves the selection alone (webtty, ADR 051)
-  private onDataCallback: (data: string, mouseReport?: boolean) => void;
-  private getModeCallback?: (mode: number) => boolean;
-  private onCopyCallback?: () => boolean;
-  private mouseConfig?: MouseTrackingConfig;
-  private keydownListener: ((e: KeyboardEvent) => void) | null = null;
-  private keypressListener: ((e: KeyboardEvent) => void) | null = null;
-  private beforeInputListener: ((e: InputEvent) => void) | null = null;
-  private compositionStartListener: ((e: CompositionEvent) => void) | null = null;
-  private compositionUpdateListener: ((e: CompositionEvent) => void) | null = null;
-  private compositionEndListener: ((e: CompositionEvent) => void) | null = null;
-  private mousedownListener: ((e: MouseEvent) => void) | null = null;
-  private mouseupListener: ((e: MouseEvent) => void) | null = null;
-  private mousemoveListener: ((e: MouseEvent) => void) | null = null;
-  // Where move and release are heard: the document, so a drag keeps reporting past the
-  // terminal's edge (webtty, ADR 049)
-  private mouseTarget: Pick<HTMLElement, 'addEventListener' | 'removeEventListener'>;
+  private readonly encoder: KeyEncoder;
+  private readonly container: HTMLElement;
+  private readonly onData: InputSink;
+  private readonly getMode?: (mode: number) => boolean;
+  private readonly onCopy?: () => boolean;
+  private readonly mouse: MouseReporter;
+  private readonly echoes = new EchoGuard();
+  private readonly listeners = new DisposableStore();
   private isComposing = false;
-  private isDisposed = false;
-  private mouseButtonsPressed = 0; // Track which buttons are pressed for motion reporting
-  // Buttons pressed with Shift while the app tracks the mouse: webtty's (selection, menu),
-  // so nothing about them reaches the app until they are released (webtty, ADR 051)
-  private mouseButtonsBypassed = 0;
-  private lastKeyDownData: string | null = null;
-  private lastKeyDownTime = 0;
-  private lastCompositionData: string | null = null;
-  private lastCompositionTime = 0;
-  private lastBeforeInputData: string | null = null;
-  private lastBeforeInputTime = 0;
-  private static readonly BEFORE_INPUT_IGNORE_MS = 100;
 
   /**
    * Create a new InputHandler
@@ -275,7 +56,7 @@ export class InputHandler {
   constructor(
     ghostty: Ghostty,
     container: HTMLElement,
-    onData: (data: string, mouseReport?: boolean) => void,
+    onData: InputSink,
     getMode?: (mode: number) => boolean,
     onCopy?: () => boolean,
     inputElement?: HTMLElement,
@@ -283,166 +64,78 @@ export class InputHandler {
   ) {
     this.encoder = ghostty.createKeyEncoder();
     this.container = container;
-    this.inputElement = inputElement;
-    this.onDataCallback = onData;
-    this.getModeCallback = getMode;
-    this.onCopyCallback = onCopy;
-    this.mouseConfig = mouseConfig;
-    this.mouseTarget = container.ownerDocument ?? container;
-
-    // Attach event listeners
-    this.attach();
+    this.onData = onData;
+    this.getMode = getMode;
+    this.onCopy = onCopy;
+    this.mouse = new MouseReporter(container, mouseConfig, onData);
+    this.attach(inputElement);
   }
 
-  /**
-   * Attach keyboard event listeners to container
-   */
-  private attach(): void {
+  /** Makes the container focusable and adds the listeners, in upstream's order. */
+  private attach(inputElement: HTMLElement | undefined): void {
+    const container = this.container;
     // Make container focusable so it can receive keyboard events (browser only)
-    if (
-      typeof this.container.hasAttribute === 'function' &&
-      typeof this.container.setAttribute === 'function'
-    ) {
-      if (!this.container.hasAttribute('tabindex')) {
-        this.container.setAttribute('tabindex', '0');
-      }
-
-      // Add visual focus indication (only if style exists - for browser environments)
-      if (this.container.style) {
-        this.container.style.outline = 'none'; // Remove default outline
-      }
+    if (typeof container.hasAttribute === 'function' && typeof container.setAttribute === 'function') {
+      if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '0');
+      // No default focus outline (only if style exists - for browser environments)
+      if (container.style) container.style.outline = 'none';
     }
-
-    this.keydownListener = this.handleKeyDown.bind(this);
-    this.container.addEventListener('keydown', this.keydownListener);
-
+    // Move and release are heard on the document, so a drag keeps reporting past the
+    // terminal's edge (webtty, ADR 049)
+    const mouseTarget: ListenerTarget = container.ownerDocument ?? container;
+    const store = this.listeners;
+    store.add(listen(container, 'keydown', (e) => this.handleKeyDown(e)));
     // Paste is not handled here: webtty's capture listener on the container takes every
     // paste event first and sends it (ADR 037), and a cancelled paste fires no
     // insertFromPaste beforeinput. (webtty)
-
-    if (this.inputElement) {
-      this.beforeInputListener = this.handleBeforeInput.bind(this);
-      this.inputElement.addEventListener('beforeinput', this.beforeInputListener);
+    if (inputElement) {
+      store.add(listen(inputElement, 'beforeinput', (e) => this.handleBeforeInput(e)));
     }
-
-    this.compositionStartListener = this.handleCompositionStart.bind(this);
-    this.container.addEventListener('compositionstart', this.compositionStartListener);
-
-    this.compositionUpdateListener = this.handleCompositionUpdate.bind(this);
-    this.container.addEventListener('compositionupdate', this.compositionUpdateListener);
-
-    this.compositionEndListener = this.handleCompositionEnd.bind(this);
-    this.container.addEventListener('compositionend', this.compositionEndListener);
-
-    // Mouse event listeners (for terminal mouse tracking)
-    this.mousedownListener = this.handleMouseDown.bind(this);
-    this.container.addEventListener('mousedown', this.mousedownListener);
-
-    this.mouseupListener = this.handleMouseUp.bind(this);
-    this.mouseTarget.addEventListener('mouseup', this.mouseupListener);
-
-    this.mousemoveListener = this.handleMouseMove.bind(this);
-    this.mouseTarget.addEventListener('mousemove', this.mousemoveListener);
-
+    store.add(listen(container, 'compositionstart', () => this.handleCompositionStart()));
+    // Removed with the other no-op listeners by ADR 065 (V14)
+    store.add(listen(container, 'compositionupdate', () => this.handleCompositionUpdate()));
+    store.add(listen(container, 'compositionend', (e) => this.handleCompositionEnd(e)));
+    store.add(listen(container, 'mousedown', (e) => this.mouse.down(e)));
+    store.add(listen(mouseTarget, 'mouseup', (e) => this.mouse.up(e as MouseEvent)));
+    store.add(listen(mouseTarget, 'mousemove', (e) => this.mouse.move(e as MouseEvent)));
     // Wheel input is the terminal's alone (Terminal.handleWheel, paced). A listener here
     // also fired for a wheel over the padding, where the container itself is the target,
     // and sent that tick a second time, unpaced. (webtty)
   }
 
-  /**
-   * Map KeyboardEvent.code to USB HID Key enum value
-   * @param code - KeyboardEvent.code value
-   * @returns Key enum value or null if unmapped
-   */
-  private mapKeyCode(code: string): Key | null {
-    return KEY_MAP[code] ?? null;
+  /** Sends text typed or encoded from a keydown, and remembers it for the echo guard. */
+  private sendKey(data: string): void {
+    this.onData(data);
+    this.echoes.recordKeyDown(data);
   }
 
-  /**
-   * Extract modifier flags from KeyboardEvent
-   * @param event - KeyboardEvent
-   * @returns Mods flags
-   */
-  private extractModifiers(event: KeyboardEvent): Mods {
-    let mods = Mods.NONE;
-
-    if (event.shiftKey) mods |= Mods.SHIFT;
-    if (event.ctrlKey) mods |= Mods.CTRL;
-    if (event.altKey) mods |= Mods.ALT;
-    if (event.metaKey) mods |= Mods.SUPER;
-
-    // Note: CapsLock and NumLock are not in KeyboardEvent modifiers
-    // They would need to be tracked separately if needed
-    // For now, we don't set CAPSLOCK or NUMLOCK flags
-
-    return mods;
-  }
-
-  /**
-   * Check if this is a printable character with no special modifiers
-   * @param event - KeyboardEvent
-   * @returns true if printable character
-   */
-  private isPrintableCharacter(event: KeyboardEvent): boolean {
-    // If Ctrl, Alt, or Meta (Cmd on Mac) is pressed, it's not a simple printable character
-    // Exception: AltGr (Ctrl+Alt on some keyboards) can produce printable characters
-    if (event.ctrlKey && !event.altKey) return false;
-    if (event.altKey && !event.ctrlKey) return false;
-    if (event.metaKey) return false; // Cmd key on Mac
-
-    // If key produces a single printable character
-    return event.key.length === 1;
-  }
-
-  /**
-   * Handle keydown event
-   * @param event - KeyboardEvent
-   */
   private handleKeyDown(event: KeyboardEvent): void {
-    if (this.isDisposed) return;
-
     // Ignore keydown events during composition
     // Note: Some browsers send keyCode 229 for all keys during composition
-    if (this.isComposing || event.isComposing || event.keyCode === 229) {
-      return;
-    }
+    if (this.isComposing || event.isComposing || event.keyCode === 229) return;
 
-    // Allow Ctrl+V and Cmd+V to trigger paste event (don't preventDefault)
-    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') {
-      // Let the browser's native paste event fire
-      return;
-    }
+    // Ctrl+V and Cmd+V are not prevented, so the browser's paste event fires
+    if ((event.ctrlKey || event.metaKey) && event.code === 'KeyV') return;
 
-    // Handle Cmd+C for copy (on Mac, Cmd+C should copy, not send interrupt)
-    // Note: Ctrl+C on all platforms sends interrupt signal (0x03)
+    // Cmd+C copies the selection (on Mac it should copy, not send an interrupt; Ctrl+C
+    // sends 0x03 on every platform). With no selection it falls through to the browser,
+    // which may have other text selected.
     if (event.metaKey && event.code === 'KeyC') {
-      // Try to copy selection via callback
-      // If there's a selection and copy succeeds, prevent default
-      // If no selection, let it fall through (browser may have other text selected)
-      if (this.onCopyCallback && this.onCopyCallback()) {
-        event.preventDefault();
-      }
+      if (this.onCopy?.()) event.preventDefault();
       return;
     }
 
-    // For printable characters without modifiers, send the character directly
-    // This handles: a-z, A-Z (with shift), 0-9, punctuation, etc.
-    if (this.isPrintableCharacter(event)) {
+    // Printable characters without modifiers are sent as they are: a-z, A-Z (with
+    // shift), 0-9, punctuation
+    if (isPrintableKey(event)) {
       event.preventDefault();
-      this.onDataCallback(event.key);
-      this.recordKeyDownData(event.key);
+      this.sendKey(event.key);
       return;
     }
 
-    // Map the physical key code
-    const key = this.mapKeyCode(event.code);
-    if (key === null) {
-      // Unknown key - ignore it
-      return;
-    }
-
-    // Extract modifiers
-    const mods = this.extractModifiers(event);
+    const key = keyForCode(event.code);
+    if (key === null) return;
+    const mods = keyMods(event);
 
     // The few keys the encoder does not send as xterm does; every other key, navigation
     // and function keys included, is encoded below, which follows the cursor key mode
@@ -450,407 +143,60 @@ export class InputHandler {
     const plain = plainKeySequence(key, mods);
     if (plain !== null) {
       event.preventDefault();
-      this.onDataCallback(plain);
-      this.recordKeyDownData(plain);
+      this.sendKey(plain);
       return;
     }
 
-    // Determine action (we only care about PRESS for now, not RELEASE or REPEAT)
-    const action = KeyAction.PRESS;
-
-    // For non-printable keys or keys with modifiers, encode using Ghostty
     try {
-      // Sync encoder options with terminal mode state
-      // Mode 1 (DECCKM) controls whether arrow keys send CSI or SS3 sequences
-      if (this.getModeCallback) {
-        const appCursorMode = this.getModeCallback(1);
-        this.encoder.setOption(KeyEncoderOption.CURSOR_KEY_APPLICATION, appCursorMode);
-      }
-
-      // For letter/number keys, even with modifiers, pass the base character
-      // This helps the encoder produce correct control sequences (e.g., Ctrl+A = 0x01)
-      // For special keys (Enter, Arrow keys, etc.), don't pass utf8
-      const utf8 =
-        event.key.length === 1 && event.key.charCodeAt(0) < 128
-          ? event.key.toLowerCase() // Use lowercase for consistency
-          : undefined;
-
-      const encoded = this.encoder.encode({
-        action,
-        key,
-        mods,
-        utf8,
-      });
-
-      // Convert Uint8Array to string
-      const decoder = new TextDecoder();
-      const data = decoder.decode(encoded);
-
-      // Prevent default browser behavior
+      const data = encodeKeyPress(this.encoder, key, mods, event.key, this.getMode?.(1));
       event.preventDefault();
       event.stopPropagation();
-
-      // Emit the data
-      if (data.length > 0) {
-        this.onDataCallback(data);
-        this.recordKeyDownData(data);
-      }
+      if (data.length > 0) this.sendKey(data);
     } catch (error) {
       // Encoding failed - log but don't crash
       console.warn('Failed to encode key:', event.code, error);
     }
   }
 
-  /**
-   * Handle beforeinput event (mobile/IME input)
-   * @param event - InputEvent
-   */
+  /** Mobile keyboards and IMEs: text, line breaks and deletes not seen as a keydown. */
   private handleBeforeInput(event: InputEvent): void {
-    if (this.isDisposed) return;
-
-    if (this.isComposing || event.isComposing) {
-      return;
-    }
-
-    const inputType = event.inputType;
+    if (this.isComposing || event.isComposing) return;
     const data = event.data ?? '';
-    let output: string | null = null;
-
-    switch (inputType) {
-      case 'insertText':
-      case 'insertReplacementText':
-        output = data.length > 0 ? data.replace(/\n/g, '\r') : null;
-        break;
-      case 'insertLineBreak':
-      case 'insertParagraph':
-        output = '\r';
-        break;
-      case 'deleteContentBackward':
-        output = '\x7F';
-        break;
-      case 'deleteContentForward':
-        output = '\x1B[3~';
-        break;
-      default:
-        return;
-    }
-
-    if (!output) {
-      return;
-    }
-
-    if (this.shouldIgnoreBeforeInput(output)) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-
-    if (data && this.shouldIgnoreBeforeInputFromComposition(data)) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
+    const output = beforeInputText(event.inputType, data);
+    if (!output) return;
 
     event.preventDefault();
     event.stopPropagation();
-    this.onDataCallback(output);
-    if (data) {
-      this.recordBeforeInputData(data);
-    }
+    // The same text a keydown or a composition just sent
+    if (this.echoes.isKeyDownEcho(output)) return;
+    if (data && this.echoes.isCompositionEcho(data)) return;
+
+    this.onData(output);
+    if (data) this.echoes.recordBeforeInput(data);
   }
 
-  /**
-   * Handle compositionstart event
-   */
-  private handleCompositionStart(_event: CompositionEvent): void {
-    if (this.isDisposed) return;
+  private handleCompositionStart(): void {
     this.isComposing = true;
   }
 
-  /**
-   * Handle compositionupdate event
-   */
-  private handleCompositionUpdate(_event: CompositionEvent): void {
-    if (this.isDisposed) return;
+  private handleCompositionUpdate(): void {
     // We could track the current composition string here if we wanted to
     // display it in a custom way, but for now we rely on the browser's
     // input method editor UI.
   }
 
-  /**
-   * Handle compositionend event
-   */
   private handleCompositionEnd(event: CompositionEvent): void {
-    if (this.isDisposed) return;
     this.isComposing = false;
-
     const data = event.data;
-    if (data && data.length > 0) {
-      if (this.shouldIgnoreCompositionEnd(data)) {
-        this.cleanupCompositionTextNodes();
-        return;
-      }
-      this.onDataCallback(data);
-      this.recordCompositionData(data);
+    if (data && data.length > 0 && !this.echoes.isBeforeInputEcho(data)) {
+      this.onData(data);
+      this.echoes.recordComposition(data);
     }
-
-    this.cleanupCompositionTextNodes();
+    removeCompositionText(this.container);
   }
 
-  /**
-   * Cleanup text nodes in container after composition
-   */
-  private cleanupCompositionTextNodes(): void {
-    // Cleanup text nodes in container (fix for duplicate text display)
-    // When the container is contenteditable, the browser might insert text nodes
-    // upon composition end. We need to remove them to prevent duplicate display.
-    if (this.container && this.container.childNodes) {
-      for (let i = this.container.childNodes.length - 1; i >= 0; i--) {
-        const node = this.container.childNodes[i];
-        // Node.TEXT_NODE === 3
-        if (node.nodeType === 3) {
-          this.container.removeChild(node);
-        }
-      }
-    }
-  }
-
-  // ==========================================================================
-  // Mouse Event Handling (for terminal mouse tracking)
-  // ==========================================================================
-
-  /** Whether a mouse event is over the terminal (the container or what is in it). */
-  private isOverTerminal(event: MouseEvent): boolean {
-    const target = event.target as Node | null;
-    return !!target && (target === this.container || !!this.container.contains?.(target));
-  }
-
-  /**
-   * Sends a mouse event as Ghostty encodes it. Ghostty decides what is reported: the
-   * tracking mode (presses only in X10 mode 9, no motion in 1000, motion with a button
-   * in 1002), motion once per cell, the padding as the nearest edge cell, and motion
-   * outside the terminal only while a button is held. (webtty, ADR 049)
-   */
-  private sendMouseEvent(
-    event: MouseEvent,
-    action: MouseInput['action'],
-    button: MouseButton | null
-  ): void {
-    const data = this.mouseConfig?.encode({
-      action,
-      button,
-      mods: mouseMods(event),
-      clientX: event.clientX,
-      clientY: event.clientY,
-      anyButtonPressed: this.mouseButtonsPressed !== 0,
-    });
-    if (data) this.onDataCallback(data, true);
-  }
-
-  /**
-   * Handle mousedown event
-   */
-  private handleMouseDown(event: MouseEvent): void {
-    if (this.isDisposed) return;
-    const tracking = this.mouseConfig?.hasMouseTracking() ?? false;
-    if (!tracking) return;
-
-    const button = MOUSE_BUTTONS[event.button];
-    if (!button) return;
-    // Shift+press is webtty's: the app gets neither it, the drag nor the release
-    // (webtty, ADR 051)
-    if (!pressToApp(tracking, event.shiftKey)) {
-      this.mouseButtonsBypassed |= 1 << event.button;
-      return;
-    }
-    // Back and forward would leave the session's page (webtty)
-    if (event.button >= 3) event.preventDefault();
-
-    // Track pressed buttons for motion events
-    this.mouseButtonsPressed |= 1 << event.button;
-
-    this.sendMouseEvent(event, 'press', button);
-
-    // Don't prevent default - let SelectionManager handle selection
-  }
-
-  /**
-   * Handle mouseup event, anywhere in the document: outside the terminal only for a
-   * button pressed in it (webtty: upstream lost a release outside the container)
-   */
-  private handleMouseUp(event: MouseEvent): void {
-    if (this.isDisposed) return;
-    if (!this.mouseConfig?.hasMouseTracking()) return;
-
-    const button = MOUSE_BUTTONS[event.button];
-    if (!button) return;
-    const bit = 1 << event.button;
-    if (this.mouseButtonsBypassed & bit) {
-      this.mouseButtonsBypassed &= ~bit;
-      return;
-    }
-    if (!(this.mouseButtonsPressed & bit) && !this.isOverTerminal(event)) return;
-    if (event.button >= 3) event.preventDefault();
-
-    // Clear pressed button
-    this.mouseButtonsPressed &= ~bit;
-
-    this.sendMouseEvent(event, 'release', button);
-  }
-
-  /**
-   * Handle mousemove event, anywhere in the document: outside the terminal only while a
-   * button pressed in it is held, so a drag past the edge keeps reporting (webtty)
-   */
-  private handleMouseMove(event: MouseEvent): void {
-    if (this.isDisposed) return;
-    if (!this.mouseConfig?.hasMouseTracking()) return;
-
-    // No button held: a release outside the document never cleared the bitmask
-    if (event.buttons === 0) {
-      this.mouseButtonsPressed = 0;
-      this.mouseButtonsBypassed = 0;
-    }
-    // A Shift drag is webtty's selection (webtty, ADR 051)
-    if (this.mouseButtonsBypassed !== 0) return;
-    if (this.mouseButtonsPressed === 0 && !this.isOverTerminal(event)) return;
-
-    this.sendMouseEvent(event, 'motion', motionButton(this.mouseButtonsPressed));
-  }
-
-  /**
-   * Record keydown data for beforeinput de-duplication
-   */
-  private recordKeyDownData(data: string): void {
-    this.lastKeyDownData = data;
-    this.lastKeyDownTime = this.getNow();
-  }
-
-  /**
-   * Check if beforeinput should be ignored due to a recent keydown
-   */
-  private shouldIgnoreBeforeInput(data: string): boolean {
-    if (!this.lastKeyDownData) {
-      return false;
-    }
-    const now = this.getNow();
-    const isDuplicate =
-      now - this.lastKeyDownTime < InputHandler.BEFORE_INPUT_IGNORE_MS &&
-      this.lastKeyDownData === data;
-    this.lastKeyDownData = null;
-    return isDuplicate;
-  }
-
-  /**
-   * Check if beforeinput text should be ignored due to a recent composition end
-   */
-  private shouldIgnoreBeforeInputFromComposition(data: string): boolean {
-    if (!this.lastCompositionData) {
-      return false;
-    }
-    const now = this.getNow();
-    const isDuplicate =
-      now - this.lastCompositionTime < InputHandler.BEFORE_INPUT_IGNORE_MS &&
-      this.lastCompositionData === data;
-    if (isDuplicate) {
-      this.lastCompositionData = null;
-    }
-    return isDuplicate;
-  }
-
-  /**
-   * Check if composition end should be ignored due to a recent beforeinput text
-   */
-  private shouldIgnoreCompositionEnd(data: string): boolean {
-    if (!this.lastBeforeInputData) {
-      return false;
-    }
-    const now = this.getNow();
-    const isDuplicate =
-      now - this.lastBeforeInputTime < InputHandler.BEFORE_INPUT_IGNORE_MS &&
-      this.lastBeforeInputData === data;
-    if (isDuplicate) {
-      this.lastBeforeInputData = null;
-    }
-    return isDuplicate;
-  }
-
-  /**
-   * Record beforeinput text for composition de-duplication
-   */
-  private recordBeforeInputData(data: string): void {
-    this.lastBeforeInputData = data;
-    this.lastBeforeInputTime = this.getNow();
-  }
-
-  /**
-   * Record composition end data for beforeinput de-duplication
-   */
-  private recordCompositionData(data: string): void {
-    this.lastCompositionData = data;
-    this.lastCompositionTime = this.getNow();
-  }
-
-  /**
-   * Get current time in milliseconds
-   */
-  private getNow(): number {
-    return typeof performance !== 'undefined' && typeof performance.now === 'function'
-      ? performance.now()
-      : Date.now();
-  }
-
-  /**
-   * Dispose the InputHandler and remove event listeners
-   */
+  /** Removes every listener; a second call does nothing. */
   dispose(): void {
-    if (this.isDisposed) return;
-
-    if (this.keydownListener) {
-      this.container.removeEventListener('keydown', this.keydownListener);
-      this.keydownListener = null;
-    }
-
-    if (this.keypressListener) {
-      this.container.removeEventListener('keypress', this.keypressListener);
-      this.keypressListener = null;
-    }
-
-    if (this.beforeInputListener && this.inputElement) {
-      this.inputElement.removeEventListener('beforeinput', this.beforeInputListener);
-      this.beforeInputListener = null;
-    }
-
-    if (this.compositionStartListener) {
-      this.container.removeEventListener('compositionstart', this.compositionStartListener);
-      this.compositionStartListener = null;
-    }
-
-    if (this.compositionUpdateListener) {
-      this.container.removeEventListener('compositionupdate', this.compositionUpdateListener);
-      this.compositionUpdateListener = null;
-    }
-
-    if (this.compositionEndListener) {
-      this.container.removeEventListener('compositionend', this.compositionEndListener);
-      this.compositionEndListener = null;
-    }
-
-    if (this.mousedownListener) {
-      this.container.removeEventListener('mousedown', this.mousedownListener);
-      this.mousedownListener = null;
-    }
-
-    if (this.mouseupListener) {
-      this.mouseTarget.removeEventListener('mouseup', this.mouseupListener);
-      this.mouseupListener = null;
-    }
-
-    if (this.mousemoveListener) {
-      this.mouseTarget.removeEventListener('mousemove', this.mousemoveListener);
-      this.mousemoveListener = null;
-    }
-
-    this.isDisposed = true;
+    this.listeners.dispose();
   }
 }
