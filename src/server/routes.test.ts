@@ -119,6 +119,7 @@ describe('server — routes', () => {
     expect(typeof body.rightClickBehavior).toBe('string');
     expect(body.clipboardWrite).toBe(true);
     expect(body.bellTitle).toBe(true);
+    expect(body.desktopNotifications).toBe(true);
     expect(typeof body.mouseScrollSpeed).toBe('number');
     expect(body.scrollbackLines).toBe(10000);
     expect(typeof body.padding).toBe('number');

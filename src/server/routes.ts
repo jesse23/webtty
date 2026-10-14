@@ -124,6 +124,7 @@ export async function handleRequest(
       rightClickBehavior: config.rightClickBehavior,
       clipboardWrite: config.clipboardWrite,
       bellTitle: config.bellTitle,
+      desktopNotifications: config.desktopNotifications,
       mouseScrollSpeed: config.mouseScrollSpeed,
       padding: config.padding,
       keyboardBindings: config.keyboardBindings,

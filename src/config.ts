@@ -119,6 +119,8 @@ export interface Config {
   clipboardWrite: boolean;
   /** Put a 🔔 in front of the tab title when a program rings the bell (BEL), until the terminal is focused or a key is pressed, as Ghostty's `bell-features = title`. Bells replayed on reconnect are ignored. */
   bellTitle: boolean;
+  /** Let programs show desktop notifications with OSC 9 and OSC 777, as Ghostty's `desktop-notifications`: shown while the terminal is not focused, once the browser grants permission. Notifications replayed on reconnect are ignored. `false` ignores them. */
+  desktopNotifications: boolean;
   /** Mouse wheel scroll speed multiplier for apps with mouse tracking. `1` = one SGR per tick. Values `< 1` reduce rate; values `> 1` send multiple SGRs per tick. Must be `> 0`. */
   mouseScrollSpeed: number;
   /** Padding in px around the terminal canvas, on all four sides. `0` = none. Coloured by `theme.padding`, or `theme.background` if that is unset. */
@@ -199,6 +201,7 @@ export const DEFAULT_CONFIG: Config = {
   rightClickBehavior: 'contextMenu' as RightClickBehavior,
   clipboardWrite: true,
   bellTitle: true,
+  desktopNotifications: true,
   mouseScrollSpeed: 1,
   padding: 0,
   logs: false,
@@ -317,6 +320,9 @@ export function loadConfig(): Config {
     }),
     ...(typeof p.clipboardWrite === 'boolean' && { clipboardWrite: p.clipboardWrite }),
     ...(typeof p.bellTitle === 'boolean' && { bellTitle: p.bellTitle }),
+    ...(typeof p.desktopNotifications === 'boolean' && {
+      desktopNotifications: p.desktopNotifications,
+    }),
     ...(typeof p.mouseScrollSpeed === 'number' &&
       p.mouseScrollSpeed > 0 && { mouseScrollSpeed: p.mouseScrollSpeed }),
     ...(typeof p.padding === 'number' &&

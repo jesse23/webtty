@@ -274,6 +274,23 @@ describe('loadConfig — reads and merges', () => {
     }
   });
 
+  test('defaults desktopNotifications to true', () => {
+    writeConfig(JSON.stringify({}));
+    expect(loadConfig().desktopNotifications).toBe(true);
+  });
+
+  test('overrides desktopNotifications when set to false', () => {
+    writeConfig(JSON.stringify({ desktopNotifications: false }));
+    expect(loadConfig().desktopNotifications).toBe(false);
+  });
+
+  test('ignores a desktopNotifications that is not a boolean', () => {
+    for (const value of ['false', 0, null]) {
+      writeConfig(JSON.stringify({ desktopNotifications: value }));
+      expect(loadConfig().desktopNotifications).toBe(true);
+    }
+  });
+
   test('overrides rightClickBehavior when set to copyPaste', () => {
     writeConfig(JSON.stringify({ rightClickBehavior: 'copyPaste' }));
     expect(loadConfig().rightClickBehavior).toBe('copyPaste');
