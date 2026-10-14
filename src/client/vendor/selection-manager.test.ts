@@ -203,3 +203,163 @@ describe('SelectionManager text of wide characters', () => {
     t.free();
   });
 });
+
+// Behaviour the selection keeps on any engine API: mouse gestures over rows, absolute
+// rows across scrolling and output, and the word and line a click picks.
+describe('SelectionManager gestures', () => {
+  const doc = globalThis.document;
+  const nav = globalThis.navigator;
+  let documentTarget: ReturnType<typeof target>;
+  let ghostty: Ghostty;
+  let writes: string[];
+
+  beforeEach(async () => {
+    documentTarget = target();
+    globalThis.document = documentTarget as unknown as Document;
+    writes = [];
+    Object.defineProperty(globalThis, 'navigator', {
+      configurable: true,
+      value: { clipboard: { writeText: async (text: string) => void writes.push(text) } },
+    });
+    ghostty = await Ghostty.load(WASM);
+  });
+
+  afterEach(() => {
+    globalThis.document = doc;
+    Object.defineProperty(globalThis, 'navigator', { configurable: true, value: nav });
+  });
+
+  /** A manager over `wasmTerm` with 8x16 cells, scrolled up `viewportY()` lines. */
+  function manager(wasmTerm: GhosttyTerminal, viewportY: () => number = () => 0) {
+    const canvas = {
+      ...target(),
+      getBoundingClientRect: () => ({
+        left: 0,
+        top: 0,
+        right: wasmTerm.cols * 8,
+        bottom: wasmTerm.rows * 16,
+      }),
+    };
+    const terminal = {
+      cols: wasmTerm.cols,
+      rows: wasmTerm.rows,
+      options: { copyOnSelect: true },
+      getViewportY: viewportY,
+      scrollLines: () => {},
+    } as unknown as Terminal;
+    const renderer = {
+      getCanvas: () => canvas,
+      getMetrics: () => ({ width: 8, height: 16 }),
+      scrollOffset: 0,
+    } as unknown as CanvasRenderer;
+    const m = new SelectionManager(terminal, renderer, wasmTerm, {
+      style: {},
+    } as HTMLTextAreaElement);
+    return { m, canvas };
+  }
+
+  /** Drags from cell (c0, r0) to cell (c1, r1), in viewport rows, and releases. */
+  function drag(canvas: ReturnType<typeof target>, c0: number, r0: number, c1: number, r1: number) {
+    canvas.dispatch('mousedown', { button: 0, offsetX: c0 * 8 + 1, offsetY: r0 * 16 + 4 });
+    canvas.dispatch('mousemove', { offsetX: c1 * 8 + 1, offsetY: r1 * 16 + 4 });
+    documentTarget.dispatch('mouseup', {});
+  }
+
+  const click = (canvas: ReturnType<typeof target>, detail: number, col: number, row: number) =>
+    canvas.dispatch('click', { detail, offsetX: col * 8 + 1, offsetY: row * 16 + 4 });
+
+  test('a drag backwards selects the same text as forwards', () => {
+    const t = ghostty.createTerminal(20, 4);
+    t.write('hello world\r\nsecond line');
+    const { m, canvas } = manager(t);
+    drag(canvas, 5, 1, 6, 0);
+    expect(m.getSelection()).toBe('world\nsecond');
+    expect(m.getSelectionRange()).toEqual({ startCol: 6, startRow: 0, endCol: 5, endRow: 1 });
+    t.free();
+  });
+
+  test('a drag while scrolled selects scrollback rows, which stay selected at the bottom', () => {
+    const t = ghostty.createTerminal(10, 2);
+    t.write('one\r\ntwo\r\nthree\r\nfour');
+    let viewportY = 2;
+    const { m, canvas } = manager(t, () => viewportY);
+    drag(canvas, 0, 0, 4, 1);
+    expect(m.getSelection()).toBe('one\ntwo');
+    viewportY = 0;
+    expect(m.getSelection()).toBe('one\ntwo');
+    expect(m.getSelectionRange()).toEqual({ startCol: 0, startRow: -2, endCol: 4, endRow: -1 });
+    t.free();
+  });
+
+  test('a selection keeps its text while output arrives and scrolls it into history', () => {
+    const t = ghostty.createTerminal(10, 3);
+    t.write('keep me\r\n');
+    const { m, canvas } = manager(t);
+    drag(canvas, 0, 0, 6, 0);
+    t.write('a\r\nb\r\nc\r\nd');
+    expect(t.getScrollbackLength()).toBe(2);
+    expect(m.getSelection()).toBe('keep me');
+    expect(m.getSelectionRange()).toEqual({ startCol: 0, startRow: -2, endCol: 6, endRow: -2 });
+    t.free();
+  });
+
+  test('a double click selects a word with path and address characters', () => {
+    const t = ghostty.createTerminal(70, 2);
+    t.write('ls /usr/local/bin/foo.txt a@b.c x+y ~/q "quoted" (paren) $HOME');
+    const { m, canvas } = manager(t);
+    const word = (col: number) => {
+      click(canvas, 2, col, 0);
+      return m.getSelection();
+    };
+    expect(word(8)).toBe('/usr/local/bin/foo.txt');
+    expect(word(27)).toBe('a@b.c');
+    expect(word(33)).toBe('x+y');
+    expect(word(37)).toBe('~/q');
+    expect(word(43)).toBe('quoted');
+    expect(word(52)).toBe('paren');
+    expect(word(59)).toBe('HOME');
+    expect(writes).toEqual([
+      '/usr/local/bin/foo.txt',
+      'a@b.c',
+      'x+y',
+      '~/q',
+      'quoted',
+      'paren',
+      'HOME',
+    ]);
+    t.free();
+  });
+
+  test('a double click on an empty cell selects nothing', () => {
+    const t = ghostty.createTerminal(20, 2);
+    t.write('word');
+    const { m, canvas } = manager(t);
+    click(canvas, 2, 15, 0);
+    expect(m.hasSelection()).toBe(false);
+    expect(writes).toEqual([]);
+    t.free();
+  });
+
+  test('a triple click selects the line without trailing spaces; an empty line selects nothing', () => {
+    const t = ghostty.createTerminal(20, 3);
+    t.write('one two   \r\n\r\nthree');
+    const { m, canvas } = manager(t);
+    click(canvas, 3, 15, 1);
+    expect(m.hasSelection()).toBe(false);
+    click(canvas, 3, 15, 0);
+    expect(m.getSelection()).toBe('one two');
+    click(canvas, 3, 0, 2);
+    expect(m.getSelection()).toBe('three');
+    expect(writes).toEqual(['one two', 'three']);
+    t.free();
+  });
+
+  test('a triple click in scrollback selects that line', () => {
+    const t = ghostty.createTerminal(10, 2);
+    t.write('first\r\nsecond\r\nthird');
+    const { m, canvas } = manager(t, () => 1);
+    click(canvas, 3, 2, 0);
+    expect(m.getSelection()).toBe('first');
+    t.free();
+  });
+});
