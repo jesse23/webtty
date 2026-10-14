@@ -15,6 +15,7 @@ describe('SmoothScroll', () => {
     const offsets: number[] = [];
     let scrolled = (_y: number) => {};
     let resized = () => {};
+    const unsubscribed: string[] = [];
     const term = {
       viewportY: 0,
       rows: 40,
@@ -25,9 +26,11 @@ describe('SmoothScroll', () => {
       },
       onScroll: (cb: (y: number) => void) => {
         scrolled = cb;
+        return { dispose: () => unsubscribed.push('onScroll') };
       },
       onResize: (cb: () => void) => {
         resized = cb;
+        return { dispose: () => unsubscribed.push('onResize') };
       },
       getScrollbackLength: () => 100,
       scrollToLine(line: number) {
@@ -53,6 +56,7 @@ describe('SmoothScroll', () => {
       metrics,
       offsets,
       scroll,
+      unsubscribed,
       scrolled: (y: number) => scrolled(y),
       resized: () => resized(),
     };
@@ -62,6 +66,13 @@ describe('SmoothScroll', () => {
   beforeEach(() => {
     Object.assign(env, { dpr: 1, now: 0, reducedMotion: false });
     live.length = 0;
+  });
+
+  test('dispose drops its scroll and resize subscriptions; twice is a no-op', () => {
+    const { scroll, unsubscribed } = fake(10);
+    scroll.dispose();
+    scroll.dispose();
+    expect(unsubscribed.sort()).toEqual(['onResize', 'onScroll']);
   });
 
   test('update re-snaps the offset to a new device pixel ratio', () => {

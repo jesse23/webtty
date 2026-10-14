@@ -19,7 +19,7 @@
  * Only the normal screen's scrollback scrolls this way. On the alternate screen, or
  * when the app tracks the mouse, the app moves its own view in whole lines.
  */
-import { Glide, type Terminal } from '../../vendor/ghostty-web';
+import { type Disposable, DisposableStore, Glide, type Terminal } from '../../vendor/ghostty-web';
 import { splitScroll, wheelLines } from './scroll-split';
 import type { WheelStream } from './wheel-stream';
 
@@ -30,9 +30,10 @@ export interface SmoothScrollDeps {
 }
 
 /** Scrolls the terminal's scrollback by pixels: a fractional position that glides. */
-export class SmoothScroll {
+export class SmoothScroll implements Disposable {
   /** The position in lines scrolled up from the bottom, fractional between rows. */
   private readonly glide = new Glide();
+  private readonly store = new DisposableStore();
   /** Set while `apply` moves ghostty-web's viewport, whose onScroll is then our own. */
   private applying = false;
 
@@ -43,10 +44,17 @@ export class SmoothScroll {
   ) {
     // ghostty-web moves the viewport itself on new output (to the bottom), keyboard
     // scrolling and scrollbar drags. Follow it whenever it lands on a different line.
-    term.onScroll((y: number) => {
-      if (!this.applying && y !== Math.floor(this.glide.value)) this.jump(y);
-    });
-    term.onResize(() => this.jump(term.viewportY));
+    this.store.add(
+      term.onScroll((y: number) => {
+        if (!this.applying && y !== Math.floor(this.glide.value)) this.jump(y);
+      }),
+    );
+    this.store.add(term.onResize(() => this.jump(term.viewportY)));
+  }
+
+  /** Stops following the terminal's scroll and resize. Idempotent. */
+  dispose(): void {
+    this.store.dispose();
   }
 
   /** Handles a wheel event on the normal screen. Returns false to leave it to ghostty-web. */
