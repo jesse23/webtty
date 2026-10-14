@@ -72,6 +72,7 @@ The vendored TS is excluded from Biome so it stays byte-identical to upstream un
   scrollback,             // the server's replay buffer; the client does not read it (ADR 047)
   scrollbackLines,        // history in lines, 0 = no line limit, 32 MiB ceiling (ADR 046)
   theme, copyOnSelect, rightClickBehavior,
+  clipboardWrite,         // Terminal option: report OSC 52 clipboard writes (ADR 052)
   mouseScrollSpeed,       // Terminal option: SGR wheel ticks per line/page event when the app tracks the mouse
   padding,                // px around the canvas, used by fit(); coloured by theme.padding or theme.background
   keyboardBindings        // used by the keydown capture handler, not passed to Terminal constructor
@@ -169,6 +170,20 @@ The terminal has the one `contextmenu` listener (`handleContextMenu`). A menu no
 
 What a double or triple click selects, and the text either path copies, is Ghostty's (`ghostty_terminal_select_word`, `ghostty_terminal_select_line`, `ghostty_terminal_selection_format_alloc`): soft-wrapped rows are joined without a newline ([ADR 050](../adrs/050.client.selection-from-libghostty-vt.md)).
 
+## Program Clipboard Writes
+
+Programs write the clipboard with OSC 52 (`ESC ] 52 ; c ; <base64> BEL` or ST), as Claude Code, pi, Neovim 0.10+ and tmux `set-clipboard` do over SSH ([ADR 052](../adrs/052.client.osc52-clipboard-write.md)). Ghostty parses and decodes it (also iTerm2's `OSC 1337 ; Copy` and kitty's OSC 5522) and calls the binding's `CLIPBOARD_WRITE` callback, installed only while `clipboardWrite` is on:
+
+| Sequence | Result |
+|---|---|
+| `52;c;<base64>`, `52;;<base64>`, any selection other than `s`/`p` | the clipboard gets the text, decoded as UTF-8 (invalid bytes become U+FFFD) |
+| `52;s;…`, `52;p;…`, `52;pc;…` | nothing, as in Ghostty on macOS |
+| `52;c;` (empty) | the clipboard is cleared (set to `''`) |
+| `52;c;?` (query) | no answer, ever |
+| invalid base64, or a sequence over 8 MiB (about 6 MiB of text) | ignored whole; missing padding is accepted |
+
+`readEffects` reports the last write since the previous call, `Terminal.onClipboardWrite` fires with it, and `index.ts` passes it to `ClipboardWriter` (`clipboard-write.ts`), which calls `navigator.clipboard.writeText`. After each (re)connect it ignores writes until a `keydown`, `mousedown`, `paste` or `drop` in the tab, so the replayed history does not overwrite the clipboard on reload. A missing clipboard API (http other than localhost), a refused write (no focus in Chrome, no recent input in Firefox, most writes in Safari) and a write held back for the replay are each logged to the console once; there is no error UI.
+
 ## Behavior Notes
 
 ### Tab close on session end
@@ -192,6 +207,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Output acknowledgements | Output is acknowledged as it is parsed, so the server sends it in order at the tab's pace; a tab closed with `4003` for falling behind resets and reconnects to the replay | [ADR 048](../adrs/048.webtty.output-flow-control.md) | ✅ |
 | Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
+| Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` are Ghostty's default cursor; Ghostty applies DECSCUSR from the PTY (Ps 0 and RIS restore the default); mode 12 is ignored, as in Ghostty with `cursor-style-blink` set; and the renderer draws the shape and blink from its state, repainting the cursor cell so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
 | Non-text paste | Ctrl+V with no `text/plain` in clipboard forwards `\x16` to PTY; TUI apps read non-text content via their native OS clipboard API | [ADR 014](../adrs/014.client.image-paste.md) | ✅ |
