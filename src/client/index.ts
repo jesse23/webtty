@@ -256,6 +256,9 @@ function connect(): void {
   ws.onopen = () => {
     graphics.reset();
     ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+    // Focus changes while the socket was down were dropped: send the state the app's
+    // mode 1004 now misses (ADR 053). After a reset the mode is off until the replay.
+    term.resyncFocus();
   };
 
   ws.onmessage = (event: MessageEvent<string>) => {

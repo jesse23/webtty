@@ -343,6 +343,7 @@ describe('Terminal focus reports', () => {
     const sent: string[] = [];
     term.onData((data) => sent.push(data));
     return {
+      term,
       wasmTerm,
       sent,
       write: (data: string) => internals.writeInternal(data),
@@ -392,6 +393,23 @@ describe('Terminal focus reports', () => {
     focusOut();
     focusOut();
     expect(sent).toEqual(['\x1b[I', '\x1b[O']);
+    wasmTerm.free();
+  });
+
+  test('resyncFocus sends the current focus while the mode is on, for a new connection', async () => {
+    const { term, wasmTerm, sent, write, focusIn, focusOut } = await focusTerm();
+    focusIn();
+    term.resyncFocus();
+    expect(sent).toEqual([]);
+    write('\x1b[?1004h');
+    // The socket goes down: this report is dropped on the way to the app.
+    focusOut();
+    sent.length = 0;
+    // The replay of a reconnect leaves the mode on, which sends nothing: the resync does.
+    write('\x1b[?1004h');
+    expect(sent).toEqual([]);
+    term.resyncFocus();
+    expect(sent).toEqual(['\x1b[O']);
     wasmTerm.free();
   });
 

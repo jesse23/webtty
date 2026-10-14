@@ -1083,6 +1083,14 @@ export class Terminal implements ITerminalCore {
     if (this.wasmTerm?.getMode(FOCUS_EVENT_MODE)) this.reportFocus();
   }
 
+  /**
+   * Sends the current focus if mode 1004 is on, for a new connection to the app: reports
+   * sent while there was none were dropped. (webtty, ADR 053)
+   */
+  resyncFocus(): void {
+    if (this.wasmTerm?.getMode(FOCUS_EVENT_MODE)) this.reportFocus();
+  }
+
   /** Sends `CSI I` or `CSI O` for the current focus, encoded by Ghostty. (webtty, ADR 053) */
   private reportFocus(): void {
     if (this.options.disableStdin || !this.wasmTerm) return;
