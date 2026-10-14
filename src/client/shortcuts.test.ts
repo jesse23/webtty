@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { isMacPlatform, shortcutFor } from './shortcuts';
+import { isMacPlatform, type Shortcut, shortcutFor } from './shortcuts';
 
 type Mod = 'ctrl' | 'shift' | 'alt' | 'meta';
 const key = (code: string, mods: Mod[] = []) => ({
@@ -116,5 +116,27 @@ describe('shortcutFor find keys (ADR 055)', () => {
     });
     expect(at(false, 'KeyG', ['meta'])).toBeNull();
     expect(at(false, 'KeyG', ['ctrl'])).toBeNull();
+  });
+});
+
+describe('shortcutFor jump-to-prompt keys (ADR 057)', () => {
+  const at = (mac: boolean, code: string, mods: Mod[] = []) => shortcutFor(key(code, mods), mac);
+  const previous: Shortcut = { action: 'promptPrevious', performable: false };
+  const next: Shortcut = { action: 'promptNext', performable: false };
+
+  test('Ctrl+Shift+Up / Down outside macOS, consumed with or without a prompt', () => {
+    expect(at(false, 'ArrowUp', ['ctrl', 'shift'])).toEqual(previous);
+    expect(at(false, 'ArrowDown', ['ctrl', 'shift'])).toEqual(next);
+    expect(at(false, 'ArrowUp', ['ctrl'])).toBeNull();
+    expect(at(false, 'ArrowUp', ['meta'])).toBeNull();
+  });
+
+  test('Cmd+Up / Down and Cmd+Shift+Up / Down on macOS', () => {
+    expect(at(true, 'ArrowUp', ['meta'])).toEqual(previous);
+    expect(at(true, 'ArrowUp', ['meta', 'shift'])).toEqual(previous);
+    expect(at(true, 'ArrowDown', ['meta'])).toEqual(next);
+    expect(at(true, 'ArrowDown', ['meta', 'shift'])).toEqual(next);
+    expect(at(true, 'ArrowUp', ['ctrl', 'shift'])).toBeNull();
+    expect(at(true, 'ArrowUp', ['meta', 'alt'])).toBeNull();
   });
 });

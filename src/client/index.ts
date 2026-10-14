@@ -469,7 +469,8 @@ term.onPasteRequest(() => {
   pasteFromClipboard();
 });
 
-// Copy, paste and clear-screen keys as Ghostty binds them for this platform (ADR 054).
+// Copy, paste, clear-screen, find and jump-to-prompt keys as Ghostty binds them for this
+// platform (ADR 054, ADR 055, ADR 057).
 // Ctrl+V never reaches us as a 'paste' event on macOS (see above), so the clipboard is
 // read on keydown to make it behave like Cmd+V. Both keydown listeners are capture
 // listeners on `container`, so they run in registration order - this one runs after the
@@ -493,6 +494,13 @@ container.addEventListener(
       if (shortcut.action === 'find') findBar.open();
       else if (shortcut.action === 'findClose') findBar.close();
       else findBar.go(shortcut.action === 'findNext' ? 'next' : 'previous');
+      return;
+    }
+    if (shortcut.action === 'promptPrevious' || shortcut.action === 'promptNext') {
+      // Ghostty's jump_to_prompt is consumed with or without a prompt to go to (ADR 057)
+      term.jumpToPrompt(shortcut.action === 'promptPrevious' ? -1 : 1);
+      e.preventDefault();
+      e.stopImmediatePropagation();
       return;
     }
     if (shortcut.action === 'paste') {
