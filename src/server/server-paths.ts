@@ -79,3 +79,29 @@ export function resolveServerPaths(
   const clientRoot = findClientRoot(projectRoot, existsSync);
   return { projectRoot, clientRoot, wasmPath };
 }
+
+/** How {@link resolvePathsOrExit} reports a missing wasm; the defaults are the real console and process. */
+export interface StartupReport {
+  error: (message: string) => void;
+  exit: (code: number) => never;
+}
+
+/**
+ * The entry's startup step: resolves the server's files, or prints which one is missing
+ * (`Error: Could not find ghostty-vt-small.wasm.`) and exits 1. Any other error is rethrown.
+ */
+export function resolvePathsOrExit(
+  resolve: () => ServerPaths = resolveServerPaths,
+  report: StartupReport = {
+    error: (message) => console.error(message),
+    exit: (code) => process.exit(code),
+  },
+): ServerPaths {
+  try {
+    return resolve();
+  } catch (err) {
+    if (!(err instanceof MissingWasmError)) throw err;
+    report.error(`Error: ${err.message}`);
+    return report.exit(1);
+  }
+}

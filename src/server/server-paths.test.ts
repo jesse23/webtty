@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
 import {
@@ -6,7 +6,9 @@ import {
   findWasm,
   MissingWasmError,
   projectRootOf,
+  resolvePathsOrExit,
   resolveServerPaths,
+  type ServerPaths,
 } from './server-paths';
 
 const ROOT = path.resolve('/pkg');
@@ -100,5 +102,74 @@ describe('resolveServerPaths', () => {
     expect(paths.projectRoot).toBe(path.resolve(import.meta.dir, '..', '..'));
     expect(fs.existsSync(paths.wasmPath)).toBe(true);
     expect(fs.existsSync(path.join(paths.clientRoot, 'client.html'))).toBe(true);
+  });
+});
+
+describe('resolvePathsOrExit', () => {
+  const PATHS: ServerPaths = { projectRoot: ROOT, clientRoot: ROOT, wasmPath: BUILT_WASM };
+
+  /** A report that records what was printed and turns exit into a throw, as process.exit never returns. */
+  function fakeReport() {
+    const printed: string[] = [];
+    const exits: number[] = [];
+    const report = {
+      error: (message: string) => printed.push(message),
+      exit: (code: number): never => {
+        exits.push(code);
+        throw new Error(`exit ${code}`);
+      },
+    };
+    return { report, printed, exits };
+  }
+
+  test('returns the paths when they resolve, printing nothing', () => {
+    const { report, printed, exits } = fakeReport();
+    expect(resolvePathsOrExit(() => PATHS, report)).toBe(PATHS);
+    expect(printed).toEqual([]);
+    expect(exits).toEqual([]);
+  });
+
+  test('prints the missing wasm and exits 1', () => {
+    const { report, printed, exits } = fakeReport();
+    const missing = () => {
+      throw new MissingWasmError();
+    };
+    expect(() => resolvePathsOrExit(missing, report)).toThrow('exit 1');
+    expect(printed).toEqual(['Error: Could not find ghostty-vt-small.wasm.']);
+    expect(exits).toEqual([1]);
+  });
+
+  test('rethrows any other error without printing or exiting', () => {
+    const { report, printed, exits } = fakeReport();
+    const boom = new Error('boom');
+    const failing = () => {
+      throw boom;
+    };
+    expect(() => resolvePathsOrExit(failing, report)).toThrow(boom);
+    expect(printed).toEqual([]);
+    expect(exits).toEqual([]);
+  });
+
+  test('reports through the real console.error and process.exit by default', () => {
+    const error = spyOn(console, 'error').mockImplementation(() => {});
+    const exit = spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit ${code}`);
+    });
+    try {
+      expect(() =>
+        resolvePathsOrExit(() => {
+          throw new MissingWasmError();
+        }),
+      ).toThrow('exit 1');
+      expect(error).toHaveBeenCalledWith('Error: Could not find ghostty-vt-small.wasm.');
+      expect(exit).toHaveBeenCalledWith(1);
+    } finally {
+      error.mockRestore();
+      exit.mockRestore();
+    }
+  });
+
+  test('defaults to resolving this checkout', () => {
+    expect(resolvePathsOrExit().projectRoot).toBe(path.resolve(import.meta.dir, '..', '..'));
   });
 });

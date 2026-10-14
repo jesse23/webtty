@@ -3,19 +3,8 @@
 // wiring is in app.ts (ADR 062).
 import { loadConfig } from '../config';
 import { createServer, type WebttyServer } from './app';
-import { MissingWasmError, resolveServerPaths, type ServerPaths } from './server-paths';
+import { resolvePathsOrExit } from './server-paths';
 import { SessionStore } from './sessions/session-store';
-
-/** Resolves the server's files, or prints which one is missing and exits 1. */
-function pathsOrExit(): ServerPaths {
-  try {
-    return resolveServerPaths();
-  } catch (err) {
-    if (!(err instanceof MissingWasmError)) throw err;
-    console.error(`Error: ${err.message}`);
-    process.exit(1);
-  }
-}
 
 /** Starts webtty on the configured (or `PORT`) host and port. */
 function main(): void {
@@ -29,7 +18,7 @@ function main(): void {
   const displayHost = config.host;
   const host = config.host === 'localhost' ? '127.0.0.1' : config.host;
 
-  const paths = pathsOrExit();
+  const paths = resolvePathsOrExit();
 
   // The one registry of sessions. Once the last shell exits the server stops itself.
   const store = new SessionStore({ onEmpty: () => server.shutdown() });
