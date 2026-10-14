@@ -219,9 +219,11 @@ describe('websocket', () => {
       }
       await closeWs(ws);
 
+      // Under load the PTY sometimes writes `\r\r\n` for a newline (seen on macOS);
+      // the extra `\r` comes from the tty, not from the server.
       const numbers = messages
         .join('')
-        .split('\r\n')
+        .split(/\r+\n/)
         .filter((l) => /^\d+$/.test(l))
         .map(Number);
       expect(numbers.length).toBe(N);
