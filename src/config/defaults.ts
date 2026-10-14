@@ -2,6 +2,14 @@
 // default is read from the environment once, when the module loads (ADR 062).
 import type { Config, KeyboardBinding, RightClickBehavior, Theme } from './config-schema';
 
+/** The shell new sessions run when the config sets none: `%COMSPEC%` on Windows, `$SHELL` elsewhere. */
+export function defaultShell(
+  platform: string = process.platform,
+  env: Record<string, string | undefined> = process.env,
+): string {
+  return platform === 'win32' ? (env.COMSPEC ?? 'cmd.exe') : (env.SHELL ?? '/bin/bash');
+}
+
 /** The Campbell palette, used for every theme key the config file leaves out. */
 export const DEFAULT_THEME: Theme = {
   background: '#000000',
@@ -33,10 +41,7 @@ export const DEFAULT_KEYBOARD_BINDINGS: KeyboardBinding[] = [];
 export const DEFAULT_CONFIG: Config = {
   port: 2346,
   host: '127.0.0.1',
-  shell:
-    process.platform === 'win32'
-      ? (process.env.COMSPEC ?? 'cmd.exe')
-      : (process.env.SHELL ?? '/bin/bash'),
+  shell: defaultShell(),
   term: 'xterm-256color',
   colorTerm: 'truecolor',
   scrollback: 256 * 1024,
