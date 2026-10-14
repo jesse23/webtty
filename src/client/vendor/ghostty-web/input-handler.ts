@@ -230,7 +230,8 @@ export class InputHandler {
   private encoder: KeyEncoder;
   private container: HTMLElement;
   private inputElement?: HTMLElement;
-  private onDataCallback: (data: string) => void;
+  // mouseReport is true for a mouse report, which leaves the selection alone (webtty, ADR 051)
+  private onDataCallback: (data: string, mouseReport?: boolean) => void;
   private getModeCallback?: (mode: number) => boolean;
   private onCopyCallback?: () => boolean;
   private mouseConfig?: MouseTrackingConfig;
@@ -264,7 +265,8 @@ export class InputHandler {
    * Create a new InputHandler
    * @param ghostty - Ghostty instance (for creating KeyEncoder)
    * @param container - DOM element to attach listeners to
-   * @param onData - Callback for terminal data (escape sequences to send to PTY)
+   * @param onData - Callback for terminal data (escape sequences to send to PTY); mouseReport
+   *   is true for a mouse report (webtty, ADR 051)
    * @param getMode - Optional callback to query terminal mode state (for application cursor mode)
    * @param onCopy - Optional callback to handle copy (Cmd+C/Ctrl+C with selection)
    * @param inputElement - Optional input element for beforeinput events
@@ -273,7 +275,7 @@ export class InputHandler {
   constructor(
     ghostty: Ghostty,
     container: HTMLElement,
-    onData: (data: string) => void,
+    onData: (data: string, mouseReport?: boolean) => void,
     getMode?: (mode: number) => boolean,
     onCopy?: () => boolean,
     inputElement?: HTMLElement,
@@ -642,7 +644,7 @@ export class InputHandler {
       clientY: event.clientY,
       anyButtonPressed: this.mouseButtonsPressed !== 0,
     });
-    if (data) this.onDataCallback(data);
+    if (data) this.onDataCallback(data, true);
   }
 
   /**

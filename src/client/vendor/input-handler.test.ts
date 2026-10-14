@@ -71,10 +71,14 @@ describe('InputHandler mouse', () => {
     };
     const encoded: MouseEventReport[] = [];
     const sent: string[] = [];
+    const reports: boolean[] = [];
     const handler = new InputHandler(
       ghostty,
       container as unknown as HTMLElement,
-      (data) => sent.push(data),
+      (data, mouseReport) => {
+        sent.push(data);
+        reports.push(mouseReport ?? false);
+      },
       undefined,
       undefined,
       undefined,
@@ -107,7 +111,7 @@ describe('InputHandler mouse', () => {
         },
       };
     };
-    return { handler, container, doc, encoded, sent, mouse };
+    return { handler, container, doc, encoded, sent, reports, mouse };
   }
 
   test('reports a press, then a drag and its release past the terminal edge', async () => {
@@ -128,6 +132,15 @@ describe('InputHandler mouse', () => {
     expect(encoded[2]).toMatchObject({ action: 'release', anyButtonPressed: false });
     handler.dispose();
     expect(doc.listeners.get('mousemove')).toEqual([]);
+  });
+
+  test('mouse reports are marked as such, so they leave the selection alone', async () => {
+    const { handler, container, doc, reports, mouse } = await setup();
+    doc.fire('mousemove', mouse(true, {}).event);
+    container.fire('mousedown', mouse(true, { button: 0, buttons: 1 }).event);
+    doc.fire('mouseup', mouse(true, { button: 0 }).event);
+    expect(reports).toEqual([true, true, true]);
+    handler.dispose();
   });
 
   test('hover is reported over the terminal only, with no button', async () => {

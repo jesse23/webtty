@@ -580,17 +580,7 @@ export class Terminal implements ITerminalCore {
       this.inputHandler = new InputHandler(
         this.ghostty!,
         parent,
-        (data: string) => {
-          // Check if stdin is disabled
-          if (this.options.disableStdin) {
-            return;
-          }
-          // Clear selection when user types
-          this.selectionManager?.clearSelection();
-          this.awaitingEcho = true;
-          // Input handler fires data events
-          this.dataEmitter.fire(data);
-        },
+        this.handleInput,
         (mode: number) => {
           // Query terminal mode state (e.g., mode 1 for application cursor mode)
           return this.wasmTerm?.getMode(mode, false) ?? false;
@@ -1034,6 +1024,7 @@ export class Terminal implements ITerminalCore {
     this.titleChangeEmitter.dispose();
     this.scrollEmitter.dispose();
     this.pasteRequestEmitter.dispose();
+    this.clipboardWriteEmitter.dispose();
   }
 
   // ==========================================================================
@@ -1562,6 +1553,17 @@ export class Terminal implements ITerminalCore {
     const { clientX: _x, clientY: _y, ...input } = event;
     return mouseReportText(this.wasmTerm.encodeMouse({ ...input, x, y }));
   }
+
+  /**
+   * Input from the InputHandler. Keys and text clear the selection; a mouse report leaves
+   * it alone, so a Shift selection outlives the app's hover and clicks. (webtty, ADR 051)
+   */
+  private handleInput = (data: string, mouseReport = false): void => {
+    if (this.options.disableStdin) return;
+    if (!mouseReport) this.selectionManager?.clearSelection();
+    this.awaitingEcho = true;
+    this.dataEmitter.fire(data);
+  };
 
   private handleMenuPress = (e: MouseEvent): void => {
     this.menuSource.press(e);

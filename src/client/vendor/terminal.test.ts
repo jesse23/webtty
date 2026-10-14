@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Ghostty } from './ghostty-web/ghostty';
+import { InputHandler } from './ghostty-web/input-handler';
 import { LinkDetector } from './ghostty-web/link-detector';
 import { OSC8LinkProvider } from './ghostty-web/providers/osc8-link-provider';
 import {
@@ -336,6 +337,17 @@ describe('Terminal clipboard writes', () => {
     expect(copied).toEqual(['héllo 中文', '']);
   });
 
+  test('dispose drops onClipboardWrite listeners', () => {
+    const term = new Terminal({ ghostty: {} as never });
+    const copied: string[] = [];
+    term.onClipboardWrite((text) => copied.push(text));
+    term.dispose();
+    (
+      term as unknown as { clipboardWriteEmitter: { fire(t: string): void } }
+    ).clipboardWriteEmitter.fire('x');
+    expect(copied).toEqual([]);
+  });
+
   test('passes clipboardWrite to the engine, on by default', () => {
     const wasmConfig = (options: object) =>
       (
@@ -345,6 +357,67 @@ describe('Terminal clipboard writes', () => {
       ).buildWasmConfig();
     expect(wasmConfig({}).clipboardWrite).toBe(true);
     expect(wasmConfig({ clipboardWrite: false }).clipboardWrite).toBe(false);
+  });
+});
+
+describe('Terminal input and the selection', () => {
+  // Keys and text clear the selection; mouse reports leave it, so a Shift selection in an
+  // app with any-motion mode 1003 survives the next hover or click (ADR 051).
+  test('a mouse report keeps the selection, a key clears it', async () => {
+    const ghostty = await Ghostty.load(WASM);
+    const term = new Terminal({ ghostty: {} as never });
+    const internals = term as unknown as { selectionManager: unknown };
+    let selection = 'hello';
+    internals.selectionManager = {
+      clearSelection: () => {
+        selection = '';
+      },
+    };
+    const sent: string[] = [];
+    term.onData((data) => sent.push(data));
+    type Listener = (e: object) => void;
+    const listeners = new Map<string, Listener[]>();
+    const container = {
+      ownerDocument: undefined,
+      contains: () => true,
+      addEventListener: (type: string, l: Listener) =>
+        listeners.set(type, [...(listeners.get(type) ?? []), l]),
+      removeEventListener: () => {},
+    };
+    const fire = (type: string, e: object) => {
+      for (const l of listeners.get(type) ?? []) l(e);
+    };
+    const handler = new InputHandler(
+      ghostty,
+      container as unknown as HTMLElement,
+      (term as unknown as { handleInput(d: string, m?: boolean): void }).handleInput,
+      undefined,
+      undefined,
+      undefined,
+      { hasMouseTracking: () => true, encode: () => '\x1b[<35;4;4M' },
+    );
+    const mods = { shiftKey: false, altKey: false, ctrlKey: false, metaKey: false };
+    fire('mousemove', { ...mods, target: container, buttons: 0, clientX: 1, clientY: 1 });
+    fire('mousedown', {
+      ...mods,
+      target: container,
+      button: 0,
+      buttons: 1,
+      clientX: 1,
+      clientY: 1,
+    });
+    expect(sent.length).toBe(2);
+    expect(selection).toBe('hello');
+    fire('keydown', {
+      ...mods,
+      key: 'a',
+      code: 'KeyA',
+      isComposing: false,
+      preventDefault: () => {},
+    });
+    expect(sent[2]).toBe('a');
+    expect(selection).toBe('');
+    handler.dispose();
   });
 });
 
