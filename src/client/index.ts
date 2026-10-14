@@ -6,6 +6,7 @@ import { FindBar } from './find-bar';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { nonTextPaste } from './paste';
+import { ReplayWindow } from './replay';
 import { isMacPlatform, shortcutFor } from './shortcuts';
 import { SmoothScroll } from './smooth-scroll';
 import { TabTitle } from './tab-title';
@@ -71,9 +72,12 @@ const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
 
 const config: ClientConfig = await fetch('/api/config').then((r) => r.json());
 
+// Whether the output being parsed is the replay sent on connect (ADR 053)
+const replay = new ReplayWindow();
+
 // `<title> | webtty` from the program's OSC 0/2 title, or the session id, with a 🔔
 // after a bell until the terminal is attended; replayed bells are ignored (ADR 053).
-const tabTitle = new TabTitle(sessionId, config.bellTitle, (title) => {
+const tabTitle = new TabTitle(sessionId, config.bellTitle, replay, (title) => {
   document.title = title;
 });
 
@@ -247,7 +251,7 @@ function connect(): void {
   // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
   clipboardWriter.connected();
   // ... and ignore its bells until the replay's last piece (ADR 053)
-  tabTitle.connected();
+  replay.connected();
   const ack = new OutputAck((message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(message);
   });
@@ -270,9 +274,9 @@ function connect(): void {
   ws.onmessage = (event: MessageEvent<string>) => {
     // term.write() parses synchronously, so the output has been parsed once feed()
     // returns: acknowledging it now lets a slow tab slow the server down.
-    tabTitle.output(event.data.length, performance.now());
+    replay.output(event.data.length, performance.now());
     graphics.feed(event.data);
-    tabTitle.parsed(performance.now());
+    replay.parsed(performance.now());
     ack.parsed(event.data.length);
     smoothScroll.onOutput();
   };
