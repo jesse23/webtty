@@ -508,8 +508,11 @@ export class KittyGraphics {
     for (const id of [...this.images.keys()]) this.dropImage(id);
   }
 
-  /** Placements no longer match what is on screen. Image data is kept: clients may re-place it. */
-  private clear(): void {
+  /**
+   * Placements no longer match what is on screen. Image data is kept: clients may re-place
+   * it. Also called when the user clears the screen (ADR 054).
+   */
+  clear(): void {
     this.placements.clear();
     // Even when the map is already empty the overlay may still hold pixels
     // from placements removed without a repaint.

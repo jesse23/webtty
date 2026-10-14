@@ -5,6 +5,7 @@ import { EdgeExtender } from './edge';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { nonTextPaste } from './paste';
+import { isMacPlatform, shortcutFor } from './shortcuts';
 import { SmoothScroll } from './smooth-scroll';
 import { TabTitle } from './tab-title';
 import { toTerminalTheme } from './theme';
@@ -424,24 +425,45 @@ term.onPasteRequest(() => {
   pasteFromClipboard();
 });
 
-// Ctrl+V never reaches us as a 'paste' event on macOS (see above), so read
-// the clipboard ourselves on keydown to make it behave like Cmd+V. Both
-// listeners are on `container` and keydown targets it directly, so they run
-// in registration order regardless of the capture flag - this one runs
-// after the configured-binding listener above, so skip a combo the user has
-// already bound (including an intentionally empty binding meant to consume
-// the key and suppress default paste).
+// Copy, paste and clear-screen keys as Ghostty binds them for this platform (ADR 054).
+// Ctrl+V never reaches us as a 'paste' event on macOS (see above), so the clipboard is
+// read on keydown to make it behave like Cmd+V. Both keydown listeners are capture
+// listeners on `container`, so they run in registration order - this one runs after the
+// configured-binding listener above, so skip a combo the user has already bound
+// (including an intentionally empty binding meant to consume the key and suppress the
+// default). Both run before the input handler, which listens on the container too.
+const mac = isMacPlatform(
+  (navigator as Navigator & { userAgentData?: { platform: string } }).userAgentData?.platform ||
+    navigator.platform,
+);
 container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
-    if (!e.ctrlKey || e.metaKey || e.code !== 'KeyV') return;
-    if (findBinding(e)) return;
-    if (!pasteFromClipboard()) return;
+    const shortcut = shortcutFor(e, mac);
+    if (!shortcut || findBinding(e)) return;
+    if (shortcut.action === 'paste') {
+      // Without the clipboard API the browser's own paste may still fire 'paste'
+      if (pasteFromClipboard()) e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+    const done = shortcut.action === 'copy' ? term.copySelection() : clearScreen();
+    // Not done and performable: the input handler sends the key to the app, as Ghostty does
+    if (!done && shortcut.performable) return;
     e.preventDefault();
     e.stopImmediatePropagation();
   },
   { capture: true },
 );
+
+// Cmd+K: nothing on the alternate screen; the clear is this tab's own, and a reload
+// replays the session's output again (ADR 054)
+function clearScreen(): boolean {
+  if (!term.clearScreen()) return false;
+  graphics.clear();
+  smoothScroll.onOutput();
+  return true;
+}
 
 container.addEventListener(
   'paste',
