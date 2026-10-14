@@ -34,6 +34,38 @@ export {
   type RenderStateCursor,
 };
 
+/** A mouse button as Ghostty names it: four/five are the wheel, eight/nine back/forward. */
+export type MouseButton = 'left' | 'middle' | 'right' | 'four' | 'five' | 'eight' | 'nine';
+
+/** One mouse event for `encodeMouse` (ADR 049). */
+export interface MouseInput {
+  action: 'press' | 'release' | 'motion';
+  /** The button pressed or released, or the lowest one held for motion; null for none. */
+  button: MouseButton | null;
+  /** `Mods` bits; Ghostty reports Shift, Alt and Ctrl. */
+  mods: number;
+  /** Position in the units of `MouseGeometry`, from the screen's top-left corner. */
+  x: number;
+  y: number;
+  /** Whether a button is held after this event: motion outside the screen is reported only then. */
+  anyButtonPressed: boolean;
+}
+
+/**
+ * The surface the mouse encoder maps positions on (ADR 049): the screen is the
+ * grid plus the padding around it, in whole pixels, with a whole cell size.
+ */
+export interface MouseGeometry {
+  screenWidth: number;
+  screenHeight: number;
+  cellWidth: number;
+  cellHeight: number;
+  paddingTop: number;
+  paddingRight: number;
+  paddingBottom: number;
+  paddingLeft: number;
+}
+
 /** Bell and title changes since the last `readEffects` (ADR 042). */
 export interface TerminalEffects {
   bell: boolean;
@@ -87,6 +119,16 @@ export interface GhosttyTerminal {
   getScrollbackHyperlinkUri(offset: number, col: number): string | null;
   getGraphemeString(row: number, col: number): string;
   getScrollbackGraphemeString(offset: number, col: number): string;
+
+  // Mouse reports (ADR 049)
+  /** The geometry `encodeMouse` positions are in. */
+  setMouseGeometry(geometry: MouseGeometry): void;
+  /**
+   * A mouse event as the app asked for it (tracking mode and format), or no bytes when
+   * it is not reported: motion within the last reported cell, motion the mode does not
+   * report, or motion outside the screen with no button held.
+   */
+  encodeMouse(input: MouseInput): Uint8Array;
 
   // Replies and effects
   hasResponse(): boolean;
@@ -199,6 +241,25 @@ interface OfficialWasmExports {
   ghostty_key_event_set_key(event: number, key: number): void;
   ghostty_key_event_set_mods(event: number, mods: number): void;
   ghostty_key_event_set_utf8(event: number, ptr: number, len: number): void;
+  ghostty_mouse_encoder_new(allocator: number, out: number): number;
+  ghostty_mouse_encoder_free(encoder: number): void;
+  ghostty_mouse_encoder_setopt(encoder: number, option: number, value: number): void;
+  ghostty_mouse_encoder_setopt_from_terminal(encoder: number, term: number): void;
+  ghostty_mouse_encoder_encode(
+    encoder: number,
+    event: number,
+    buf: number,
+    len: number,
+    outLen: number
+  ): number;
+  ghostty_mouse_event_new(allocator: number, out: number): number;
+  ghostty_mouse_event_free(event: number): void;
+  ghostty_mouse_event_set_action(event: number, action: number): void;
+  ghostty_mouse_event_set_button(event: number, button: number): void;
+  ghostty_mouse_event_clear_button(event: number): void;
+  ghostty_mouse_event_set_mods(event: number, mods: number): void;
+  /** The GhosttyMousePosition struct is passed by value, i.e. by pointer on wasm32. */
+  ghostty_mouse_event_set_position(event: number, position: number): void;
 }
 
 interface ManifestBits {
@@ -534,6 +595,38 @@ function resolveOfficialLayout(layout: VtLayout) {
       rom: layout.offset('GhosttyDeviceAttributesSecondary', 'rom_cartridge'),
       unitId: layout.offset('GhosttyDeviceAttributesTertiary', 'unit_id'),
     },
+    mouse: {
+      size: layout.size('GhosttyMouseEncoderSize'),
+      sizeField: layout.offset('GhosttyMouseEncoderSize', 'size'),
+      screenWidth: layout.offset('GhosttyMouseEncoderSize', 'screen_width'),
+      screenHeight: layout.offset('GhosttyMouseEncoderSize', 'screen_height'),
+      cellWidth: layout.offset('GhosttyMouseEncoderSize', 'cell_width'),
+      cellHeight: layout.offset('GhosttyMouseEncoderSize', 'cell_height'),
+      paddingTop: layout.offset('GhosttyMouseEncoderSize', 'padding_top'),
+      paddingBottom: layout.offset('GhosttyMouseEncoderSize', 'padding_bottom'),
+      paddingRight: layout.offset('GhosttyMouseEncoderSize', 'padding_right'),
+      paddingLeft: layout.offset('GhosttyMouseEncoderSize', 'padding_left'),
+      positionSize: layout.size('GhosttyMousePosition'),
+      x: layout.offset('GhosttyMousePosition', 'x'),
+      y: layout.offset('GhosttyMousePosition', 'y'),
+      SIZE: layout.value('GhosttyMouseEncoderOption', 'SIZE'),
+      ANY_BUTTON_PRESSED: layout.value('GhosttyMouseEncoderOption', 'ANY_BUTTON_PRESSED'),
+      TRACK_LAST_CELL: layout.value('GhosttyMouseEncoderOption', 'TRACK_LAST_CELL'),
+      action: {
+        press: layout.value('GhosttyMouseAction', 'PRESS'),
+        release: layout.value('GhosttyMouseAction', 'RELEASE'),
+        motion: layout.value('GhosttyMouseAction', 'MOTION'),
+      },
+      button: {
+        left: layout.value('GhosttyMouseButton', 'LEFT'),
+        middle: layout.value('GhosttyMouseButton', 'MIDDLE'),
+        right: layout.value('GhosttyMouseButton', 'RIGHT'),
+        four: layout.value('GhosttyMouseButton', 'FOUR'),
+        five: layout.value('GhosttyMouseButton', 'FIVE'),
+        eight: layout.value('GhosttyMouseButton', 'EIGHT'),
+        nine: layout.value('GhosttyMouseButton', 'NINE'),
+      } satisfies Record<MouseButton, number>,
+    },
     result: {
       SUCCESS: layout.value('GhosttyResult', 'SUCCESS'),
       OUT_OF_SPACE: layout.value('GhosttyResult', 'OUT_OF_SPACE'),
@@ -763,6 +856,13 @@ const FALLBACK_FOREGROUND = 0xcccccc;
 const FALLBACK_BACKGROUND = 0x000000;
 /** Grapheme codepoints read through the scratch buffer; longer clusters allocate. */
 const GRAPHEME_SCRATCH = 32;
+/** Room for one mouse report; the longest, SGR-pixels, is under 32 bytes. */
+const MOUSE_REPORT_MAX = 64;
+/**
+ * The modes that set the mouse encoder's tracking mode and format: X10, normal, button,
+ * any-event tracking, and the UTF-8, SGR, urxvt and SGR-pixels formats.
+ */
+const MOUSE_MODES = [9, 1000, 1002, 1003, 1005, 1006, 1015, 1016];
 
 function blankCell(): GhosttyCell {
   return {
@@ -856,7 +956,10 @@ export class OfficialTerminal implements GhosttyTerminal {
     | 'u32'
     | 'u8'
     | 'gBuf'
-    | 'palette',
+    | 'palette'
+    | 'mouseSize'
+    | 'mousePos'
+    | 'mouseOut',
     number
   >;
   private readonly callbacks: InstalledFn[] = [];
@@ -901,6 +1004,13 @@ export class OfficialTerminal implements GhosttyTerminal {
   // Scrollback rows, keyed by the absolute row their page starts at.
   private readonly pages = new Map<number, RowRef[]>();
   private pageGen = 0;
+
+  // Mouse encoder and event, made on the first report (ADR 049). `mouseModes` is the
+  // MOUSE_MODES bitmask the encoder was last set from; `mouseGeometry` the last size.
+  private mouseEncoder = 0;
+  private mouseEvent = 0;
+  private mouseModes = -1;
+  private mouseGeometry = '';
 
   // Effects.
   private readonly responses: Uint8Array[] = [];
@@ -956,6 +1066,9 @@ export class OfficialTerminal implements GhosttyTerminal {
       u8: [8, 8],
       gBuf: [GRAPHEME_SCRATCH * 4, 8],
       palette: [256 * L.colors.rgbSize, 8],
+      mouseSize: [L.mouse.size, 8],
+      mousePos: [L.mouse.positionSize, 8],
+      mouseOut: [MOUSE_REPORT_MAX, 8],
     } as const);
     this.scratch = scratch;
     this.at = at;
@@ -1076,6 +1189,10 @@ export class OfficialTerminal implements GhosttyTerminal {
     // Slots are released only after nothing can call them (fn-table.ts rule 3).
     for (const fn of this.callbacks) fn.release();
     this.callbacks.length = 0;
+    if (this.mouseEncoder) ex.ghostty_mouse_encoder_free(this.mouseEncoder);
+    if (this.mouseEvent) ex.ghostty_mouse_event_free(this.mouseEvent);
+    this.mouseEncoder = 0;
+    this.mouseEvent = 0;
     if (this.pageRs) ex.ghostty_render_state_free(this.pageRs);
     ex.ghostty_render_state_row_cells_free(this.rowCells);
     ex.ghostty_render_state_row_iterator_free(this.iter);
@@ -1212,6 +1329,92 @@ export class OfficialTerminal implements GhosttyTerminal {
     this.refresh();
     if (offset < 0 || offset >= this.sbRows || col < 0 || col >= this._cols) return ' ';
     return this.graphemeOf(this.rowAt(offset), col);
+  }
+
+  // ==========================================================================
+  // Mouse reports (ADR 049)
+  // ==========================================================================
+
+  setMouseGeometry(geometry: MouseGeometry): void {
+    const g = geometry;
+    // Setting the size clears the encoder's last cell, so only a change is set.
+    const key = [
+      g.screenWidth,
+      g.screenHeight,
+      g.cellWidth,
+      g.cellHeight,
+      g.paddingTop,
+      g.paddingRight,
+      g.paddingBottom,
+      g.paddingLeft,
+    ].join(',');
+    if (key === this.mouseGeometry) return;
+    const enc = this.ensureMouseEncoder();
+    const at = this.at;
+    const M = this.L.mouse;
+    const dv = this.dv();
+    const u32 = (n: number) => Math.max(0, Math.round(n)) >>> 0;
+    dv.setUint32(at.mouseSize + M.sizeField, M.size, true);
+    dv.setUint32(at.mouseSize + M.screenWidth, u32(g.screenWidth), true);
+    dv.setUint32(at.mouseSize + M.screenHeight, u32(g.screenHeight), true);
+    // Ghostty ignores a zero cell size.
+    dv.setUint32(at.mouseSize + M.cellWidth, Math.max(1, u32(g.cellWidth)), true);
+    dv.setUint32(at.mouseSize + M.cellHeight, Math.max(1, u32(g.cellHeight)), true);
+    dv.setUint32(at.mouseSize + M.paddingTop, u32(g.paddingTop), true);
+    dv.setUint32(at.mouseSize + M.paddingRight, u32(g.paddingRight), true);
+    dv.setUint32(at.mouseSize + M.paddingBottom, u32(g.paddingBottom), true);
+    dv.setUint32(at.mouseSize + M.paddingLeft, u32(g.paddingLeft), true);
+    this.ex.ghostty_mouse_encoder_setopt(enc, M.SIZE, at.mouseSize);
+    this.mouseGeometry = key;
+  }
+
+  encodeMouse(input: MouseInput): Uint8Array {
+    const ex = this.ex;
+    const at = this.at;
+    const M = this.L.mouse;
+    const enc = this.ensureMouseEncoder();
+    // The tracking mode and format, from the terminal. That call also clears the
+    // encoder's last cell, so it is made only when a mouse mode changed: per-cell motion
+    // deduplication would otherwise reset on every event.
+    let modes = 0;
+    MOUSE_MODES.forEach((mode, i) => {
+      if (this.getMode(mode)) modes |= 1 << i;
+    });
+    if (modes !== this.mouseModes) {
+      ex.ghostty_mouse_encoder_setopt_from_terminal(enc, this.term);
+      this.mouseModes = modes;
+    }
+    this.u8()[at.u8] = input.anyButtonPressed ? 1 : 0;
+    ex.ghostty_mouse_encoder_setopt(enc, M.ANY_BUTTON_PRESSED, at.u8);
+    const ev = this.mouseEvent;
+    ex.ghostty_mouse_event_set_action(ev, M.action[input.action]);
+    if (input.button) ex.ghostty_mouse_event_set_button(ev, M.button[input.button]);
+    else ex.ghostty_mouse_event_clear_button(ev);
+    ex.ghostty_mouse_event_set_mods(ev, input.mods);
+    const dv = this.dv();
+    dv.setFloat32(at.mousePos + M.x, input.x, true);
+    dv.setFloat32(at.mousePos + M.y, input.y, true);
+    ex.ghostty_mouse_event_set_position(ev, at.mousePos);
+    const rc = ex.ghostty_mouse_encoder_encode(enc, ev, at.mouseOut, MOUSE_REPORT_MAX, at.u32);
+    if (rc !== 0) return new Uint8Array(0);
+    const n = this.dv().getUint32(at.u32, true);
+    return this.u8().slice(at.mouseOut, at.mouseOut + n);
+  }
+
+  /** The mouse encoder, made with per-cell motion deduplication on, and its event. */
+  private ensureMouseEncoder(): number {
+    if (this.mouseEncoder) return this.mouseEncoder;
+    const ex = this.ex;
+    const vt = this.vt;
+    this.mouseEncoder = vt.newHandle('mouse_encoder_new', (slot) =>
+      ex.ghostty_mouse_encoder_new(0, slot)
+    );
+    this.mouseEvent = vt.newHandle('mouse_event_new', (slot) =>
+      ex.ghostty_mouse_event_new(0, slot)
+    );
+    this.u8()[this.at.u8] = 1;
+    ex.ghostty_mouse_encoder_setopt(this.mouseEncoder, this.L.mouse.TRACK_LAST_CELL, this.at.u8);
+    return this.mouseEncoder;
   }
 
   // ==========================================================================

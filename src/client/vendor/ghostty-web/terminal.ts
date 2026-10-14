@@ -16,9 +16,20 @@
 
 import { BufferNamespace } from './buffer';
 import { EventEmitter } from './event-emitter';
-import type { Ghostty, GhosttyCell, GhosttyTerminal, GhosttyTerminalConfig } from './ghostty';
+import type {
+  Ghostty,
+  GhosttyCell,
+  GhosttyTerminal,
+  GhosttyTerminalConfig,
+  MouseGeometry,
+} from './ghostty';
 import { AT_ONCE, type Pace } from './glide';
-import { InputHandler, type MouseTrackingConfig } from './input-handler';
+import {
+  InputHandler,
+  type MouseEventReport,
+  type MouseTrackingConfig,
+  mouseMods,
+} from './input-handler';
 import type {
   IBufferNamespace,
   IDisposable,
@@ -38,7 +49,6 @@ import {
   type WheelAccumulator,
   wheelArrowKey,
   wheelArrows,
-  wheelSgr,
   wheelTicks,
 } from './wheel';
 
@@ -96,6 +106,70 @@ export function decscusrShape(ps: number): CursorShape | undefined {
     style: ps <= 2 ? 'block' : ps <= 4 ? 'underline' : 'bar',
     blink: ps % 2 === 1,
   };
+}
+
+/**
+ * The mouse encoder's geometry and a client position in it (ADR 049). Ghostty needs a
+ * whole cell size, and webtty's CSS cell is fractional, so the units are device-pixel
+ * cells: the cell is `cellPx` (the size Ghostty's size reports give, so SGR-pixels
+ * positions agree with them), and CSS lengths are scaled by `cellPx` over the CSS cell.
+ * The screen is the container `box`, so the padding around the grid is part of it and
+ * Ghostty maps it to the nearest edge cell. The position is measured from the grid's
+ * origin and then offset by the rounded padding, so rounding never moves a cell
+ * boundary. (webtty)
+ */
+export function mouseSurface(
+  clientX: number,
+  clientY: number,
+  grid: {
+    left: number;
+    top: number;
+    cols: number;
+    rows: number;
+    cellWidth: number;
+    cellHeight: number;
+  },
+  box: { left: number; top: number; right: number; bottom: number },
+  cellPx: { width: number; height: number }
+): { geometry: MouseGeometry; x: number; y: number } {
+  const sx = cellPx.width / grid.cellWidth;
+  const sy = cellPx.height / grid.cellHeight;
+  const left = Math.max(0, Math.round((grid.left - box.left) * sx));
+  const top = Math.max(0, Math.round((grid.top - box.top) * sy));
+  const gridRight = grid.left + grid.cols * grid.cellWidth;
+  const gridBottom = grid.top + grid.rows * grid.cellHeight;
+  const right = Math.max(0, Math.round((box.right - gridRight) * sx));
+  const bottom = Math.max(0, Math.round((box.bottom - gridBottom) * sy));
+  return {
+    geometry: {
+      screenWidth: left + grid.cols * cellPx.width + right,
+      screenHeight: top + grid.rows * cellPx.height + bottom,
+      cellWidth: cellPx.width,
+      cellHeight: cellPx.height,
+      paddingTop: top,
+      paddingRight: right,
+      paddingBottom: bottom,
+      paddingLeft: left,
+    },
+    x: (clientX - grid.left) * sx + left,
+    y: (clientY - grid.top) * sy + top,
+  };
+}
+
+const MOUSE_REPORT_DECODER = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * A mouse report as text for the PTY, or '' when it is not valid UTF-8. Input travels as
+ * text frames that the server writes as UTF-8, so a report with raw bytes above 0x7f
+ * (X10 format past column or row 95, X10 buttons 8/9) would reach the app as different
+ * bytes; it is dropped instead (ADR 049). (webtty)
+ */
+export function mouseReportText(bytes: Uint8Array): string {
+  try {
+    return MOUSE_REPORT_DECODER.decode(bytes);
+  } catch {
+    return '';
+  }
 }
 
 /**
@@ -529,22 +603,10 @@ export class Terminal implements ITerminalCore {
       // so a reply never says 0 px. Mode 2048 cannot be on yet. (webtty, ADR 042)
       this.syncCellPixelSize();
 
-      // Create mouse tracking configuration
-      const canvas = this.canvas;
-      const renderer = this.renderer;
-      const wasmTerm = this.wasmTerm;
+      // Create mouse tracking configuration. Reports are encoded by Ghostty (webtty, ADR 049)
       const mouseConfig: MouseTrackingConfig = {
-        hasMouseTracking: () => wasmTerm?.hasMouseTracking() ?? false,
-        hasSgrMouseMode: () => wasmTerm?.getMode(1006, false) ?? true, // SGR extended mode
-        getCellDimensions: () => ({
-          width: renderer.charWidth,
-          height: renderer.charHeight,
-        }),
-        getCanvasOffset: () => {
-          const rect = canvas.getBoundingClientRect();
-          // Viewport row 0 starts the scroll offset below the canvas top (webtty, ADR 043)
-          return { left: rect.left, top: rect.top + renderer.scrollOffset };
-        },
+        hasMouseTracking: () => this.wasmTerm?.hasMouseTracking() ?? false,
+        encode: (event) => this.encodeMouse(event),
       };
 
       // Create input handler
@@ -1458,8 +1520,8 @@ export class Terminal implements ITerminalCore {
       return;
     }
 
-    // App tracks the mouse (e.g. vim `set mouse=a`): report scroll ticks as SGR
-    // buttons 64/65 at the cell under the pointer, on either screen.
+    // App tracks the mouse (e.g. vim `set mouse=a`): report scroll ticks as mouse
+    // buttons 4/5 (SGR 64/65) at the cell under the pointer, on either screen.
     if (this.wasmTerm?.hasMouseTracking()) {
       const metrics = this.renderer?.getMetrics();
       if (!metrics || !this.canvas) return;
@@ -1471,13 +1533,17 @@ export class Terminal implements ITerminalCore {
         this.options.mouseScrollSpeed
       );
       if (ticks === 0) return;
-      const rect = this.canvas.getBoundingClientRect();
-      const col = Math.max(1, Math.floor((e.clientX - rect.left) / metrics.width) + 1);
-      const row = Math.max(
-        1,
-        Math.floor((e.clientY - rect.top - this.renderer!.scrollOffset) / metrics.height) + 1
-      );
-      this.tickPacer.push(wheelSgr(Math.sign(ticks), col, row), Math.sign(ticks), Math.abs(ticks), pace);
+      // One tick, a press of button 4 (up) or 5 (down) at the pointer's cell as Ghostty
+      // encodes it, repeated by the pacer. Nothing in X10 mode 9. (webtty, ADR 049)
+      const tick = this.encodeMouse({
+        action: 'press',
+        button: ticks < 0 ? 'four' : 'five',
+        mods: mouseMods(e),
+        clientX: e.clientX,
+        clientY: e.clientY,
+        anyButtonPressed: false,
+      });
+      if (tick) this.tickPacer.push(tick, Math.sign(ticks), Math.abs(ticks), pace);
       return;
     }
 
@@ -1503,6 +1569,36 @@ export class Terminal implements ITerminalCore {
     // The normal screen's scrollback is scrolled by the custom handler (webtty's
     // SmoothScroll, ADR 040, ADR 045); upstream's easing here is removed.
   };
+
+  /**
+   * A mouse report at a client position, encoded by Ghostty's mouse encoder in the
+   * app's tracking mode and format (`mouseSurface`, `mouseReportText`), or '' when the
+   * app does not get one. (webtty, ADR 049)
+   */
+  private encodeMouse(event: MouseEventReport): string {
+    const px = this.cellPixelSize();
+    if (!this.wasmTerm || !this.renderer || !this.canvas || !this.element || !px) return '';
+    const metrics = this.renderer.getMetrics();
+    const rect = this.canvas.getBoundingClientRect();
+    const { geometry, x, y } = mouseSurface(
+      event.clientX,
+      event.clientY,
+      {
+        left: rect.left,
+        // Viewport row 0 starts the scroll offset below the canvas top (ADR 043)
+        top: rect.top + this.renderer.scrollOffset,
+        cols: this.cols,
+        rows: this.rows,
+        cellWidth: metrics.width,
+        cellHeight: metrics.height,
+      },
+      this.element.getBoundingClientRect(),
+      px
+    );
+    this.wasmTerm.setMouseGeometry(geometry);
+    const { clientX: _x, clientY: _y, ...input } = event;
+    return mouseReportText(this.wasmTerm.encodeMouse({ ...input, x, y }));
+  }
 
   /**
    * Handle mouse down for scrollbar interaction

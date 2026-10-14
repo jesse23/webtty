@@ -9,6 +9,8 @@ import {
   decscusrShape,
   deviceCellPixels,
   mouseCursorFor,
+  mouseReportText,
+  mouseSurface,
   scanDecscusr,
   Terminal,
 } from './ghostty-web/terminal';
@@ -158,6 +160,119 @@ describe('deviceCellPixels', () => {
   test('never reports less than one pixel', () => {
     expect(deviceCellPixels(0, 2)).toBe(1);
     expect(deviceCellPixels(0.2, 1)).toBe(1);
+  });
+});
+
+describe('mouseSurface', () => {
+  // A 9.6 x 19.2 px CSS cell at DPR 1.25 is 12 x 24 device pixels.
+  const grid = { left: 110, top: 57, cols: 100, rows: 30, cellWidth: 9.6, cellHeight: 19.2 };
+  const box = { left: 100, top: 50, right: 110 + 960 + 7, bottom: 57 + 576 + 3 };
+  const cellPx = { width: 12, height: 24 };
+  const surface = (x: number, y: number) => mouseSurface(x, y, grid, box, cellPx);
+
+  test('is the container in device-pixel cells, the padding around the grid', () => {
+    expect(surface(0, 0).geometry).toEqual({
+      screenWidth: 13 + 1200 + 9,
+      screenHeight: 9 + 720 + 4,
+      cellWidth: 12,
+      cellHeight: 24,
+      paddingTop: 9,
+      paddingRight: 9,
+      paddingBottom: 4,
+      paddingLeft: 13,
+    });
+  });
+
+  test('puts cell boundaries exactly where the CSS grid has them, at any column', () => {
+    // Column 99 (0-based) starts at 110 + 99 * 9.6 = 1060.4 CSS px
+    const cell = (x: number) => Math.floor((surface(x, 60).x - 13) / 12);
+    expect(cell(1060.3)).toBe(98);
+    expect(cell(1060.5)).toBe(99);
+    expect(cell(110)).toBe(0);
+    const row = (y: number) => Math.floor((surface(120, y).y - 9) / 24);
+    expect(row(57 + 29 * 19.2 - 0.1)).toBe(28);
+    expect(row(57 + 29 * 19.2 + 0.1)).toBe(29);
+  });
+
+  test('positions in the padding fall before or after the grid', () => {
+    expect(surface(101, 51).x).toBeLessThan(13);
+    expect(surface(101, 51).y).toBeLessThan(9);
+    expect(surface(1075, 60).x).toBeGreaterThan(13 + 1200);
+  });
+});
+
+describe('mouseReportText', () => {
+  test('passes a UTF-8 report through as text', () => {
+    expect(mouseReportText(new TextEncoder().encode('\x1b[<0;1;1M'))).toBe('\x1b[<0;1;1M');
+    expect(mouseReportText(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0xc3, 0xa8, 0x23]))).toBe(
+      '\x1b[M è#',
+    );
+  });
+
+  test('drops a report with raw bytes above 0x7f, which text frames cannot carry', () => {
+    expect(mouseReportText(new Uint8Array([0x1b, 0x5b, 0x4d, 0x20, 0x80, 0x21]))).toBe('');
+  });
+});
+
+describe('Terminal wheel in mouse-tracking apps', () => {
+  // A 10 px x 20 px CSS cell at DPR 1, the grid at (5, 5) in a container at (0, 0).
+  async function wheelTerm(modes: string) {
+    const ghostty = await Ghostty.load(WASM);
+    const wasmTerm = ghostty.createTerminal(40, 10);
+    wasmTerm.write(modes);
+    const term = new Terminal({ ghostty: {} as never, cols: 40, rows: 10 });
+    const internals = term as unknown as {
+      wasmTerm: unknown;
+      renderer: unknown;
+      canvas: unknown;
+      element: unknown;
+      handleWheel(e: object): void;
+    };
+    internals.wasmTerm = wasmTerm;
+    internals.renderer = {
+      getMetrics: () => ({ width: 10, height: 20, baseline: 15 }),
+      scrollOffset: 0,
+    };
+    internals.canvas = { getBoundingClientRect: () => ({ left: 5, top: 5 }) };
+    internals.element = {
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 410, bottom: 210 }),
+    };
+    const sent: string[] = [];
+    term.onData((data) => sent.push(data));
+    const wheel = (deltaY: number, clientX: number, clientY: number, mods: object = {}) =>
+      internals.handleWheel({
+        deltaY,
+        deltaMode: 1,
+        clientX,
+        clientY,
+        shiftKey: false,
+        altKey: false,
+        ctrlKey: false,
+        metaKey: false,
+        preventDefault: () => {},
+        stopPropagation: () => {},
+        ...mods,
+      });
+    return { sent, wheel, free: () => wasmTerm.free() };
+  }
+
+  test('sends buttons 4/5 at the pointer cell in SGR, with modifiers', async () => {
+    const { sent, wheel, free } = await wheelTerm('\x1b[?1000h\x1b[?1006h');
+    wheel(-3, 5 + 10 * 6 + 1, 5 + 20 * 3 + 1);
+    wheel(3, 5 + 10 * 6 + 1, 5 + 20 * 3 + 1, { altKey: true });
+    expect(sent).toEqual(['\x1b[<64;7;4M', '\x1b[<73;7;4M']);
+    free();
+  });
+
+  test('follows the format: X10 bytes without 1006, nothing in X10 mode 9', async () => {
+    const x10 = await wheelTerm('\x1b[?1000h');
+    x10.wheel(3, 6, 6);
+    expect(x10.sent).toEqual(['\x1b[Ma!!']);
+    x10.free();
+    const mode9 = await wheelTerm('\x1b[?9h');
+    mode9.wheel(3, 6, 6);
+    expect(mode9.sent).toEqual([]);
+    mode9.free();
   });
 });
 

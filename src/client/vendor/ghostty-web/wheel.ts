@@ -1,7 +1,8 @@
 /**
  * Wheel input for apps that scroll themselves: what a wheel event sends when the
- * app tracks the mouse (SGR scroll buttons) or is on the alternate screen without
- * mouse tracking (arrow keys), and the pacing that spreads it over time. The
+ * app tracks the mouse (scroll ticks, each encoded by Ghostty's mouse encoder as a
+ * press of button 4 or 5, ADR 049) or is on the alternate screen without mouse
+ * tracking (arrow keys), and the pacing that spreads it over time. The
  * terminal's `handleWheel` routes events here. (webtty, ADR 017, ADR 040, ADR 045)
  */
 import { Glide, linear, type Pace } from './glide';
@@ -28,7 +29,7 @@ function accumulate(acc: WheelAccumulator, deltaY: number, amount: number): numb
 
 /**
  * Scroll ticks a wheel event sends to an app that tracks the mouse: negative
- * scrolls up (SGR button 64), positive down (65). Pixel deltas (trackpads, and
+ * scrolls up (button 4, SGR 64), positive down (5, SGR 65). Pixel deltas (trackpads, and
  * mouse wheels in Chromium/Safari on macOS) count by distance, one tick per cell
  * height, 1:1 with the OS, and `speed` does not apply (Ghostty skips its scroll
  * multiplier for precision scrolls too). Line and page deltas count one tick per
@@ -64,12 +65,6 @@ export function wheelArrows(
   // 0 is WheelEvent.DOM_DELTA_PIXEL, 1 DOM_DELTA_LINE.
   const lines = e.deltaMode === 0 ? amount / cellHeight : e.deltaMode === 1 ? amount : amount * rows;
   return accumulate(acc, e.deltaY, lines);
-}
-
-/** SGR mouse report for `ticks` wheel ticks at a 1-based cell. */
-export function wheelSgr(ticks: number, col: number, row: number): string {
-  const btn = ticks < 0 ? 64 : 65;
-  return `\x1b[<${btn};${col};${row}M`.repeat(Math.abs(ticks));
 }
 
 /**

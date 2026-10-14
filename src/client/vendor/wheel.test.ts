@@ -4,7 +4,6 @@ import {
   type WheelAccumulator,
   wheelArrowKey,
   wheelArrows,
-  wheelSgr,
   wheelTicks,
 } from './ghostty-web/wheel';
 
@@ -48,16 +47,6 @@ describe('wheelTicks', () => {
     expect(wheelTicks(acc, { deltaY: -10, deltaMode: PIXEL }, 14, 1)).toBe(0);
     expect(wheelTicks(acc, { deltaY: -4, deltaMode: PIXEL }, 14, 1)).toBe(-1);
     expect(wheelTicks(acc, { deltaY: 10, deltaMode: PIXEL }, 14, 1)).toBe(0);
-  });
-});
-
-describe('wheelSgr', () => {
-  test('scroll up is button 64 at the cell', () => {
-    expect(wheelSgr(-1, 5, 3)).toBe('\x1b[<64;5;3M');
-  });
-
-  test('scroll down is button 65, one report per tick', () => {
-    expect(wheelSgr(2, 1, 1)).toBe('\x1b[<65;1;1M\x1b[<65;1;1M');
   });
 });
 

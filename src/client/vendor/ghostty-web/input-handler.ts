@@ -13,7 +13,7 @@
  * - Captures all keyboard input (preventDefault on everything)
  */
 
-import type { Ghostty } from './ghostty';
+import type { Ghostty, MouseButton, MouseInput } from './ghostty';
 import type { KeyEncoder } from './ghostty';
 import { Key, KeyAction, KeyEncoderOption, Mods } from './types';
 
@@ -163,13 +163,16 @@ const KEY_MAP: Record<string, Key> = {
 export interface MouseTrackingConfig {
   /** Check if any mouse tracking mode is enabled */
   hasMouseTracking: () => boolean;
-  /** Check if SGR extended mouse mode is enabled (mode 1006) */
-  hasSgrMouseMode: () => boolean;
-  /** Get cell dimensions for pixel to cell conversion */
-  getCellDimensions: () => { width: number; height: number };
-  /** Get canvas/container offset for accurate position calculation */
-  getCanvasOffset: () => { left: number; top: number };
+  /**
+   * The report for a mouse event at a client position, encoded by Ghostty's mouse
+   * encoder in the app's tracking mode and format, or '' when the app does not get one.
+   * (webtty: upstream encoded SGR or X10 itself, ADR 049)
+   */
+  encode: (event: MouseEventReport) => string;
 }
+
+/** A mouse event to report, at a client (viewport) position. (webtty, ADR 049) */
+export type MouseEventReport = Omit<MouseInput, 'x' | 'y'> & { clientX: number; clientY: number };
 
 /**
  * The sequence for a key the official encoder does not send as xterm does, or null to
@@ -189,29 +192,37 @@ export function plainKeySequence(key: Key, mods: Mods): string | null {
 }
 
 /**
- * Button code for a mouse motion report, from the pressed-button bitmask
- * (bit 0 left, bit 1 middle, bit 2 right). Motion adds 32 to the button, and
- * no button is button 3, so hover is 35. (webtty: upstream sent 32 for hover,
- * the same code as a left-button drag.)
+ * Ghostty's button for `MouseEvent.button`: 0 left, 1 middle, 2 right, and 3/4 back
+ * and forward, which Ghostty reports as buttons 8/9 (codes 128/129). (webtty: upstream
+ * sent `MouseEvent.button` as the code, so back was a release and forward Shift.)
  */
-export function mouseMotionButton(pressed: number): number {
-  if (pressed & 1) return 32; // Left
-  if (pressed & 2) return 33; // Middle
-  if (pressed & 4) return 34; // Right
-  return 35; // No button
+export const MOUSE_BUTTONS: readonly MouseButton[] = ['left', 'middle', 'right', 'eight', 'nine'];
+
+/**
+ * The button a motion report carries, from the pressed-button bitmask (bit n is
+ * `MouseEvent.button` n): the lowest one held, or none, which Ghostty reports as 35.
+ * (webtty: upstream sent 32 for hover, the same code as a left-button drag.)
+ */
+export function motionButton(pressed: number): MouseButton | null {
+  for (let i = 0; i < MOUSE_BUTTONS.length; i++) {
+    if (pressed & (1 << i)) return MOUSE_BUTTONS[i];
+  }
+  return null;
 }
 
 /**
- * Whether a motion event lands in a different cell from the last mouse report.
- * Like native terminals, motion is reported once per cell, not per pixel.
- * (webtty: upstream reported every mousemove, so a drag within one cell sent
- * repeats that vim reads as a visual-mode toggle.)
+ * The modifiers of a mouse event. Ghostty reports Shift (+4), Alt (+8) and Ctrl (+16),
+ * not Super. (webtty: upstream sent Meta as +8 and dropped Alt.)
  */
-export function isNewMouseCell(
-  last: { col: number; row: number } | null,
-  cell: { col: number; row: number }
-): boolean {
-  return !last || last.col !== cell.col || last.row !== cell.row;
+export function mouseMods(
+  e: Pick<MouseEvent, 'shiftKey' | 'altKey' | 'ctrlKey' | 'metaKey'>
+): number {
+  return (
+    (e.shiftKey ? Mods.SHIFT : 0) |
+    (e.altKey ? Mods.ALT : 0) |
+    (e.ctrlKey ? Mods.CTRL : 0) |
+    (e.metaKey ? Mods.SUPER : 0)
+  );
 }
 
 export class InputHandler {
@@ -231,10 +242,12 @@ export class InputHandler {
   private mousedownListener: ((e: MouseEvent) => void) | null = null;
   private mouseupListener: ((e: MouseEvent) => void) | null = null;
   private mousemoveListener: ((e: MouseEvent) => void) | null = null;
+  // Where move and release are heard: the document, so a drag keeps reporting past the
+  // terminal's edge (webtty, ADR 049)
+  private mouseTarget: Pick<HTMLElement, 'addEventListener' | 'removeEventListener'>;
   private isComposing = false;
   private isDisposed = false;
   private mouseButtonsPressed = 0; // Track which buttons are pressed for motion reporting
-  private lastMouseCell: { col: number; row: number } | null = null; // Cell of the last mouse report
   private lastKeyDownData: string | null = null;
   private lastKeyDownTime = 0;
   private lastCompositionData: string | null = null;
@@ -269,6 +282,7 @@ export class InputHandler {
     this.getModeCallback = getMode;
     this.onCopyCallback = onCopy;
     this.mouseConfig = mouseConfig;
+    this.mouseTarget = container.ownerDocument ?? container;
 
     // Attach event listeners
     this.attach();
@@ -319,10 +333,10 @@ export class InputHandler {
     this.container.addEventListener('mousedown', this.mousedownListener);
 
     this.mouseupListener = this.handleMouseUp.bind(this);
-    this.container.addEventListener('mouseup', this.mouseupListener);
+    this.mouseTarget.addEventListener('mouseup', this.mouseupListener);
 
     this.mousemoveListener = this.handleMouseMove.bind(this);
-    this.container.addEventListener('mousemove', this.mousemoveListener);
+    this.mouseTarget.addEventListener('mousemove', this.mousemoveListener);
 
     // Wheel input is the terminal's alone (Terminal.handleWheel, paced). A listener here
     // also fired for a wheel over the padding, where the container itself is the target,
@@ -599,98 +613,32 @@ export class InputHandler {
   // Mouse Event Handling (for terminal mouse tracking)
   // ==========================================================================
 
-  /**
-   * Convert pixel coordinates to terminal cell coordinates
-   */
-  private pixelToCell(event: MouseEvent): { col: number; row: number } | null {
-    if (!this.mouseConfig) return null;
-
-    const dims = this.mouseConfig.getCellDimensions();
-    const offset = this.mouseConfig.getCanvasOffset();
-
-    if (dims.width <= 0 || dims.height <= 0) return null;
-
-    const x = event.clientX - offset.left;
-    const y = event.clientY - offset.top;
-
-    // Convert to 1-based cell coordinates (terminal uses 1-based)
-    const col = Math.floor(x / dims.width) + 1;
-    const row = Math.floor(y / dims.height) + 1;
-
-    // Clamp to valid range (at least 1)
-    return {
-      col: Math.max(1, col),
-      row: Math.max(1, row),
-    };
+  /** Whether a mouse event is over the terminal (the container or what is in it). */
+  private isOverTerminal(event: MouseEvent): boolean {
+    const target = event.target as Node | null;
+    return !!target && (target === this.container || !!this.container.contains?.(target));
   }
 
   /**
-   * Get modifier flags for mouse event
-   */
-  private getMouseModifiers(event: MouseEvent): number {
-    let mods = 0;
-    if (event.shiftKey) mods |= 4;
-    if (event.metaKey) mods |= 8; // Meta (Cmd on Mac)
-    if (event.ctrlKey) mods |= 16;
-    return mods;
-  }
-
-  /**
-   * Encode mouse event as SGR sequence
-   * SGR format: \x1b[<Btn;Col;RowM (press/motion) or \x1b[<Btn;Col;Rowm (release)
-   */
-  private encodeMouseSGR(
-    button: number,
-    col: number,
-    row: number,
-    isRelease: boolean,
-    modifiers: number
-  ): string {
-    const btn = button + modifiers;
-    const suffix = isRelease ? 'm' : 'M';
-    return `\x1b[<${btn};${col};${row}${suffix}`;
-  }
-
-  /**
-   * Encode mouse event as X10/normal sequence (legacy format)
-   * Format: \x1b[M<Btn+32><Col+32><Row+32>
-   */
-  private encodeMouseX10(button: number, col: number, row: number, modifiers: number): string {
-    // X10 format adds 32 to all values and encodes as characters
-    // Button encoding: 0=left, 1=middle, 2=right, 3=release
-    const btn = button + modifiers + 32;
-    const colChar = String.fromCharCode(Math.min(col + 32, 255));
-    const rowChar = String.fromCharCode(Math.min(row + 32, 255));
-    return `\x1b[M${String.fromCharCode(btn)}${colChar}${rowChar}`;
-  }
-
-  /**
-   * Send mouse event to terminal
+   * Sends a mouse event as Ghostty encodes it. Ghostty decides what is reported: the
+   * tracking mode (presses only in X10 mode 9, no motion in 1000, motion with a button
+   * in 1002), motion once per cell, the padding as the nearest edge cell, and motion
+   * outside the terminal only while a button is held. (webtty, ADR 049)
    */
   private sendMouseEvent(
-    button: number,
-    col: number,
-    row: number,
-    isRelease: boolean,
-    event: MouseEvent
+    event: MouseEvent,
+    action: MouseInput['action'],
+    button: MouseButton | null
   ): void {
-    const modifiers = this.getMouseModifiers(event);
-    this.lastMouseCell = { col, row };
-
-    // Check if SGR extended mode is enabled (mode 1006)
-    const useSGR = this.mouseConfig?.hasSgrMouseMode?.() ?? true;
-
-    let sequence: string;
-    if (useSGR) {
-      sequence = this.encodeMouseSGR(button, col, row, isRelease, modifiers);
-    } else {
-      // X10/normal mode doesn't support release events directly
-      // Button 3 means release in X10 mode
-      const x10Button = isRelease ? 3 : button;
-      sequence = this.encodeMouseX10(x10Button, col, row, modifiers);
-    }
-
-    this.onDataCallback(sequence);
+    const data = this.mouseConfig?.encode({
+      action,
+      button,
+      mods: mouseMods(event),
+      clientX: event.clientX,
+      clientY: event.clientY,
+      anyButtonPressed: this.mouseButtonsPressed !== 0,
+    });
+    if (data) this.onDataCallback(data);
   }
 
   /**
@@ -700,69 +648,52 @@ export class InputHandler {
     if (this.isDisposed) return;
     if (!this.mouseConfig?.hasMouseTracking()) return;
 
-    const cell = this.pixelToCell(event);
-    if (!cell) return;
-
-    // Map browser button to terminal button
-    // event.button: 0=left, 1=middle, 2=right
-    // Terminal: 0=left, 1=middle, 2=right
-    const button = event.button;
+    const button = MOUSE_BUTTONS[event.button];
+    if (!button) return;
+    // Back and forward would leave the session's page (webtty)
+    if (event.button >= 3) event.preventDefault();
 
     // Track pressed buttons for motion events
-    this.mouseButtonsPressed |= 1 << button;
+    this.mouseButtonsPressed |= 1 << event.button;
 
-    this.sendMouseEvent(button, cell.col, cell.row, false, event);
+    this.sendMouseEvent(event, 'press', button);
 
     // Don't prevent default - let SelectionManager handle selection
-    // Only prevent if we actually handled the event
-    // event.preventDefault();
   }
 
   /**
-   * Handle mouseup event
+   * Handle mouseup event, anywhere in the document: outside the terminal only for a
+   * button pressed in it (webtty: upstream lost a release outside the container)
    */
   private handleMouseUp(event: MouseEvent): void {
     if (this.isDisposed) return;
     if (!this.mouseConfig?.hasMouseTracking()) return;
 
-    const cell = this.pixelToCell(event);
-    if (!cell) return;
-
-    const button = event.button;
+    const button = MOUSE_BUTTONS[event.button];
+    if (!button) return;
+    const bit = 1 << event.button;
+    if (!(this.mouseButtonsPressed & bit) && !this.isOverTerminal(event)) return;
+    if (event.button >= 3) event.preventDefault();
 
     // Clear pressed button
-    this.mouseButtonsPressed &= ~(1 << button);
+    this.mouseButtonsPressed &= ~bit;
 
-    this.sendMouseEvent(button, cell.col, cell.row, true, event);
+    this.sendMouseEvent(event, 'release', button);
   }
 
   /**
-   * Handle mousemove event
+   * Handle mousemove event, anywhere in the document: outside the terminal only while a
+   * button pressed in it is held, so a drag past the edge keeps reporting (webtty)
    */
   private handleMouseMove(event: MouseEvent): void {
     if (this.isDisposed) return;
     if (!this.mouseConfig?.hasMouseTracking()) return;
 
-    // Check if button motion mode or any-event tracking is enabled
-    // Mode 1002 = button motion, Mode 1003 = any motion
-    const hasButtonMotion = this.getModeCallback?.(1002) ?? false;
-    const hasAnyMotion = this.getModeCallback?.(1003) ?? false;
-
-    if (!hasButtonMotion && !hasAnyMotion) return;
-
-    // No button held: a release outside the container never cleared the bitmask
+    // No button held: a release outside the document never cleared the bitmask
     if (event.buttons === 0) this.mouseButtonsPressed = 0;
+    if (this.mouseButtonsPressed === 0 && !this.isOverTerminal(event)) return;
 
-    // In button motion mode, only report if a button is pressed
-    if (hasButtonMotion && !hasAnyMotion && this.mouseButtonsPressed === 0) return;
-
-    const cell = this.pixelToCell(event);
-    if (!cell) return;
-    if (!isNewMouseCell(this.lastMouseCell, cell)) return;
-
-    const button = mouseMotionButton(this.mouseButtonsPressed);
-
-    this.sendMouseEvent(button, cell.col, cell.row, false, event);
+    this.sendMouseEvent(event, 'motion', motionButton(this.mouseButtonsPressed));
   }
 
   /**
@@ -889,12 +820,12 @@ export class InputHandler {
     }
 
     if (this.mouseupListener) {
-      this.container.removeEventListener('mouseup', this.mouseupListener);
+      this.mouseTarget.removeEventListener('mouseup', this.mouseupListener);
       this.mouseupListener = null;
     }
 
     if (this.mousemoveListener) {
-      this.container.removeEventListener('mousemove', this.mousemoveListener);
+      this.mouseTarget.removeEventListener('mousemove', this.mousemoveListener);
       this.mousemoveListener = null;
     }
 

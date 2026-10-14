@@ -4,8 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { Ghostty } from './ghostty-web/ghostty';
 import {
   InputHandler,
-  isNewMouseCell,
-  mouseMotionButton,
+  type MouseEventReport,
+  motionButton,
+  mouseMods,
   plainKeySequence,
 } from './ghostty-web/input-handler';
 import { Key, Mods } from './ghostty-web/types';
@@ -15,44 +16,140 @@ const WASM = path.join(
   'ghostty-vt/ghostty-vt-small.wasm',
 );
 
-describe('mouseMotionButton', () => {
-  test('encodes hover (no button held) as 35', () => {
-    expect(mouseMotionButton(0)).toBe(35);
+describe('motionButton', () => {
+  test('no button held is none, which Ghostty reports as hover (35)', () => {
+    expect(motionButton(0)).toBeNull();
   });
 
-  test('encodes a left-button drag as 32', () => {
-    expect(mouseMotionButton(1)).toBe(32);
-  });
-
-  test('encodes a middle-button drag as 33', () => {
-    expect(mouseMotionButton(2)).toBe(33);
-  });
-
-  test('encodes a right-button drag as 34', () => {
-    expect(mouseMotionButton(4)).toBe(34);
-  });
-
-  test('reports the lowest button when several are held', () => {
-    expect(mouseMotionButton(1 | 4)).toBe(32);
-    expect(mouseMotionButton(2 | 4)).toBe(33);
+  test('a drag reports the lowest button held', () => {
+    expect(motionButton(1)).toBe('left');
+    expect(motionButton(2)).toBe('middle');
+    expect(motionButton(4)).toBe('right');
+    expect(motionButton(1 | 4)).toBe('left');
+    expect(motionButton(2 | 4)).toBe('middle');
+    expect(motionButton(8)).toBe('eight');
   });
 });
 
-describe('isNewMouseCell', () => {
-  test('reports the first motion when nothing was reported yet', () => {
-    expect(isNewMouseCell(null, { col: 8, row: 4 })).toBe(true);
+describe('mouseMods', () => {
+  test('passes Shift, Alt, Ctrl and Meta as their own bits', () => {
+    const none = { shiftKey: false, altKey: false, ctrlKey: false, metaKey: false };
+    expect(mouseMods(none)).toBe(Mods.NONE);
+    expect(mouseMods({ ...none, altKey: true })).toBe(Mods.ALT);
+    expect(mouseMods({ ...none, metaKey: true })).toBe(Mods.SUPER);
+    expect(mouseMods({ ...none, shiftKey: true, ctrlKey: true })).toBe(Mods.SHIFT | Mods.CTRL);
+  });
+});
+
+describe('InputHandler mouse', () => {
+  type Listener = (e: object) => void;
+  const target = () => {
+    const listeners = new Map<string, Listener[]>();
+    return {
+      listeners,
+      addEventListener: (type: string, listener: Listener) =>
+        listeners.set(type, [...(listeners.get(type) ?? []), listener]),
+      removeEventListener: (type: string, listener: Listener) =>
+        listeners.set(
+          type,
+          (listeners.get(type) ?? []).filter((l) => l !== listener),
+        ),
+      fire: (type: string, e: object) => {
+        for (const l of listeners.get(type) ?? []) l(e);
+      },
+    };
+  };
+
+  async function setup() {
+    const ghostty = await Ghostty.load(WASM);
+    const doc = target();
+    const outside = {};
+    const container = {
+      ...target(),
+      ownerDocument: doc,
+      contains: (node: unknown) => node !== outside,
+    };
+    const encoded: MouseEventReport[] = [];
+    const sent: string[] = [];
+    const handler = new InputHandler(
+      ghostty,
+      container as unknown as HTMLElement,
+      (data) => sent.push(data),
+      undefined,
+      undefined,
+      undefined,
+      {
+        hasMouseTracking: () => true,
+        encode: (event) => {
+          encoded.push(event);
+          return `<${event.action}:${event.button}>`;
+        },
+      },
+    );
+    const mouse = (over: boolean, extra: object) => {
+      const prevented = { value: false };
+      return {
+        prevented,
+        event: {
+          target: over ? container : outside,
+          button: 0,
+          buttons: 0,
+          clientX: 12,
+          clientY: 34,
+          shiftKey: false,
+          altKey: false,
+          ctrlKey: false,
+          metaKey: false,
+          preventDefault: () => {
+            prevented.value = true;
+          },
+          ...extra,
+        },
+      };
+    };
+    return { handler, container, doc, encoded, sent, mouse };
+  }
+
+  test('reports a press, then a drag and its release past the terminal edge', async () => {
+    const { handler, container, doc, encoded, sent, mouse } = await setup();
+    container.fire('mousedown', mouse(true, { button: 0, buttons: 1, altKey: true }).event);
+    doc.fire('mousemove', mouse(false, { buttons: 1, clientX: -40 }).event);
+    doc.fire('mouseup', mouse(false, { button: 0, clientX: -40 }).event);
+    expect(sent).toEqual(['<press:left>', '<motion:left>', '<release:left>']);
+    expect(encoded[0]).toEqual({
+      action: 'press',
+      button: 'left',
+      mods: Mods.ALT,
+      clientX: 12,
+      clientY: 34,
+      anyButtonPressed: true,
+    });
+    expect(encoded[1]).toMatchObject({ clientX: -40, anyButtonPressed: true });
+    expect(encoded[2]).toMatchObject({ action: 'release', anyButtonPressed: false });
+    handler.dispose();
+    expect(doc.listeners.get('mousemove')).toEqual([]);
   });
 
-  test('drops motion within the last reported cell', () => {
-    expect(isNewMouseCell({ col: 8, row: 4 }, { col: 8, row: 4 })).toBe(false);
+  test('hover is reported over the terminal only, with no button', async () => {
+    const { handler, doc, sent, mouse } = await setup();
+    doc.fire('mousemove', mouse(true, {}).event);
+    doc.fire('mousemove', mouse(false, {}).event);
+    // A release outside the terminal of a button not pressed in it
+    doc.fire('mouseup', mouse(false, { button: 2 }).event);
+    expect(sent).toEqual(['<motion:null>']);
+    handler.dispose();
   });
 
-  test('reports motion into a new column', () => {
-    expect(isNewMouseCell({ col: 8, row: 4 }, { col: 9, row: 4 })).toBe(true);
-  });
-
-  test('reports motion into a new row', () => {
-    expect(isNewMouseCell({ col: 8, row: 4 }, { col: 8, row: 5 })).toBe(true);
+  test('back and forward are buttons 8 and 9, and do not navigate', async () => {
+    const { handler, container, doc, sent, mouse } = await setup();
+    const down = mouse(true, { button: 3, buttons: 8 });
+    container.fire('mousedown', down.event);
+    const up = mouse(true, { button: 4 });
+    doc.fire('mouseup', up.event);
+    expect(sent).toEqual(['<press:eight>', '<release:nine>']);
+    expect(down.prevented.value).toBe(true);
+    expect(up.prevented.value).toBe(true);
+    handler.dispose();
   });
 });
 
@@ -78,9 +175,7 @@ describe('InputHandler wheel', () => {
       undefined,
       {
         hasMouseTracking: () => true,
-        hasSgrMouseMode: () => true,
-        getCellDimensions: () => ({ width: 8, height: 16 }),
-        getCanvasOffset: () => ({ left: 10, top: 10 }),
+        encode: () => 'report',
       },
     );
     const wheel = { deltaY: 40, clientX: 2, clientY: 2, preventDefault: () => {} };
