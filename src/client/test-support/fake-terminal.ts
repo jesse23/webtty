@@ -43,6 +43,8 @@ export class FakeTerminal {
   /** Undefined until {@link attachRenderer}, as before `open()`. */
   renderer: FakeRenderer | undefined;
   wasmTerm: object | undefined;
+  /** Whether there is a selection, for `copySelection`. */
+  hasSelection = false;
   /** Everything passed to `write`, in order. */
   readonly written: (string | Uint8Array)[] = [];
   /** Every command called, as `name` or `name:arg`, in order. */
@@ -135,6 +137,16 @@ export class FakeTerminal {
       remeasureFont: () => this.calls.push('remeasureFont'),
     };
     return this.renderer;
+  }
+
+  jumpToPrompt(delta: number): void {
+    this.calls.push(`jumpToPrompt:${delta}`);
+  }
+
+  /** Records the copy; true when the test has set a selection. */
+  copySelection(): boolean {
+    this.calls.push('copySelection');
+    return this.hasSelection;
   }
 
   scrollToBottom(): void {

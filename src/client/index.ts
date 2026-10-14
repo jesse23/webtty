@@ -11,7 +11,7 @@ import { installClipboard } from './features/clipboard/clipboard-feature';
 import { Composer } from './features/compose/composer';
 import { installFind } from './features/find/find-feature';
 import { installFontZoom } from './features/keyboard/font-zoom-feature';
-import { findBinding } from './features/keyboard/key-bindings';
+import { installKeyDispatcher } from './features/keyboard/key-dispatcher';
 import { shortcutFor } from './features/keyboard/shortcut-map';
 import { KittyGraphics } from './features/kitty/graphics/kitty-graphics';
 import { browserNotifications } from './features/notifications/browser-notifications';
@@ -151,23 +151,38 @@ term.attachCustomWheelEventHandler(
 term.attachWheelPace((e: WheelEvent) => wheelStream.forApp(e));
 term.attachBeforeRender((now: number) => smoothScroll.frame(now));
 
-// Intercept configured key+mods combos before ghostty-web sees them and send
-// the bound chars directly to the PTY. See ADR 018.
-container.addEventListener(
-  'keydown',
-  (e: KeyboardEvent) => {
-    const binding = findBinding(e, config.keyboardBindings);
-    if (!binding) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (binding.chars && connection.isOpen()) {
-      // A keystroke scrolls to the bottom, as the terminal's own keys do (ADR 055)
-      term.scrollToBottom();
-      connection.send(binding.chars);
-    }
-  },
-  { capture: true },
-);
+// Cmd+K: nothing on the alternate screen; the clear is this tab's own, and a reload
+// replays the session's output again (ADR 054)
+function clearScreen(): boolean {
+  if (!term.clearScreen()) return false;
+  graphics.clear();
+  smoothScroll.onOutput();
+  return true;
+}
+
+// Find in the scrollback (ADR 055). Built before the key dispatcher, which drives it; the
+// bar is the only append to the body and the only `onFindChange` subscriber, so building
+// it earlier than the old shortcut listener changes no order (SPEC step 9).
+const { mac } = ctx;
+const find = installFind(ctx, {
+  ...env,
+  shortcutActionOf: (e) => shortcutFor(e, mac)?.action,
+});
+
+// Pastes: text through the terminal, a non-text paste as Ctrl+V (ADR 014, ADR 037, ADR 049).
+// Built here as the dispatcher's paste keys use it; its own listeners are added last.
+const paste = new PasteService(term, connection, env.navigator);
+
+// The one container capture keydown listener, where the binding listener was: configured
+// bindings (ADR 018), then Ghostty's copy, paste, clear, find and jump-to-prompt keys for
+// this platform (ADR 054, ADR 055, ADR 057). It runs before the input handler, which
+// listens on the container too.
+installKeyDispatcher(ctx, {
+  connection,
+  find,
+  clearScreen,
+  pasteFromClipboard: () => paste.pasteFromClipboard(),
+});
 
 // Font zoom: the last window capture keydown listener, fitting at once (ADR 033).
 installFontZoom(ctx, { fit: () => layout.fit() });
@@ -179,70 +194,6 @@ term.onData((data: string) => connection.send(data));
 term.onResize(({ cols, rows }: { cols: number; rows: number }) =>
   connection.sendResize(cols, rows),
 );
-
-// Pastes: text through the terminal, a non-text paste as Ctrl+V (ADR 014, ADR 037, ADR 049).
-const paste = new PasteService(term, connection, env.navigator);
-
-// Copy, paste, clear-screen, find and jump-to-prompt keys as Ghostty binds them for this
-// platform (ADR 054, ADR 055, ADR 057).
-// Ctrl+V never reaches us as a 'paste' event on macOS (ADR 014), so the clipboard is
-// read on keydown to make it behave like Cmd+V. Both keydown listeners are capture
-// listeners on `container`, so they run in registration order - this one runs after the
-// configured-binding listener above, so skip a combo the user has already bound
-// (including an intentionally empty binding meant to consume the key and suppress the
-// default). Both run before the input handler, which listens on the container too.
-const { mac } = ctx;
-container.addEventListener(
-  'keydown',
-  (e: KeyboardEvent) => {
-    const shortcut = shortcutFor(e, mac);
-    if (!shortcut || findBinding(e, config.keyboardBindings)) return;
-    if (shortcut.action.startsWith('find')) {
-      // Escape, closing and moving are the app's while the bar is closed (ADR 055)
-      if (shortcut.action !== 'find' && !find.isOpen) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      if (shortcut.action === 'find') find.open();
-      else if (shortcut.action === 'findClose') find.close();
-      else find.go(shortcut.action === 'findNext' ? 'next' : 'previous');
-      return;
-    }
-    if (shortcut.action === 'promptPrevious' || shortcut.action === 'promptNext') {
-      // Ghostty's jump_to_prompt is consumed with or without a prompt to go to (ADR 057)
-      term.jumpToPrompt(shortcut.action === 'promptPrevious' ? -1 : 1);
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      return;
-    }
-    if (shortcut.action === 'paste') {
-      // Without the clipboard API the browser's own paste may still fire 'paste'
-      if (paste.pasteFromClipboard()) e.preventDefault();
-      e.stopImmediatePropagation();
-      return;
-    }
-    const done = shortcut.action === 'copy' ? term.copySelection() : clearScreen();
-    // Not done and performable: the input handler sends the key to the app, as Ghostty does
-    if (!done && shortcut.performable) return;
-    e.preventDefault();
-    e.stopImmediatePropagation();
-  },
-  { capture: true },
-);
-
-// Find in the scrollback (ADR 055); the shortcut listener above reads it only on a key.
-const find = installFind(ctx, {
-  ...env,
-  shortcutActionOf: (e) => shortcutFor(e, mac)?.action,
-});
-
-// Cmd+K: nothing on the alternate screen; the clear is this tab's own, and a reload
-// replays the session's output again (ADR 054)
-function clearScreen(): boolean {
-  if (!term.clearScreen()) return false;
-  graphics.clear();
-  smoothScroll.onOutput();
-  return true;
-}
 
 // The right click set to paste, then the container capture paste listener (ADR 051).
 installPaste(ctx, { paste });
