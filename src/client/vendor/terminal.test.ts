@@ -583,6 +583,21 @@ describe('Terminal find', () => {
     internals.wasmTerm.free();
   });
 
+  test('output that switches to the alternate screen scrolls to the bottom', async () => {
+    const { term, internals, frames } = await findTerm();
+    term.write('needle\r\n');
+    for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
+    term.find('needle');
+    frames(2);
+    term.findNext();
+    expect(term.viewportY).toBeGreaterThan(0);
+    term.write('\x1b[?1049hpager');
+    expect(term.viewportY).toBe(0);
+    frames();
+    expect(term.viewportY).toBe(0);
+    internals.wasmTerm.free();
+  });
+
   test('ending the search clears the highlights and the count', async () => {
     const { term, internals, frames, states, last } = await findTerm();
     term.write('abc abc');

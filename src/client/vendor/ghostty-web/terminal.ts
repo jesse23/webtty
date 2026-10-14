@@ -873,8 +873,12 @@ export class Terminal implements ITerminalCore {
     this.linkDetector?.invalidateCache();
 
     // Phase 2: Auto-scroll to bottom on new output (xterm.js behavior), except while the
-    // view is on a selected match: stepFind keeps it on its rows (webtty, ADR 055)
-    if (this.viewportY !== 0 && !this.findAnchor) {
+    // view is on a selected match: stepFind keeps it on its rows. The alternate screen
+    // has no scrollback to keep a view in, and its matches are its own (webtty, ADR 055)
+    if (
+      this.viewportY !== 0 &&
+      (!this.findAnchor || this.wasmTerm!.isAlternateScreen())
+    ) {
       this.scrollToBottom();
     }
 
