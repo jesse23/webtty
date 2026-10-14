@@ -6,7 +6,8 @@ import { Window as HappyWindow } from 'happy-dom';
 
 /** One test's DOM, typed as the browser's own, and the call that closes it. */
 export interface DomWindow {
-  window: Window;
+  /** Typed as the browser's global `window`, so tests reach its constructors (`window.KeyboardEvent`). */
+  window: Window & typeof globalThis;
   document: Document;
   /** Aborts happy-dom's pending tasks and closes the window; call it in the test's teardown. */
   close(): Promise<void>;
@@ -17,7 +18,7 @@ export function createDomWindow(url = 'http://localhost/s/test'): DomWindow {
   const happy = new HappyWindow({ url, width: 1024, height: 768 });
   // happy-dom implements the DOM interfaces the code under test uses; lib.dom's types
   // name the full browser API, so the window is typed as the browser's here, once.
-  const window = happy as unknown as Window;
+  const window = happy as unknown as Window & typeof globalThis;
   return {
     window,
     document: window.document,

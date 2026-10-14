@@ -216,7 +216,7 @@ The canvas is invisible to the browser's own find, so webtty has Ghostty's searc
 | all | Escape | close | the app gets the key (bar closed) |
 | in the field | Enter / Shift+Enter | next / previous match | |
 
-Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `features/find/find-bar.ts`).
+Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `features/find/find-keys.ts`).
 
 - **Matching** is Ghostty's: ASCII letters case-insensitively, everything else exactly, soft-wrapped rows joined so a match can span a wrap; scrollback and screen, on the active screen.
 - **Order**: next goes toward older output (up), previous toward newer, both wrapping. Nothing is selected until the first Enter; the count is Ghostty's `selected/total` (`0/n` before then).

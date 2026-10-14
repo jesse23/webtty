@@ -1,5 +1,5 @@
 /**
- * The find bar (ADR 055): Ghostty's search overlay as a small DOM element at the top
+ * The find bar (view, ADR 055): Ghostty's search overlay as a small DOM element at the top
  * right of the terminal. The canvas is invisible to the browser's own find, so this
  * finds with libghostty-vt's search through the terminal.
  *
@@ -9,12 +9,11 @@
  * previous match, Escape closes. The count is Ghostty's `selected/total`: `0/n` until a
  * match is selected.
  */
-/** The match count and the selected match's index (0 the newest), as the terminal reports them. */
-export interface FindState {
-  total: number;
-  selected: number | null;
-}
+import { DisposableStore, listen, toDisposable } from '../../vendor/ghostty-web';
+import { countDescription, countLabel, type FindState } from './find-format';
+import { fieldKey, type ShortcutActionOf } from './find-keys';
 
+/** What the bar asks the terminal to do. */
 export interface FindBarActions {
   find(needle: string): void;
   next(): void;
@@ -23,130 +22,78 @@ export interface FindBarActions {
   close(): void;
 }
 
+/** The browser objects the bar builds its DOM in and times its search delay with. */
+export interface FindBarDeps {
+  document: Document;
+  setTimeout(run: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+/** The colours the bar takes from the terminal theme. */
+export type FindBarTheme = Record<string, string | undefined>;
+
 /** GtkSearchEntry's default search delay. */
 export const FIND_DELAY_MS = 150;
 
-/** The count as Ghostty's search overlay shows it. */
-export function countLabel(state: FindState): string {
-  if (state.total === 0) return '0/0';
-  return `${state.selected === null ? 0 : state.selected + 1}/${state.total}`;
-}
-
-/** The count for a screen reader. */
-export function countDescription(state: FindState): string {
-  if (state.total === 0) return 'No matches';
-  const matches = state.total === 1 ? '1 match' : `${state.total} matches`;
-  if (state.selected === null) return matches;
-  return `Match ${state.selected + 1} of ${state.total}`;
-}
-
-/** The key fields the find field reads. */
-export type FieldKeyEvent = Pick<
-  KeyboardEvent,
-  'key' | 'code' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'
->;
-
-/**
- * The shortcut action a key is, if any. The root passes the keyboard feature's lookup in,
- * so features/find does not import features/keyboard (ADR 060).
- */
-export type ShortcutActionOf = (e: FieldKeyEvent) => string | undefined;
-
-/** What a key in the find field does: the field's own keys, then the find shortcuts. */
-export function fieldKey(
-  e: FieldKeyEvent,
-  shortcutActionOf: ShortcutActionOf,
-): 'next' | 'previous' | 'close' | 'select' | null {
-  if (e.key === 'Enter' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-    return e.shiftKey ? 'previous' : 'next';
-  }
-  switch (shortcutActionOf(e)) {
-    case 'findClose':
-      return 'close';
-    case 'findNext':
-      return 'next';
-    case 'findPrevious':
-      return 'previous';
-    case 'find':
-      return 'select';
-  }
-  return null;
-}
-
+/** The find bar: built in the constructor, appended to `parent`, removed by `dispose()`. */
 export class FindBar {
   private readonly root: HTMLElement;
   private readonly input: HTMLInputElement;
   private readonly count: HTMLElement;
   private readonly status: HTMLElement;
-  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly store = new DisposableStore();
+  private timer: unknown = null;
   /** The text the terminal searches for: the field's, once the delay has passed. */
   private searched = '';
   private shown = false;
 
   constructor(
     parent: HTMLElement,
-    theme: Record<string, string | undefined>,
+    theme: FindBarTheme,
     private readonly shortcutActionOf: ShortcutActionOf,
     private readonly actions: FindBarActions,
+    private readonly deps: FindBarDeps = {
+      document: parent.ownerDocument,
+      setTimeout: (run, ms) => setTimeout(run, ms),
+      clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+    },
   ) {
-    const root = document.createElement('div');
-    root.className = 'find-bar';
-    root.setAttribute('role', 'search');
-    root.hidden = true;
-    const style = root.style;
-    if (theme.background) style.setProperty('--find-bg', theme.background);
-    if (theme.foreground) style.setProperty('--find-fg', theme.foreground);
-    const border = theme.brightBlack ?? theme.foreground;
-    if (border) style.setProperty('--find-border', border);
+    const doc = deps.document;
+    this.root = doc.createElement('div');
+    this.root.className = 'find-bar';
+    this.root.setAttribute('role', 'search');
+    this.root.hidden = true;
+    applyTheme(this.root.style, theme);
 
-    const label = document.createElement('label');
+    const label = doc.createElement('label');
     label.className = 'find-bar-hidden';
     label.htmlFor = 'find-bar-input';
     label.textContent = 'Find in terminal';
 
-    const input = document.createElement('input');
-    input.id = 'find-bar-input';
-    input.type = 'text';
-    input.placeholder = 'Find…';
-    input.autocomplete = 'off';
-    input.spellcheck = false;
-    input.addEventListener('input', () => this.schedule());
-    input.addEventListener('keydown', (e) => this.onKey(e));
-
-    const count = document.createElement('span');
-    count.className = 'find-bar-count';
-    count.setAttribute('aria-hidden', 'true');
-    const status = document.createElement('span');
-    status.className = 'find-bar-hidden';
-    status.setAttribute('role', 'status');
+    this.input = this.createInput();
+    this.count = doc.createElement('span');
+    this.count.className = 'find-bar-count';
+    this.count.setAttribute('aria-hidden', 'true');
+    this.status = doc.createElement('span');
+    this.status.className = 'find-bar-hidden';
+    this.status.setAttribute('role', 'status');
 
     // ↑ is next (older output), as in Ghostty
-    const button = (text: string, title: string, run: () => void) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.textContent = text;
-      b.title = title;
-      b.setAttribute('aria-label', title);
-      b.addEventListener('click', run);
-      return b;
-    };
-    root.append(
+    this.root.append(
       label,
-      input,
-      count,
-      status,
-      button('↑', 'Next match (older)', () => this.go('next')),
-      button('↓', 'Previous match (newer)', () => this.go('previous')),
-      button('×', 'Close', () => this.close()),
+      this.input,
+      this.count,
+      this.status,
+      this.button('↑', 'Next match (older)', () => this.go('next')),
+      this.button('↓', 'Previous match (newer)', () => this.go('previous')),
+      this.button('×', 'Close', () => this.close()),
     );
-    parent.appendChild(root);
-    this.root = root;
-    this.input = input;
-    this.count = count;
-    this.status = status;
+    parent.appendChild(this.root);
+    this.store.add(toDisposable(() => this.root.remove()));
     this.update({ total: 0, selected: null });
   }
 
+  /** Whether the bar is showing, so the shortcuts know whether next/previous apply. */
   get isOpen(): boolean {
     return this.shown;
   }
@@ -183,10 +130,39 @@ export class FindBar {
     else this.actions.previous();
   }
 
+  /** Shows the terminal's latest count; the live region is written only when it changes. */
   update(state: FindState): void {
     this.count.textContent = countLabel(state);
     const description = countDescription(state);
     if (this.status.textContent !== description) this.status.textContent = description;
+  }
+
+  /** Removes the bar and its listeners and drops a pending search. Idempotent. */
+  dispose(): void {
+    this.cancel();
+    this.store.dispose();
+  }
+
+  private createInput(): HTMLInputElement {
+    const input = this.deps.document.createElement('input');
+    input.id = 'find-bar-input';
+    input.type = 'text';
+    input.placeholder = 'Find…';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    this.store.add(listen(input, 'input', () => this.schedule()));
+    this.store.add(listen(input, 'keydown', (e) => this.onKey(e)));
+    return input;
+  }
+
+  private button(text: string, title: string, run: () => void): HTMLButtonElement {
+    const b = this.deps.document.createElement('button');
+    b.type = 'button';
+    b.textContent = text;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    this.store.add(listen(b, 'click', run));
+    return b;
   }
 
   private onKey(e: KeyboardEvent): void {
@@ -202,11 +178,11 @@ export class FindBar {
 
   private schedule(): void {
     this.cancel();
-    this.timer = setTimeout(() => this.flush(), FIND_DELAY_MS);
+    this.timer = this.deps.setTimeout(() => this.flush(), FIND_DELAY_MS);
   }
 
   private cancel(): void {
-    if (this.timer !== null) clearTimeout(this.timer);
+    if (this.timer !== null) this.deps.clearTimeout(this.timer);
     this.timer = null;
   }
 
@@ -218,4 +194,12 @@ export class FindBar {
     this.searched = text;
     this.actions.find(text);
   }
+}
+
+/** Colours the bar from the theme through the CSS variables index.css reads. */
+function applyTheme(style: CSSStyleDeclaration, theme: FindBarTheme): void {
+  if (theme.background) style.setProperty('--find-bg', theme.background);
+  if (theme.foreground) style.setProperty('--find-fg', theme.foreground);
+  const border = theme.brightBlack ?? theme.foreground;
+  if (border) style.setProperty('--find-border', border);
 }
