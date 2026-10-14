@@ -3,7 +3,8 @@ import { type KeyboardBinding, loadClientConfig } from './app/client-config';
 import { detectMac, isTerminalFocused } from './app/platform';
 import { toTerminalOptions } from './app/terminal-options';
 import { toTerminalTheme } from './app/terminal-theme';
-import { OutputAck } from './connection/output-ack';
+import { createOutputHandler } from './connection/output-pipeline';
+import { PtyConnection } from './connection/pty-connection';
 import { ReplayWindow } from './connection/replay-window';
 import { ClipboardWriter } from './features/clipboard/clipboard-writer';
 import { Composer } from './features/compose/composer';
@@ -151,15 +152,13 @@ document.addEventListener('visibilitychange', () => {
 // display of different scale, so fit again on a change.
 watchDevicePixelRatio(window, scheduleFit);
 
-const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-let ws: WebSocket;
+// Created with the connection below; read only when a reply is sent.
+let connection: PtyConnection;
 
 // Kitty graphics: the wasm32 libghostty-vt build leaves kitty graphics out and
 // discards the protocol's APC sequences, so PTY output goes through this instead of
 // term.write(). See ADR 032 and ADR 041.
-const graphics = new KittyGraphics(term, container, (data: string) => {
-  if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
-});
+const graphics = new KittyGraphics(term, container, (data: string) => connection.send(data));
 
 // A program's OSC 52 clipboard write, decoded by Ghostty, written to the browser
 // clipboard once the user has used this tab since connecting (ADR 052).
@@ -210,76 +209,36 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('keydown', () => notifier.attended(), { capture: true });
 
-function connect(): void {
-  // flow=1: this client acknowledges output as it parses it, so the server paces it
-  // (ADR 048).
-  const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}/pty?cols=${term.cols}&rows=${term.rows}&flow=1`;
-  const socket = new WebSocket(wsUrl);
-  ws = socket;
-  // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
-  clipboardWriter.connected();
-  // ... and ignore its bells and notifications until the replay's last piece (ADR 053,
-  // ADR 056)
-  replay.connected();
-  const ack = new OutputAck((message) => {
-    if (socket.readyState === WebSocket.OPEN) socket.send(message);
-  });
-
-  const DIM = '\x1b[2m',
-    YELLOW = '\x1b[1;33m',
-    ITALIC = '\x1b[3m',
-    RESET = '\x1b[0m';
-  const tag = `${DIM}[${RESET} ${YELLOW}webtty${RESET} ${DIM}]${RESET}`;
-  const msg = (text: string): string => `\r\n${tag} ${DIM}${ITALIC}${text}${RESET}\r\n`;
-
-  ws.onopen = () => {
-    graphics.reset();
-    ws.send(JSON.stringify({ type: 'resize', cols: term.cols, rows: term.rows }));
+// The PTY socket (ADR 048, ADR 060). PtyConnection owns the URL, the reconnects and the
+// close codes; this says what runs around them.
+connection = new PtyConnection(
+  sessionId,
+  {
+    size: () => ({ cols: term.cols, rows: term.rows }),
+    created: () => {
+      // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
+      clipboardWriter.connected();
+      // ... and ignore its bells and notifications until the replay's last piece (ADR 053,
+      // ADR 056)
+      replay.connected();
+    },
+    opening: () => graphics.reset(),
     // Focus changes while the socket was down were dropped: send the state the app's
     // mode 1004 now misses (ADR 053). After a reset the mode is off until the replay.
-    term.resyncFocus();
-  };
-
-  ws.onmessage = (event: MessageEvent<string>) => {
-    // term.write() parses synchronously, so the output has been parsed once feed()
-    // returns: acknowledging it now lets a slow tab slow the server down.
-    replay.output(event.data.length, performance.now());
-    graphics.feed(event.data);
-    replay.parsed(performance.now());
-    ack.parsed(event.data.length);
-    smoothScroll.onOutput();
-  };
-
-  ws.onclose = (event: CloseEvent) => {
-    ack.dispose();
-    if (event.code === 4003) {
-      // The server dropped this tab for falling too far behind the output. Start
-      // again from the replay, as a new tab would (ADR 048).
-      term.reset();
-      term.write(msg('Tab fell behind; replaying recent output.'));
-      connect();
-      return;
-    }
-    if (event.code === 4001) {
-      term.write(msg('Session removed.'));
-      setTimeout(() => window.close(), 500);
-      return;
-    }
-    if (event.code === 1001) {
-      term.write(msg('Server stopped.'));
-      setTimeout(() => window.close(), 500);
-      return;
-    }
-    term.write(msg('Connection lost. Reconnecting in 2s...'));
-    setTimeout(connect, 2000);
-  };
-
-  ws.onerror = () => {
-    term.write(msg('WebSocket error.'));
-  };
-}
-
-connect();
+    opened: () => term.resyncFocus(),
+    output: createOutputHandler({
+      replay,
+      graphics,
+      smoothScroll,
+      now: () => env.performance.now(),
+    }),
+    write: (data) => term.write(data),
+    reset: () => term.reset(),
+    closeWindow: () => env.window.close(),
+  },
+  { ...env, location: env.window.location },
+);
+connection.connect();
 
 // Wheel scrolling (ADR 017, ADR 040, ADR 045). WheelStream tells a mouse wheel, a
 // trackpad and a TrackPoint apart and picks how each event moves:
@@ -323,10 +282,10 @@ container.addEventListener(
     if (!binding) return;
     e.preventDefault();
     e.stopPropagation();
-    if (binding.chars && ws.readyState === WebSocket.OPEN) {
+    if (binding.chars && connection.isOpen()) {
       // A keystroke scrolls to the bottom, as the terminal's own keys do (ADR 055)
       term.scrollToBottom();
-      ws.send(binding.chars);
+      connection.send(binding.chars);
     }
   },
   { capture: true },
@@ -360,27 +319,21 @@ window.addEventListener(
 );
 
 // Forward terminal keystrokes and input to the PTY over WebSocket.
-term.onData((data: string) => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(data);
-  }
-});
+term.onData((data: string) => connection.send(data));
 
 // Notify the server when the terminal is resized so the PTY dimensions stay in sync.
-term.onResize(({ cols, rows }: { cols: number; rows: number }) => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-  }
-});
+term.onResize(({ cols, rows }: { cols: number; rows: number }) =>
+  connection.sendResize(cols, rows),
+);
 
 // ghostty-web swallows Ctrl+V without sending \x16 to the PTY (unlike
 // xterm.js), relying entirely on the browser 'paste' event. On macOS that
 // event only fires for Cmd+V (the OS paste gesture) - Ctrl+V produces no
 // event at all. See ADR 014.
 function sendCtrlV(): void {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!connection.isOpen()) return;
   term.scrollToBottom();
-  ws.send('\x16');
+  connection.send('\x16');
 }
 
 // Text goes through the terminal, which encodes it as Ghostty does: bracketed
@@ -388,11 +341,11 @@ function sendCtrlV(): void {
 // as CR (they may act as Enter). Ctrl+V is not a text fallback (remote TUIs can
 // interpret it as an image-paste shortcut). See ADR 037 and ADR 049.
 function sendPaste(text: string): void {
-  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!connection.isOpen()) return;
   const ctrlV = nonTextPaste(text);
   if (ctrlV) {
     term.scrollToBottom();
-    ws.send(ctrlV);
+    connection.send(ctrlV);
   } else term.paste(text);
 }
 
