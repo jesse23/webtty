@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { STREAM_OMEGA, WHEEL_GLIDE_MS, WheelClassifier, WheelStream } from './wheel-stream';
+import { STREAM_OMEGA, WHEEL_GLIDE_MS, WheelStream } from './wheel-stream';
 
 describe('WheelStream.forApp', () => {
   const scroll = () => new WheelStream();
@@ -60,51 +60,6 @@ describe('WheelStream.forApp', () => {
     s.forApp(at(-21.25, 1208));
     // Two short gaps in a row end the sparse stream a gesture starts as.
     expect(s.forApp(at(-22.75, 1216)).duration).toBe(0);
-  });
-});
-
-describe('WheelClassifier', () => {
-  const feed = (deltas: [number, number][]) => {
-    const c = new WheelClassifier();
-    for (const [x, y] of deltas) c.accept(x, y);
-    return c.isPhysicalMouseWheel();
-  };
-
-  test('steady integer notches are a wheel', () => {
-    expect(
-      feed([
-        [0, 4],
-        [0, 4],
-        [0, 8],
-        [0, 4],
-      ]),
-    ).toBe(true);
-  });
-
-  test('fractional, accelerating deltas are a trackpad', () => {
-    expect(
-      feed([
-        [0, 1.5],
-        [0, 3.25],
-        [0, 7.75],
-        [0, 12.5],
-      ]),
-    ).toBe(false);
-  });
-
-  test('both axes at once are a trackpad', () => {
-    expect(
-      feed([
-        [0, 4],
-        [0, 4],
-        [1, 4],
-        [2, 6],
-      ]),
-    ).toBe(false);
-  });
-
-  test('no events is not a wheel', () => {
-    expect(new WheelClassifier().isPhysicalMouseWheel()).toBe(false);
   });
 });
 

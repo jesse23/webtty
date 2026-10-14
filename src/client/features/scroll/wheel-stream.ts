@@ -1,15 +1,15 @@
 /**
- * How a wheel event should move: tells a mouse wheel, a trackpad and a sparse
- * stream such as a TrackPoint's apart, and picks the `Pace` that the scrollback
- * glide (smooth-scroll.ts) and the ticks paced to apps (TickPacer) follow. See
- * ADR 045.
+ * How a wheel event should move (object, ADR 045): tells a mouse wheel, a trackpad
+ * and a sparse stream such as a TrackPoint's apart, and picks the `Pace` that the
+ * scrollback glide (smooth-scroll.ts) and the ticks paced to apps (TickPacer) follow.
  *
  * - A wheel notch eases out over the wheel glide time, or, soon after one in the
  *   same direction, continues linearly over its gap plus a frame, so a spinning
  *   wheel does not pulse.
  * - A sparse delta, 25 ms or more after the previous one (from the second such gap
- *   in a row), glides linearly over that gap plus a frame, so a stream scrolls at the speed it is sent at; the
- *   extra frame keeps the glide going when the next delta is a little late. A
+ *   in a row), glides linearly over that gap plus a frame, so a stream scrolls at
+ *   the speed it is sent at; the extra frame keeps the glide going when the next
+ *   delta is a little late. A
  *   stream stays sparse until two short gaps in a row, so one delta that comes a
  *   little early does not snap or flush.
  * - While a sparse stream's deltas come every 60 ms or faster on average, it
@@ -18,6 +18,7 @@
  * - Trackpad deltas, a frame apart, move at once.
  */
 import { AT_ONCE, easeOutCubic, FRAME_MS, linear, type Pace } from '../../vendor/ghostty-web';
+import { WheelClassifier } from './wheel-classifier';
 
 /** How long a mouse wheel notch glides to its target: VS Code's `smoothScrollDuration`. */
 export const WHEEL_GLIDE_MS = 125;
@@ -45,58 +46,6 @@ export const FAST_STREAM_MS = 60;
 
 /** The spring's stiffness, rad/s: about 70 ms to settle, smoothing over a few deltas. */
 export const STREAM_OMEGA = 28;
-
-/**
- * Tells a physical mouse wheel from a trackpad by its recent pixel deltas.
- * Adapted from VS Code's `MouseWheelClassifier` (scrollableElement.ts),
- * Copyright (c) Microsoft Corporation, MIT License.
- */
-export class WheelClassifier {
-  private static readonly CAPACITY = 5;
-  /** Scores of the latest events, newest last: 0 looks like a wheel, 1 like a trackpad. */
-  private scores: number[] = [];
-  private previous: { deltaX: number; deltaY: number } | null = null;
-
-  accept(deltaX: number, deltaY: number): void {
-    this.scores.push(this.score(deltaX, deltaY));
-    if (this.scores.length > WheelClassifier.CAPACITY) this.scores.shift();
-    this.previous = { deltaX, deltaY };
-  }
-
-  /** The newest score weighs 1/2, the next 1/4, and so on; the oldest takes the rest. */
-  isPhysicalMouseWheel(): boolean {
-    if (this.scores.length === 0) return false;
-    let remaining = 1;
-    let total = 0;
-    for (let i = this.scores.length - 1; i >= 0; i--) {
-      const influence = i === 0 ? remaining : 2 ** -(this.scores.length - i);
-      remaining -= influence;
-      total += this.scores[i] * influence;
-    }
-    return total <= 0.5;
-  }
-
-  private score(deltaX: number, deltaY: number): number {
-    // Both axes at once: a trackpad.
-    if (deltaX !== 0 && deltaY !== 0) return 1;
-    let score = 0.5;
-    if (!isAlmostInt(deltaX) || !isAlmostInt(deltaY)) score += 0.25;
-    // A wheel's notches are multiples of each other; a trackpad accelerates smoothly.
-    const prev = this.previous;
-    if (prev) {
-      const [ax, ay] = [Math.abs(deltaX), Math.abs(deltaY)];
-      const [px, py] = [Math.abs(prev.deltaX), Math.abs(prev.deltaY)];
-      const minX = Math.max(Math.min(ax, px), 1);
-      const minY = Math.max(Math.min(ay, py), 1);
-      if (Math.max(ax, px) % minX === 0 && Math.max(ay, py) % minY === 0) score -= 0.5;
-    }
-    return Math.min(Math.max(score, 0), 1);
-  }
-}
-
-function isAlmostInt(value: number): boolean {
-  return Math.abs(Math.round(value) - value) < 0.01 + Number.EPSILON * 100;
-}
 
 /** The OS asks for less motion. */
 function reducedMotion(): boolean {
