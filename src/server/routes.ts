@@ -1,64 +1,30 @@
+// The webtty HTTP request handler: the REST API, the page routes and static assets, as one
+// ordered if-chain (ADR 062). Response and body helpers live in http/; routes/ splits this next.
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import type http from 'node:http';
 import { homedir } from 'node:os';
 import path from 'node:path';
 import { loadConfig, toClientConfig } from '../config';
+import { LineSplitter } from '../ndjson';
 import { getVersion } from '../version';
+import { decodeId, hasJsonContentType, MAX_BODY, readJsonOrReply } from './http/request-body';
+import {
+  redirect,
+  sendBadRequest,
+  sendJson,
+  sendNotFound,
+  sendText,
+  setCors,
+} from './http/respond';
 import { GHOSTTY_WASM, serveFile } from './http/static-files';
 import { sessionToJson } from './sessions/session';
 import { generateId, isValidId } from './sessions/session-id';
 import type { SessionStore } from './sessions/session-store';
 import { WS_CLOSE } from './ws/close-codes';
 
-const MAX_BODY = 64 * 1024;
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
-
-function setCors(res: http.ServerResponse): void {
-  for (const [k, v] of Object.entries(CORS_HEADERS)) res.setHeader(k, v);
-}
-
-function decodeId(raw: string): string | null {
-  try {
-    return decodeURIComponent(raw);
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Reads and JSON-parses the request body (max 64 KB).
- *
- * @param req - The incoming HTTP request.
- * @returns A promise resolving to the parsed JSON object, or an empty object if body is empty.
- * @throws {Error} with `status: 413` if body exceeds 64 KB.
- * @throws {Error} if the body contains invalid JSON.
- */
-export function readJson(req: http.IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > MAX_BODY) {
-        req.destroy();
-        reject(Object.assign(new Error('payload too large'), { status: 413 }));
-      }
-    });
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch {
-        reject(new Error('invalid JSON'));
-      }
-    });
-    req.on('error', reject);
-  });
-}
+// readJson moved to http/request-body.ts; re-exported because the route golden test imports it here.
+export { readJson } from './http/request-body';
 
 /**
  * Main HTTP request handler for the webtty server.
@@ -85,81 +51,64 @@ export async function handleRequest(
   setCors(res);
 
   if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
+    sendText(res, 204);
     return;
   }
 
   if (req.method === 'POST' && pathname === '/api/server/stop') {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('stopping');
+    sendText(res, 200, 'stopping', { 'Content-Type': 'text/plain' });
     onStop();
     return;
   }
 
   if (req.method === 'GET' && pathname === '/api/server/status') {
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ version: getVersion() }));
+    sendJson(res, 200, { version: getVersion() });
     return;
   }
 
   if (req.method === 'GET' && pathname === '/api/config') {
     // Only the client-safe keys: server-side config (shell, host, logs, env…) stays here.
     const clientConfig = toClientConfig(loadConfig());
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(clientConfig));
+    sendJson(res, 200, clientConfig);
     return;
   }
 
   if (pathname === '/api/sessions') {
     if (req.method === 'GET') {
       const list = store.list().map(sessionToJson);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(list));
+      sendJson(res, 200, list);
       return;
     }
 
     if (req.method === 'POST') {
-      let body: { id?: string; baseDir?: string };
-      try {
-        body = (await readJson(req)) as { id?: string; baseDir?: string };
-      } catch (err) {
-        const status = (err as { status?: number }).status === 413 ? 413 : 400;
-        res.writeHead(status);
-        res.end(status === 413 ? 'Payload Too Large' : 'invalid JSON');
-        return;
-      }
+      const read = await readJsonOrReply(req, res);
+      if (!read) return;
+      const body = read.value as { id?: string; baseDir?: string };
 
       const id = body.id ?? generateId();
       if (!isValidId(id)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `invalid id: ${id}` }));
+        sendJson(res, 400, { error: `invalid id: ${id}` });
         return;
       }
       if (store.has(id)) {
-        res.writeHead(409, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `session already exists: ${id}` }));
+        sendJson(res, 409, { error: `session already exists: ${id}` });
         return;
       }
       const baseDir = body.baseDir ?? homedir();
       if (!path.isAbsolute(baseDir)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'baseDir must be an absolute path' }));
+        sendJson(res, 400, { error: 'baseDir must be an absolute path' });
         return;
       }
       if (!fs.existsSync(baseDir)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `baseDir does not exist: ${baseDir}` }));
+        sendJson(res, 400, { error: `baseDir does not exist: ${baseDir}` });
         return;
       }
       if (!fs.statSync(baseDir).isDirectory()) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `baseDir is not a directory: ${baseDir}` }));
+        sendJson(res, 400, { error: `baseDir is not a directory: ${baseDir}` });
         return;
       }
       const session = store.create(id, baseDir);
-      res.writeHead(201, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(sessionToJson(session)));
+      sendJson(res, 201, sessionToJson(session));
       return;
     }
   }
@@ -168,73 +117,57 @@ export async function handleRequest(
   if (sessionMatch) {
     const id = decodeId(sessionMatch[1]);
     if (!id) {
-      res.writeHead(400);
-      res.end('Bad Request');
+      sendBadRequest(res);
       return;
     }
 
     if (req.method === 'GET') {
       const session = store.get(id);
       if (!session) {
-        res.writeHead(404);
-        res.end('Not Found');
+        sendNotFound(res);
         return;
       }
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(sessionToJson(session)));
+      sendJson(res, 200, sessionToJson(session));
       return;
     }
 
     if (req.method === 'PATCH') {
-      let body: { id?: string };
-      try {
-        body = (await readJson(req)) as { id?: string };
-      } catch (err) {
-        const status = (err as { status?: number }).status === 413 ? 413 : 400;
-        res.writeHead(status);
-        res.end(status === 413 ? 'Payload Too Large' : 'invalid JSON');
-        return;
-      }
+      const read = await readJsonOrReply(req, res);
+      if (!read) return;
+      const body = read.value as { id?: string };
 
       const session = store.get(id);
       if (!session) {
-        res.writeHead(404);
-        res.end('Not Found');
+        sendNotFound(res);
         return;
       }
 
       const newId = body.id;
       if (!newId) {
-        res.writeHead(400);
-        res.end('missing id');
+        sendText(res, 400, 'missing id');
         return;
       }
       if (!isValidId(newId)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `invalid id: ${newId}` }));
+        sendJson(res, 400, { error: `invalid id: ${newId}` });
         return;
       }
       if (store.has(newId)) {
-        res.writeHead(409, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: `session already exists: ${newId}` }));
+        sendJson(res, 409, { error: `session already exists: ${newId}` });
         return;
       }
       store.rename(id, newId);
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(sessionToJson(session)));
+      sendJson(res, 200, sessionToJson(session));
       return;
     }
 
     if (req.method === 'DELETE') {
       const session = store.remove(id);
       if (!session) {
-        res.writeHead(404);
-        res.end('Not Found');
+        sendNotFound(res);
         return;
       }
       session.close(WS_CLOSE.SESSION_GONE, 'session deleted');
-      res.writeHead(204, { 'X-Sessions-Remaining': String(store.size) });
-      res.end();
+      sendText(res, 204, undefined, { 'X-Sessions-Remaining': String(store.size) });
       return;
     }
   }
@@ -245,8 +178,7 @@ export async function handleRequest(
       if (!store.has('main')) store.create('main');
       targetId = 'main';
     }
-    res.writeHead(302, { Location: `/s/${targetId}` });
-    res.end();
+    redirect(res, `/s/${targetId}`);
     return;
   }
 
@@ -254,8 +186,7 @@ export async function handleRequest(
   if (req.method === 'GET' && clientMatch) {
     const id = decodeId(clientMatch[1]);
     if (!id || !isValidId(id) || !store.has(id)) {
-      res.writeHead(404);
-      res.end('Not Found');
+      sendNotFound(res);
       return;
     }
     const clientHtml = path.resolve(clientDistPath, 'client.html');
@@ -267,59 +198,43 @@ export async function handleRequest(
   if (req.method === 'POST' && publishMatch) {
     const id = decodeId(publishMatch[1]);
     if (!id) {
-      res.writeHead(400);
-      res.end('Bad Request');
+      sendBadRequest(res);
       return;
     }
-    if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
-      res.writeHead(400);
-      res.end('Bad Request');
+    if (!hasJsonContentType(req)) {
+      sendBadRequest(res);
       return;
     }
     const session = store.get(id);
     if (!session) {
-      res.writeHead(404);
-      res.end('Not Found');
+      sendNotFound(res);
       return;
     }
     if (session.pty === null) {
-      res.writeHead(409);
-      res.end('PTY not running');
+      sendText(res, 409, 'PTY not running');
       return;
     }
-    let buf = '';
-    req.on('data', (chunk: Buffer) => {
-      buf += chunk.toString('utf8');
-      const lines = buf.split('\n');
-      buf = lines.pop() ?? '';
-      if (buf.length > MAX_BODY) buf = '';
-      for (const line of lines) {
-        const trimmed = line.replace(/\r$/, '');
-        if (!trimmed) continue;
-        try {
-          JSON.parse(trimmed);
-          session.broadcastEvent(trimmed);
-        } catch {
-          // skip invalid JSON lines
-        }
+    // One event per NDJSON line; invalid JSON lines are skipped, and a line that grows past
+    // 64 KB without a newline is dropped.
+    const broadcastIfJson = (line: string) => {
+      try {
+        JSON.parse(line);
+        session.broadcastEvent(line);
+      } catch {
+        // skip invalid JSON lines
       }
+    };
+    const lines = new LineSplitter({ maxLength: MAX_BODY });
+    req.on('data', (chunk: Buffer) => {
+      for (const line of lines.push(chunk.toString('utf8'))) broadcastIfJson(line);
     });
     req.on('end', () => {
-      const trimmed = buf.replace(/\r$/, '');
-      if (trimmed) {
-        try {
-          JSON.parse(trimmed);
-          session.broadcastEvent(trimmed);
-        } catch {
-          // skip invalid JSON
-        }
-      }
-      res.writeHead(204);
-      res.end();
+      const last = lines.flush();
+      if (last) broadcastIfJson(last);
+      sendText(res, 204);
     });
     req.on('error', () => {
-      res.writeHead(500);
-      res.end();
+      sendText(res, 500);
     });
     return;
   }
@@ -328,44 +243,31 @@ export async function handleRequest(
   if (req.method === 'POST' && executeMatch) {
     const id = decodeId(executeMatch[1]);
     if (!id) {
-      res.writeHead(400);
-      res.end('Bad Request');
+      sendBadRequest(res);
       return;
     }
-    if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
-      res.writeHead(400);
-      res.end('Bad Request');
+    if (!hasJsonContentType(req)) {
+      sendBadRequest(res);
       return;
     }
     const session = store.get(id);
     if (!session) {
-      res.writeHead(404);
-      res.end('Not Found');
+      sendNotFound(res);
       return;
     }
     if (session.pty === null) {
-      res.writeHead(409);
-      res.end('PTY not running');
+      sendText(res, 409, 'PTY not running');
       return;
     }
-    let execBody: unknown;
-    try {
-      execBody = await readJson(req);
-    } catch (err) {
-      const status = (err as { status?: number }).status === 413 ? 413 : 400;
-      res.writeHead(status);
-      res.end(status === 413 ? 'Payload Too Large' : 'invalid JSON');
-      return;
-    }
-    const { cmd, args, stdin } = execBody as { cmd?: unknown; args?: unknown; stdin?: unknown };
+    const read = await readJsonOrReply(req, res);
+    if (!read) return;
+    const { cmd, args, stdin } = read.value as { cmd?: unknown; args?: unknown; stdin?: unknown };
     if (typeof cmd !== 'string' || cmd.length === 0) {
-      res.writeHead(400);
-      res.end('invalid body');
+      sendText(res, 400, 'invalid body');
       return;
     }
     if (!Array.isArray(args) || !args.every((a) => typeof a === 'string')) {
-      res.writeHead(400);
-      res.end('invalid body');
+      sendText(res, 400, 'invalid body');
       return;
     }
     let child: ReturnType<typeof spawn>;
@@ -377,8 +279,7 @@ export async function handleRequest(
         windowsHide: true,
       });
     } catch (err) {
-      res.writeHead(500);
-      res.end(`spawn error: ${String(err)}`);
+      sendText(res, 500, `spawn error: ${String(err)}`);
       return;
     }
     res.writeHead(200, {
@@ -421,18 +322,15 @@ export async function handleRequest(
   if (req.method === 'GET' && pidMatch) {
     const pid = parseInt(pidMatch[1], 10);
     if (!Number.isFinite(pid) || pid <= 0) {
-      res.writeHead(404);
-      res.end('Not Found');
+      sendNotFound(res);
       return;
     }
     const session = store.findByPid(pid);
     if (!session) {
-      res.writeHead(404);
-      res.end('Not Found');
+      sendNotFound(res);
       return;
     }
-    res.writeHead(302, { Location: `/s/${session.id}` });
-    res.end();
+    redirect(res, `/s/${session.id}`);
     return;
   }
 
@@ -442,8 +340,7 @@ export async function handleRequest(
       serveFile(ownFile, res);
       return;
     }
-    res.writeHead(404);
-    res.end('Not Found');
+    sendNotFound(res);
     return;
   }
 
@@ -452,6 +349,5 @@ export async function handleRequest(
     return;
   }
 
-  res.writeHead(404);
-  res.end('Not Found');
+  sendNotFound(res);
 }

@@ -2,6 +2,7 @@ import * as childProcess from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configDir, loadConfig } from '../config';
+import { LineSplitter } from '../ndjson';
 import { getBaseUrl, getPort, isServerRunning, openBrowser, startServer, stopServer } from './http';
 
 /**
@@ -294,16 +295,13 @@ export async function cmdRun(id: string, cmd?: string, args: string[] = []): Pro
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
-  let buf = '';
+  // The server never sends CR; keeping it leaves the lines exactly as they were before the splitter.
+  const lines = new LineSplitter({ stripCarriageReturn: false });
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split('\n');
-    buf = lines.pop() ?? '';
-    for (const line of lines) {
-      if (!line) continue;
+    for (const line of lines.push(decoder.decode(value, { stream: true }))) {
       const msg = JSON.parse(line) as Record<string, unknown>;
       if (msg.stream === 'stdout') process.stdout.write(String(msg.data));
       else if (msg.stream === 'stderr') process.stderr.write(String(msg.data));
