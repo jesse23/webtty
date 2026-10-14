@@ -1,6 +1,5 @@
-import { describe, expect, test } from 'bun:test';
+import { describe, expect, spyOn, test } from 'bun:test';
 import {
-  activates,
   DesktopNotifier,
   NOTIFY_INTERVAL_MS,
   NOTIFY_REPEAT_MS,
@@ -183,17 +182,48 @@ describe('DesktopNotifier', () => {
     expect(throws.state.marks).toBe(1);
     expect(throws.logs[0]).toContain('Illegal constructor.');
   });
-});
 
-describe('activates', () => {
-  test('follows navigator.userActivation where there is one', () => {
-    expect(activates({ key: 'a' }, { isActive: false })).toBe(false);
-    expect(activates({ key: 'Escape' }, { isActive: true })).toBe(true);
+  test('logs to the console by default', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      const notifier = new DesktopNotifier(
+        undefined,
+        'main',
+        { active: false },
+        {
+          focused: () => false,
+          name: () => 'vim',
+          mark: () => {},
+          focus: () => {},
+        },
+      );
+      notifier.notify({ title: '', body: 'a' }, 0);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0][0])).toContain('no Notification API');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
-  test('without it, every input but Esc', () => {
-    expect(activates({ key: 'Escape' }, undefined)).toBe(false);
-    expect(activates({ key: 'a' }, undefined)).toBe(true);
-    expect(activates({}, undefined)).toBe(true);
+  test('a refused permission request is swallowed', async () => {
+    let asked = 0;
+    const notifier = new DesktopNotifier(
+      {
+        permission: () => 'default',
+        requestPermission: () => {
+          asked++;
+          return Promise.reject(new Error('blocked'));
+        },
+        show: () => ({ close: () => {} }),
+      },
+      'main',
+      { active: false },
+      { focused: () => false, name: () => 'vim', mark: () => {}, focus: () => {} },
+      () => {},
+    );
+    notifier.notify({ title: '', body: 'a' }, 0);
+    notifier.userInput(true);
+    await Promise.resolve();
+    expect(asked).toBe(1);
   });
 });

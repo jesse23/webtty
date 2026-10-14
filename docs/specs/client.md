@@ -316,7 +316,7 @@ Programs ask for desktop notifications with OSC 9 (`ESC ] 9 ; <body> BEL`, iTerm
 | `9;4`, `9;42 tests passed` (not a full ConEmu form) | a notification, as in Ghostty |
 | `777;<other>;…`, `777;notify;<title>` (no body) | nothing |
 
-`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and `index.ts` passes it to `DesktopNotifier` (`features/notifications/desktop-notifier.ts`), which, as Ghostty on macOS:
+`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and `index.ts` passes it to `DesktopNotifier` (`features/notifications/desktop-notifier.ts`, with the browser's API behind `browser-notifications.ts`), which, as Ghostty on macOS:
 
 - drops it while `ReplayWindow` says the output is replay;
 - shows at most one a second, and the same title and body at most once in five seconds;

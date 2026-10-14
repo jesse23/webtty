@@ -1,3 +1,7 @@
+// Shows a program's desktop notifications as Ghostty does (object, ADR 053, ADR 056):
+// rate limits, the replay and focus checks, and the tab-title fallback. The browser's
+// API comes in through NotificationApi (browser-notifications.ts).
+
 /** A desktop notification the program asked for (OSC 9: no title; OSC 777). */
 export interface NotificationRequest {
   title: string;
@@ -38,35 +42,6 @@ export const NOTIFY_INTERVAL_MS = 1000;
 
 /** The same title and body at most once in five seconds, as Ghostty does. */
 export const NOTIFY_REPEAT_MS = 5000;
-
-/** The browser's Notification API, or undefined where there is none (http, iOS Safari). */
-export function browserNotifications(): NotificationApi | undefined {
-  if (typeof Notification === 'undefined') return undefined;
-  return {
-    permission: () => Notification.permission,
-    requestPermission: () => Notification.requestPermission(),
-    show: (title, options, onClick) => {
-      const notification = new Notification(title, options);
-      notification.onclick = onClick;
-      return notification;
-    },
-  };
-}
-
-/**
- * Whether a key or click gave the page user activation, so a permission request from
- * it can prompt. Esc and keys the browser reserves do not (HTML's activation-triggering
- * input events); `navigator.userActivation` knows, and without it only Esc is ruled out.
- */
-export function activates(
-  event: { key?: string },
-  activation: { readonly isActive: boolean } | undefined = typeof navigator === 'undefined'
-    ? undefined
-    : navigator.userActivation,
-): boolean {
-  if (activation) return activation.isActive;
-  return event.key !== 'Escape';
-}
 
 /**
  * Shows a program's desktop notifications (OSC 9, OSC 777) as Ghostty on macOS does
