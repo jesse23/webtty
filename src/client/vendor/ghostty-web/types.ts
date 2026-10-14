@@ -518,64 +518,6 @@ export interface ILinkProvider {
 }
 
 /**
- * Simplified buffer line interface for link providers
- */
-export interface IBufferLine {
-  /** Number of cells in this line */
-  length: number;
-
-  /** Get cell at position */
-  getCell(x: number): IBufferCell;
-
-  /** Get text content of the line */
-  translateToString(trimRight?: boolean, startColumn?: number, endColumn?: number): string;
-}
-
-/**
- * Simplified buffer cell interface for link providers
- */
-export interface IBufferCell {
-  /** Get the character codepoint */
-  getCodepoint(): number;
-
-  /** Get the hyperlink ID (0 = no link) */
-  getHyperlinkId(): number;
-
-  /** Get the width of the character (1 or 2 for wide chars) */
-  getWidth(): number;
-
-  /** Check if cell has specific flags */
-  isBold(): boolean;
-  isItalic(): boolean;
-  isDim(): boolean;
-}
-
-/**
- * Simplified terminal buffer interface for link providers
- */
-export interface IBuffer {
-  /** Number of rows in the buffer (viewport + scrollback) */
-  length: number;
-
-  /** Get line at absolute buffer position */
-  getLine(y: number): IBufferLine;
-}
-
-/**
- * Terminal buffer manager (active vs alternate screen)
- */
-export interface IBufferManager {
-  /** Currently active buffer */
-  active: IBuffer;
-
-  /** Normal screen buffer */
-  normal: IBuffer;
-
-  /** Alternate screen buffer (for fullscreen apps) */
-  alternate: IBuffer;
-}
-
-/**
  * Event system interface (xterm.js compatible)
  */
 export type IEvent<T> = (listener: (data: T) => void) => IDisposable;
