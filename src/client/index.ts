@@ -6,6 +6,7 @@ import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
 import { nonTextPaste } from './paste';
 import { SmoothScroll } from './smooth-scroll';
+import { TabTitle } from './tab-title';
 import { toTerminalTheme } from './theme';
 import { FitAddon, Ghostty, Terminal } from './vendor/ghostty-web';
 import { watchDevicePixelRatio } from './vendor/ghostty-web/renderer';
@@ -54,6 +55,7 @@ interface ClientConfig {
   copyOnSelect: boolean;
   rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none';
   clipboardWrite: boolean;
+  bellTitle: boolean;
   mouseScrollSpeed: number;
   padding: number;
   keyboardBindings: KeyboardBinding[];
@@ -63,7 +65,11 @@ const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
 
 const config: ClientConfig = await fetch('/api/config').then((r) => r.json());
 
-document.title = `${sessionId} | webtty`;
+// `<title> | webtty` from the program's OSC 0/2 title, or the session id, with a 🔔
+// after a bell until the terminal is attended; replayed bells are ignored (ADR 053).
+const tabTitle = new TabTitle(sessionId, config.bellTitle, (title) => {
+  document.title = title;
+});
 
 // The vendored ghostty-web is bundled into /dist/client-browser.js, so its default
 // wasm lookup (relative to its own module URL) would depend on where the bundle sits.
@@ -219,6 +225,13 @@ for (const type of ['keydown', 'mousedown', 'paste', 'drop'] as const) {
   window.addEventListener(type, () => clipboardWriter.userInput(), { capture: true });
 }
 
+// The title and the bell mark (ADR 053). Ghostty clears the mark when the terminal
+// gains focus (a window focus reaches the container as a focusin too) or gets a key.
+term.onTitleChange((title) => tabTitle.title(title));
+term.onBell(() => tabTitle.bell());
+container.addEventListener('focusin', () => tabTitle.attended());
+window.addEventListener('keydown', () => tabTitle.attended(), { capture: true });
+
 function connect(): void {
   // flow=1: this client acknowledges output as it parses it, so the server paces it
   // (ADR 048).
@@ -227,6 +240,8 @@ function connect(): void {
   ws = socket;
   // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
   clipboardWriter.connected();
+  // ... and ignore its bells until the output pauses (ADR 053)
+  tabTitle.connected();
   const ack = new OutputAck((message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(message);
   });
@@ -246,6 +261,7 @@ function connect(): void {
   ws.onmessage = (event: MessageEvent<string>) => {
     // term.write() parses synchronously, so the output has been parsed once feed()
     // returns: acknowledging it now lets a slow tab slow the server down.
+    tabTitle.output(performance.now());
     graphics.feed(event.data);
     ack.parsed(event.data.length);
     smoothScroll.onOutput();
