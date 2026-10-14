@@ -161,7 +161,8 @@ src/
     vendor/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md
       tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/)
-        support/                wasm.ts (the one WASM path, a cached loadGhostty()), fake-canvas.ts, fake-event-target.ts
+        support/                wasm.ts (the one WASM path, a cached loadGhostty(), countedGhostty()), fake-canvas.ts, fake-event-target.ts,
+                                engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours)
         fixtures/               PTY captures (was vendor/fixtures/)
       ghostty-web/              Biome-excluded; see "The vendored layer"
 scripts/
@@ -195,7 +196,7 @@ ghostty-web/
   lifecycle/            disposable-store.ts (DisposableStore, listen, toDisposable) – webtty-original
   engine/               every wasm call; no DOM
     engine-types.ts  cell-types.ts  wasm-exports.ts  vt-layout.ts  official-layout.ts  key-tables.ts  scratch.ts
-    wasm-loader.ts  engine-context.ts  official-terminal.ts  render-state.ts  scrollback-pages.ts
+    wasm-loader.ts  engine-context.ts  official-terminal.ts  render-state.ts  row-ref.ts  scrollback-pages.ts
     selection-binding.ts  search-binding.ts  mouse-encoder-binding.ts  paste-focus-binding.ts  key-encoder-binding.ts
     engine-effects.ts (FnTable callbacks, clipboard write, readTitle)  grid-refs.ts (grid and screen refs, hyperlinkAt, graphemes)
     engine-config.ts (applyConfig, colour reads and writes)  cursor-blink.ts  text-mime.ts  kitty-keyboard-reply.ts

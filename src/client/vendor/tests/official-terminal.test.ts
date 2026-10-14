@@ -1,25 +1,16 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import {
-  DirtyState,
   Ghostty,
   type GhosttyTerminal,
   type MouseInput,
   type OfficialTerminal,
 } from '../ghostty-web/ghostty';
-import { CellFlags, Key, KeyAction, KeyEncoderOption, Mods } from '../ghostty-web/types';
+import { Key, KeyAction, KeyEncoderOption, Mods } from '../ghostty-web/types';
+import { bgRgb, FG, RED, rgb, rowText, scrollbackText, THEME } from './support/terminal-text';
 import { instantiateWasm, loadGhostty } from './support/wasm';
 
 // The official libghostty-vt binding (ADR 042) on the vendored wasm, loaded from disk.
-
-const FG = 0xd4d4d4;
-const BG = 0x1e1e1e;
-const RED = 0xcd3131;
-const BLUE = 0x2472c8;
-const THEME = {
-  fgColor: FG,
-  bgColor: BG,
-  palette: [0x000000, RED, 0x0dbc79, 0xe5e510, BLUE],
-};
+// Cell decoding and the scrollback pages are tested beside their parts in engine/.
 
 let vt: Ghostty;
 
@@ -31,106 +22,7 @@ function term(cols = 40, rows = 10, config: object = THEME): OfficialTerminal {
   return vt.createTerminal(cols, rows, config) as OfficialTerminal;
 }
 
-/** The text of a row as an app would see it: graphemes joined, spacer cells skipped. */
-function rowText(t: GhosttyTerminal, y: number): string {
-  const line = t.getLine(y);
-  if (!line) return '';
-  return line
-    .map((c, x) => {
-      if (c.width === 0) return '';
-      if (c.grapheme_len > 0) return t.getGraphemeString(y, x);
-      return c.codepoint ? String.fromCodePoint(c.codepoint) : ' ';
-    })
-    .join('')
-    .trimEnd();
-}
-
-function scrollbackText(t: GhosttyTerminal, offset: number): string {
-  const line = t.getScrollbackLine(offset);
-  if (!line) return '';
-  return line
-    .map((c, x) => {
-      if (c.width === 0) return '';
-      if (c.grapheme_len > 0) return t.getScrollbackGraphemeString(offset, x);
-      return c.codepoint ? String.fromCodePoint(c.codepoint) : ' ';
-    })
-    .join('')
-    .trimEnd();
-}
-
-const rgb = (c: { fg_r: number; fg_g: number; fg_b: number }) =>
-  (c.fg_r << 16) | (c.fg_g << 8) | c.fg_b;
-const bgRgb = (c: { bg_r: number; bg_g: number; bg_b: number }) =>
-  (c.bg_r << 16) | (c.bg_g << 8) | c.bg_b;
-
 describe('official engine: cells', () => {
-  test('reads 16-colour, 256-colour and truecolor foregrounds and backgrounds', () => {
-    const t = term();
-    t.write(
-      '\x1b[31mA\x1b[0m\x1b[38;5;208mB\x1b[0m\x1b[38;2;10;20;30;48;2;200;100;50mC\x1b[0m' +
-        '\x1b[44mD\x1b[0mE\x1b[48;5;21m  \x1b[0m',
-    );
-    const line = t.getLine(0);
-    expect(line).not.toBeNull();
-    const [a, b, c, d, e, f] = line ?? [];
-    expect(rgb(a)).toBe(RED);
-    expect(bgRgb(a)).toBe(BG);
-    expect(rgb(b)).toBe(0xff8700);
-    expect(rgb(c)).toBe(0x0a141e);
-    expect(bgRgb(c)).toBe(0xc86432);
-    expect(bgRgb(d)).toBe(BLUE);
-    expect(rgb(d)).toBe(FG);
-    expect(rgb(e)).toBe(FG);
-    expect(bgRgb(e)).toBe(BG);
-    // Spaces written with a 256-colour background.
-    expect(f.codepoint).toBe(0x20);
-    expect(bgRgb(f)).toBe(0x0000ff);
-    t.free();
-  });
-
-  test('reads bold, italic, underline, strikethrough, inverse, faint, blink and invisible', () => {
-    const t = term();
-    t.write(
-      '\x1b[1mA\x1b[0m\x1b[3mB\x1b[0m\x1b[4mC\x1b[0m\x1b[9mD\x1b[0m\x1b[7mE\x1b[0m' +
-        '\x1b[2mF\x1b[0m\x1b[5mG\x1b[0m\x1b[8mH\x1b[0m\x1b[1;3;4;7mI\x1b[0mJ',
-    );
-    const flags = (t.getLine(0) ?? []).slice(0, 10).map((c) => c.flags);
-    expect(flags).toEqual([
-      CellFlags.BOLD,
-      CellFlags.ITALIC,
-      CellFlags.UNDERLINE,
-      CellFlags.STRIKETHROUGH,
-      CellFlags.INVERSE,
-      CellFlags.FAINT,
-      CellFlags.BLINK,
-      CellFlags.INVISIBLE,
-      CellFlags.BOLD | CellFlags.ITALIC | CellFlags.UNDERLINE | CellFlags.INVERSE,
-      0,
-    ]);
-    t.free();
-  });
-
-  test('reads wide CJK, emoji, VS16 and combining marks as graphemes', () => {
-    const t = term();
-    t.write('你好|😀|❤️|é|👨‍👩‍👧');
-    const line = t.getLine(0) ?? [];
-    expect(line.slice(0, 5).map((c) => c.width)).toEqual([2, 0, 2, 0, 1]);
-    expect(String.fromCodePoint(line[0].codepoint)).toBe('你');
-    expect(line[5].width).toBe(2);
-    expect(String.fromCodePoint(line[5].codepoint)).toBe('😀');
-    // VS16 makes the heart wide (mode 2027 on by default).
-    expect(line[8].width).toBe(2);
-    expect(line[8].grapheme_len).toBe(1);
-    expect(t.getGraphemeString(0, 8)).toBe('❤️');
-    expect(line[11].grapheme_len).toBe(1);
-    expect(t.getGraphemeString(0, 11)).toBe('é');
-    expect([...t.getGraphemeString(0, 11)].map((c) => c.codePointAt(0))).toEqual([0x65, 0x301]);
-    expect(t.getGraphemeString(0, 13)).toBe('👨‍👩‍👧');
-    expect(line[13].width).toBe(2);
-    expect(rowText(t, 0)).toBe('你好|😀|❤️|é|👨‍👩‍👧');
-    t.free();
-  });
-
   test('marks OSC 8 hyperlinks and resolves their URIs on screen and in scrollback', () => {
     const t = term(40, 5);
     t.write('\x1b]8;;https://example.com/a\x1b\\link\x1b]8;;\x1b\\ plain');
@@ -368,126 +260,6 @@ describe('official engine: cursor and modes', () => {
 });
 
 describe('official engine: scrollback, resize and the viewport', () => {
-  const lines = (n: number) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\r\n');
-
-  test('keeps scrolled-off rows, oldest first', () => {
-    const t = term(20, 5, { scrollbackLines: 0 });
-    t.write(lines(50));
-    expect(t.getScrollbackLength()).toBe(45);
-    expect(scrollbackText(t, 0)).toBe('line 1');
-    expect(scrollbackText(t, 44)).toBe('line 45');
-    expect(t.getScrollbackLine(45)).toBeNull();
-    expect(rowText(t, 0)).toBe('line 46');
-    expect(rowText(t, 4)).toBe('line 50');
-    t.free();
-  });
-
-  test('keeps active-screen coordinates while the view is scrolled up', () => {
-    const t = term(20, 5, { scrollbackLines: 0 });
-    t.write(lines(50));
-    t.setViewportOffset(7);
-    expect(t.isRowDirty(0)).toBe(true);
-    expect(rowText(t, 0)).toBe('line 46');
-    expect(rowText(t, 4)).toBe('line 50');
-    expect(scrollbackText(t, 38)).toBe('line 39');
-    expect(scrollbackText(t, 44)).toBe('line 45');
-    const viewport = t.getViewport();
-    expect(viewport.length).toBe(100);
-    expect(String.fromCodePoint(viewport[80 + 5].codepoint)).toBe('5');
-    expect(t.getCursor()).toMatchObject({ x: 7, y: 4 });
-    // Output snaps the view back to the bottom.
-    t.write('\r\nline 51');
-    expect(rowText(t, 4)).toBe('line 51');
-    expect(t.needsFullRedraw()).toBe(true);
-    t.free();
-  });
-
-  test('a scroll step decodes nothing and moves no viewport once its page is cached', async () => {
-    const real = (await instantiateWasm()).exports as Record<string, (...args: number[]) => number>;
-    const calls = { update: 0, rows: 0, scroll: 0 };
-    const counted =
-      (name: string, key: keyof typeof calls) =>
-      (...args: number[]) => {
-        calls[key]++;
-        return real[name](...args);
-      };
-    const spy = {
-      ...real,
-      ghostty_render_state_update: counted('ghostty_render_state_update', 'update'),
-      ghostty_render_state_row_get_multi: counted('ghostty_render_state_row_get_multi', 'rows'),
-      ghostty_terminal_scroll_viewport: counted('ghostty_terminal_scroll_viewport', 'scroll'),
-    };
-    const spied = new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]);
-    const t = spied.createTerminal(20, 5, { scrollbackLines: 0 });
-    t.write(lines(50));
-    const sb = t.getScrollbackLength();
-    expect(sb).toBe(45);
-    // One frame as the renderer reads it at viewportY = k.
-    const frame = (k: number) => {
-      t.setViewportOffset(k);
-      t.getCursor();
-      t.needsFullRedraw();
-      const view = t.getViewport();
-      const shown: string[] = [];
-      for (let y = 0; y < t.rows; y++) {
-        if (y < k) {
-          const line = t.getScrollbackLine(sb - k + y) ?? [];
-          for (let x = 0; x < line.length; x++) t.getScrollbackGraphemeString(sb - k + y, x);
-          shown.push(
-            line
-              .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ' '))
-              .join('')
-              .trimEnd(),
-          );
-        } else {
-          const row = view.slice((y - k) * t.cols, (y - k + 1) * t.cols);
-          shown.push(
-            row
-              .map((c) => (c.codepoint ? String.fromCodePoint(c.codepoint) : ' '))
-              .join('')
-              .trimEnd(),
-          );
-        }
-        t.isRowDirty(y);
-      }
-      t.markClean();
-      return shown;
-    };
-    const expected = (k: number) =>
-      Array.from({ length: 5 }, (_, y) => `line ${50 - 5 - k + y + 1}`);
-    frame(0);
-    // The first walk reads each scrollback page once: 45 rows in pages of 5.
-    const first = { ...calls };
-    for (let k = 1; k <= sb; k++) expect(frame(k)).toEqual(expected(k));
-    expect(calls.update - first.update).toBe(9);
-    expect(calls.rows - first.rows).toBe(9 * 5);
-    // Each page read moves the viewport there and back; nothing else moves it.
-    expect(calls.scroll - first.scroll).toBe(9 * 2);
-    // Every page is cached now: a walk back down and up again costs no export call.
-    const warm = { ...calls };
-    for (let k = sb; k >= 0; k--) expect(frame(k)).toEqual(k ? expected(k) : expected(0));
-    for (let k = 0; k <= sb + 10; k++) frame(k);
-    expect(calls).toEqual(warm);
-    // Output while scrolled: one refresh of the active rows, no viewport move, and
-    // the first frame at the bottom repaints every row.
-    t.setViewportOffset(12);
-    t.write('\r\nline 51');
-    expect(t.needsFullRedraw()).toBe(true);
-    expect(calls.update - warm.update).toBe(1);
-    expect(calls.scroll).toBe(warm.scroll);
-    expect(rowText(t, 4)).toBe('line 51');
-    t.markClean();
-    // Resize while scrolled: no viewport move, and the reflowed rows are read anew.
-    t.setViewportOffset(12);
-    const beforeResize = calls.scroll;
-    t.resize(30, 4);
-    expect(calls.scroll).toBe(beforeResize);
-    expect(t.getScrollbackLength()).toBe(47);
-    expect(scrollbackText(t, 46)).toBe('line 47');
-    expect(rowText(t, 3)).toBe('line 51');
-    t.free();
-  });
-
   test('reflows wrapped lines on resize', () => {
     const t = term(20, 5);
     t.write('abcdefghijklmnopqrstuvwxyz0123');
@@ -508,75 +280,6 @@ describe('official engine: scrollback, resize and the viewport', () => {
     ]);
     expect(t.cols).toBe(12);
     expect(t.rows).toBe(6);
-    t.free();
-  });
-
-  test('keeps row dirt until markClean and only marks changed rows', () => {
-    const t = term(20, 5);
-    t.write('one\r\ntwo\r\nthree');
-    t.update();
-    t.markClean();
-    expect(t.update()).toBe(DirtyState.NONE);
-    t.write('\x1b[2;1HTWO');
-    expect(t.update()).toBe(DirtyState.PARTIAL);
-    expect(t.update()).toBe(DirtyState.PARTIAL);
-    expect(t.isRowDirty(1)).toBe(true);
-    expect(t.isRowDirty(0)).toBe(false);
-    expect(t.isRowDirty(3)).toBe(false);
-    expect(rowText(t, 1)).toBe('TWO');
-    t.clearDirty();
-    expect(t.isRowDirty(1)).toBe(false);
-    t.write('\x1b[?1049h');
-    expect(t.needsFullRedraw()).toBe(true);
-    t.free();
-  });
-
-  // Ghostty marks no row dirty when only the default colours change; the binding bakes
-  // them into every cell, so it must redecode every row itself.
-  const everyCell = (t: GhosttyTerminal, rows: number, f: (c: never) => number) =>
-    Array.from({ length: rows }, (_, y) => (t.getLine(y) ?? []).map((c) => f(c as never)));
-
-  test('recolours every row when OSC 10/11 change only the default colours', () => {
-    const t = term(10, 3);
-    t.write('a\r\nb\r\nc');
-    t.update();
-    t.markClean();
-    t.write('\x1b]11;rgb:44/55/66\x1b\\');
-    expect(t.update()).toBe(DirtyState.FULL);
-    for (let y = 0; y < 3; y++) expect(t.isRowDirty(y)).toBe(true);
-    expect(everyCell(t, 3, bgRgb).flat()).toEqual(Array(30).fill(0x445566));
-    t.markClean();
-    t.write('\x1b]10;rgb:11/22/33\x1b\\');
-    expect(t.update()).toBe(DirtyState.FULL);
-    expect(everyCell(t, 3, rgb).flat()).toEqual(Array(30).fill(0x112233));
-    t.write('\x1b[1;1HX');
-    t.update();
-    expect(everyCell(t, 3, bgRgb).flat()).toEqual(Array(30).fill(0x445566));
-    t.markClean();
-    t.write('\x1b]111\x1b\\\x1b]110\x1b\\');
-    t.update();
-    expect(everyCell(t, 3, bgRgb).flat()).toEqual(Array(30).fill(BG));
-    expect(everyCell(t, 3, rgb).flat()).toEqual(Array(30).fill(FG));
-    t.free();
-  });
-
-  test('recolours every row on DECSCNM (?5h / ?5l)', () => {
-    const t = term(10, 3);
-    t.write('a\r\nb\r\nc');
-    t.update();
-    t.markClean();
-    t.write('\x1b[?5h');
-    expect(t.update()).toBe(DirtyState.FULL);
-    expect(everyCell(t, 3, bgRgb).flat()).toEqual(Array(30).fill(FG));
-    t.markClean();
-    t.write('\x1b[2;1HB');
-    t.update();
-    expect(everyCell(t, 3, bgRgb).flat()).toEqual(Array(30).fill(FG));
-    t.markClean();
-    t.write('\x1b[?5l');
-    expect(t.update()).toBe(DirtyState.FULL);
-    expect(everyCell(t, 3, bgRgb).flat()).toEqual(Array(30).fill(BG));
-    expect(everyCell(t, 3, rgb).flat()).toEqual(Array(30).fill(FG));
     t.free();
   });
 });

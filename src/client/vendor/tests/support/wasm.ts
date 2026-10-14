@@ -40,3 +40,30 @@ export async function loadGhostty(): Promise<Ghostty> {
   const instance = await instantiateWasm();
   return new Ghostty(instance.exports as unknown as ConstructorParameters<typeof Ghostty>[0]);
 }
+
+/** Export call counts by name, filled in by a `countedGhostty` instance. */
+export type ExportCalls = Record<string, number>;
+
+/**
+ * A Ghostty on a fresh instance whose named exports count their calls, so a test can
+ * assert how many times the engine crossed into the wasm for a given read.
+ */
+export async function countedGhostty(
+  names: readonly string[],
+): Promise<{ ghostty: Ghostty; calls: ExportCalls }> {
+  const real = (await instantiateWasm()).exports as Record<string, unknown>;
+  const calls: ExportCalls = {};
+  const spy: Record<string, unknown> = { ...real };
+  for (const name of names) {
+    const fn = real[name] as (...args: number[]) => number;
+    calls[name] = 0;
+    spy[name] = (...args: number[]) => {
+      calls[name]++;
+      return fn(...args);
+    };
+  }
+  return {
+    ghostty: new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]),
+    calls,
+  };
+}

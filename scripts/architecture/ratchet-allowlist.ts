@@ -17,9 +17,9 @@ export const RATCHET_ALLOWLIST: Allowlist = {
   sizes: {
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
-    // OfficialTerminal, moved whole out of ghostty.ts (2160 lines) before its own split.
+    // OfficialTerminal, moved out of ghostty.ts (2160 lines) and split into engine/ bindings.
     'src/client/vendor/ghostty-web/engine/official-terminal.ts': {
-      lines: 1885,
+      lines: 1258,
       step: ENGINE_SPLIT,
     },
     'src/client/vendor/ghostty-web/input-handler.ts': {
@@ -38,7 +38,7 @@ export const RATCHET_ALLOWLIST: Allowlist = {
       lines: 2147,
       step: 'vendor terminal split into core/ (ADR 061)',
     },
-    'src/client/vendor/tests/official-terminal.test.ts': { lines: 1432, step: VENDOR_TESTS },
+    'src/client/vendor/tests/official-terminal.test.ts': { lines: 1135, step: VENDOR_TESTS },
     'src/client/vendor/tests/renderer.test.ts': { lines: 1087, step: VENDOR_TESTS },
     'src/client/vendor/tests/terminal.test.ts': { lines: 1159, step: VENDOR_TESTS },
     'src/config.ts': { lines: 369, step: 'server track: src/config/ split (ADR 062)' },
