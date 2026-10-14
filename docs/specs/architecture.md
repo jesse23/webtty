@@ -173,7 +173,8 @@ scripts/
   check-coverage.ts             per-layer coverage targets over bun's lcov report (run by test:coverage)
   check-pkg-manager.ts  clean-pkg-scripts.ts   package-manager guard and publish-time script cleanup (headers; pure parts tested)
   update-ghostty-vt.ts          CLI only (--commit, --verify)
-  ghostty-vt/                   minisign.ts, sidecar.ts, inspect-wasm.ts, release-fetch.ts (fetch injected)
+  ghostty-vt/                   minisign.ts, sidecar.ts, inspect-wasm.ts, release-fetch.ts (fetch injected), each with its test
+    test-support/               minisign-signer.ts (a throwaway key), tiny-wasm.ts (the required exports), fake-release.ts (fake fetch)
 ```
 
 ### The vendored layer
