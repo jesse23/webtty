@@ -20,10 +20,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
       lines: 856,
       step: 'vendor input split into input/ (ADR 061)',
     },
-    'src/client/vendor/ghostty-web/renderer.ts': {
-      lines: 1267,
-      step: 'vendor renderer split into render/ (ADR 061)',
-    },
     'src/client/vendor/ghostty-web/selection-manager.ts': {
       lines: 736,
       step: 'vendor selection split into selection/ (ADR 061)',
@@ -32,7 +28,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
       lines: 2139,
       step: 'vendor terminal split into core/ (ADR 061)',
     },
-    'src/client/vendor/tests/renderer.test.ts': { lines: 923, step: VENDOR_TESTS },
     'src/client/vendor/tests/terminal.test.ts': { lines: 1159, step: VENDOR_TESTS },
     'src/config.ts': { lines: 369, step: 'server track: src/config/ split (ADR 062)' },
     'src/server/routes.ts': { lines: 485, step: 'server track: routes/ and http/ (ADR 062)' },

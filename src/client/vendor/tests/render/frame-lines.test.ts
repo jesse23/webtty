@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'bun:test';
 import type { GhosttyCell } from '../../ghostty-web/engine/cell-types';
-import { frameLines } from '../../ghostty-web/render/frame-lines';
+import {
+  frameLines,
+  type RowSource,
+  rowContent,
+  screenGraphemes,
+  scrollbackGraphemes,
+} from '../../ghostty-web/render/frame-lines';
+import type { IRenderable } from '../../ghostty-web/render/renderable';
 import { loadGhostty } from '../support/wasm';
 
 // One frame's row reader: one viewport read, rows served as slices of it.
@@ -72,5 +79,50 @@ describe('frameLines', () => {
       expect(getLine(y)).toEqual(term.getLine(y));
     }
     term.free();
+  });
+});
+
+describe('the row a canvas row shows', () => {
+  const screen = [[cellAt(0, 0)], [cellAt(1, 0)]];
+  const scrollback = [[cellAt(90, 0)], [cellAt(91, 0)], [cellAt(92, 0)]];
+  const buffer = {
+    getGraphemeString: (row: number, col: number) => `screen ${row}:${col}`,
+  } as unknown as IRenderable;
+  const source: RowSource = {
+    buffer,
+    getLine: (y) => screen[y] ?? null,
+    rows: 2,
+    scrollback: {
+      getScrollbackLine: (offset) => scrollback[offset],
+      getScrollbackLength: () => 3,
+      getScrollbackGraphemeString: (offset, col) => `scrollback ${offset}:${col}`,
+    },
+    scrollbackLength: 3,
+  };
+
+  // Viewport row y at viewportY 2: rows 0 and 1 are the last two scrollback lines
+  test.each([
+    [-2, null, undefined],
+    [-1, 9000, 'scrollback 0:4'],
+    [0, 9100, 'scrollback 1:4'],
+    [1, 9200, 'scrollback 2:4'],
+    [2, 0, 'screen 0:4'],
+    [3, 100, 'screen 1:4'],
+    [4, null, undefined],
+  ])('viewport row %p', (y, codepoint, grapheme) => {
+    const row = rowContent(source, y, 2);
+    expect(row.line?.[0].codepoint ?? null).toBe(codepoint);
+    expect(row.grapheme?.(4)).toBe(grapheme);
+  });
+
+  test('no scrollback: the rows above the screen are blank', () => {
+    expect(rowContent({ ...source, scrollback: undefined }, 0, 1)).toEqual({ line: null });
+  });
+
+  test('a buffer or provider without grapheme lookups gives spaces', () => {
+    expect(screenGraphemes(null, 0)(3)).toBe(' ');
+    expect(screenGraphemes({} as IRenderable, 0)(3)).toBe(' ');
+    const provider = { getScrollbackLine: () => null, getScrollbackLength: () => 0 };
+    expect(scrollbackGraphemes(provider, 0)(3)).toBe(' ');
   });
 });
