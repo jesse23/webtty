@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { DEFAULT_THEME } from '../config';
 import {
   cleanupTmpHome,
   getFreePort,
@@ -11,7 +12,6 @@ import {
   waitForServer,
   waitForServerDown,
 } from '../test-support/server-harness';
-import { DEFAULT_THEME } from '../config';
 import { getVersion } from '../version';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
