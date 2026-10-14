@@ -1,5 +1,6 @@
 import { browserEnv } from './app/browser-env';
 import { type KeyboardBinding, loadClientConfig } from './app/client-config';
+import type { ClientContext } from './app/client-context';
 import { detectMac, isTerminalFocused } from './app/platform';
 import { toTerminalOptions } from './app/terminal-options';
 import { toTerminalTheme } from './app/terminal-theme';
@@ -18,9 +19,8 @@ import { SmoothScroll } from './features/scroll/smooth-scroll';
 import { WheelStream } from './features/scroll/wheel-stream';
 import { TabTitle } from './features/tab-title/tab-title';
 import { EdgeExtender } from './layout/edge-extender';
-import { computeInsets } from './layout/fit-insets';
-import { terminalCanvas } from './layout/terminal-canvas';
-import { FitAddon, watchDevicePixelRatio } from './vendor/ghostty-web';
+import { applyPaddingColor, installLayout } from './layout/layout-feature';
+import { installRepaintOnVisible } from './layout/repaint-on-visible';
 
 const sessionId = window.location.pathname.split('/s/')[1] ?? 'main';
 
@@ -50,15 +50,19 @@ const terminalTheme = toTerminalTheme(config.theme ?? {});
 const term = env.createTerminal(toTerminalOptions(config, terminalTheme, ghostty));
 
 const container = document.getElementById('terminal') as HTMLElement;
-// The canvas paints theme.background; the container shows only in the padding around
-// it, so theme.padding (default: background) colours the space set by config.padding.
-// The sub-cell leftover at the right and bottom is not coloured: EdgeExtender stretches
-// the edge cells' own background into it (see edge.ts).
-const paddingColor = config.theme?.padding ?? config.theme?.background;
-if (paddingColor) {
-  container.style.background = paddingColor;
-}
+applyPaddingColor(container, config);
 await term.open(container);
+
+const ctx: ClientContext = {
+  term,
+  container,
+  config,
+  terminalTheme,
+  mac: detectMac(env.navigator),
+  doc: env.document,
+  win: env.window,
+};
+
 // The strips copy the edges of the part of the canvas in view (ADR 043).
 const edges = new EdgeExtender(container, config.padding, () => term.renderer?.visibleArea);
 // IME / dictation composition shows at the cursor in the theme's colours, not as a
@@ -68,89 +72,11 @@ new Composer(term, container, terminalTheme);
 const wheelStream = new WheelStream();
 const smoothScroll = new SmoothScroll(term, wheelStream);
 
-// FitAddon sizes the grid from the full container less its CSS padding, so the
-// padding is set to config.padding on every side first (#terminal is border-box, so
-// clientWidth/Height do not change). What is left over, plus config.padding on each
-// side, is then distributed as padding: top and left are exactly config.padding, and
-// the leftover goes to the right and bottom. proposeDimensions rather than
-// FitAddon.fit(), which ignores calls for 50 ms after each resize. See ADR 033.
-const fitAddon = new FitAddon();
-term.loadAddon(fitAddon);
-function fit(): void {
-  container.style.padding = `${config.padding}px`;
-  const grid = fitAddon.proposeDimensions();
-  if (!grid) return;
-  if (grid.cols !== term.cols || grid.rows !== term.rows) {
-    term.resize(grid.cols, grid.rows);
-  }
-  // Every font zoom, font load and DPR change reaches fit(). A grid change has
-  // already sent the new cell pixels with resize; this sends them when only the
-  // pixels changed, for Ghostty's size reports (ADR 042).
-  term.syncCellPixelSize();
-  const canvas = terminalCanvas(container);
-  if (!canvas) return;
-  const insets = computeInsets(
-    Math.max(0, container.clientWidth - canvas.offsetWidth),
-    Math.max(0, container.clientHeight - canvas.offsetHeight),
-    config.padding,
-  );
-  container.style.paddingLeft = `${insets.left}px`;
-  container.style.paddingRight = `${insets.right}px`;
-  container.style.paddingTop = `${insets.top}px`;
-  container.style.paddingBottom = `${insets.bottom}px`;
-  edges.update();
-  smoothScroll.update();
-}
-
-// Both ResizeObserver and window 'resize' can fire for the same physical event.
-// Schedule through rAF so multiple signals coalesce into one fit per frame.
-let pendingFitFrame: number | null = null;
-function scheduleFit(): void {
-  if (pendingFitFrame !== null) return;
-  pendingFitFrame = window.requestAnimationFrame(() => {
-    pendingFitFrame = null;
-    fit();
-  });
-}
-
-scheduleFit();
-new ResizeObserver(() => scheduleFit()).observe(container, { box: 'border-box' });
-// ResizeObserver misses monitor hot-plug and DPI changes because those resize
-// the viewport without changing the container's layout box. window resize fires
-// reliably for both, so use both observers together.
-window.addEventListener('resize', scheduleFit);
-
-// Chromium can still be loading config.fontFamily when ghostty-web's
-// CanvasRenderer measures font metrics synchronously on open, so mouse-to-cell
-// hit testing gets captured against the fallback font's glyph width instead of
-// the real one — clicks land on the wrong cell until something happens to
-// resize the terminal. Firefox blocks first layout on web font load and
-// doesn't hit this race. Remeasure once the real font is confirmed ready;
-// ghostty-web's render loop then notices the canvas-vs-metrics mismatch on
-// its next frame and self-corrects with a forced full repaint. See ADR 031.
-// The new cell size also changes how many cols and rows fit and where the padding
-// and edge strips go, so run the fit again once the metrics have changed.
-document.fonts.ready.then(() => {
-  term.renderer?.remeasureFont();
-  scheduleFit();
-});
-
-// Chromium can evict a hidden tab's canvas backing store to reclaim GPU
-// memory; Firefox does not. ghostty-web's render loop only repaints
-// WASM-dirty rows, so a cleared canvas can stay blank/partial after switching
-// back to the tab until content happens to change. Force a full repaint on
-// visibility restore. See ADR 031.
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState !== 'visible') return;
-  if (term.renderer && term.wasmTerm) {
-    term.renderer.render(term.wasmTerm, true, term.viewportY);
-  }
-});
-
-// The renderer follows devicePixelRatio changes itself (whole ratio, ADR 039). The
-// edge strips also draw at the ratio, and the window may not resize on a move to a
-// display of different scale, so fit again on a change.
-watchDevicePixelRatio(window, scheduleFit);
+// The fit, its first run, and the resize, font and pixel ratio signals that refit (ADR 033)
+const layout = installLayout(ctx, { ...env, edges, smoothScroll });
+// The document listener is the first of the SPEC's visibilitychange listeners; the
+// layout's own are on other targets, so their relative order does not matter.
+installRepaintOnVisible(ctx);
 
 // Created with the connection below; read only when a reply is sent.
 let connection: PtyConnection;
@@ -313,7 +239,7 @@ window.addEventListener(
     else if (zoomOut) currentFontSize = Math.max(6, currentFontSize - 1);
     else currentFontSize = Math.min(32, Math.max(6, config.fontSize));
     term.options.fontSize = currentFontSize;
-    fit();
+    layout.fit();
   },
   { capture: true },
 );
@@ -370,7 +296,7 @@ term.onPasteRequest(() => {
 // configured-binding listener above, so skip a combo the user has already bound
 // (including an intentionally empty binding meant to consume the key and suppress the
 // default). Both run before the input handler, which listens on the container too.
-const mac = detectMac(navigator);
+const { mac } = ctx;
 container.addEventListener(
   'keydown',
   (e: KeyboardEvent) => {
