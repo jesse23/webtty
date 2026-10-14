@@ -1,23 +1,24 @@
 import { browserEnv } from './app/browser-env';
 import { type KeyboardBinding, loadClientConfig } from './app/client-config';
 import type { ClientContext } from './app/client-context';
-import { detectMac, isTerminalFocused } from './app/platform';
+import { detectMac } from './app/platform';
 import { toTerminalOptions } from './app/terminal-options';
 import { toTerminalTheme } from './app/terminal-theme';
 import { createOutputHandler } from './connection/output-pipeline';
 import { PtyConnection } from './connection/pty-connection';
 import { ReplayWindow } from './connection/replay-window';
-import { ClipboardWriter } from './features/clipboard/clipboard-writer';
+import { installClipboard } from './features/clipboard/clipboard-feature';
 import { Composer } from './features/compose/composer';
 import { FindBar } from './features/find/find-bar';
 import { shortcutFor } from './features/keyboard/shortcut-map';
 import { KittyGraphics } from './features/kitty/graphics/kitty-graphics';
-import { activates, browserNotifications } from './features/notifications/browser-notifications';
-import { DesktopNotifier } from './features/notifications/desktop-notifier';
+import { browserNotifications } from './features/notifications/browser-notifications';
+import { installNotifications } from './features/notifications/notifications-feature';
 import { nonTextPaste } from './features/paste/non-text-paste';
 import { SmoothScroll } from './features/scroll/smooth-scroll';
 import { WheelStream } from './features/scroll/wheel-stream';
 import { TabTitle } from './features/tab-title/tab-title';
+import { installTabTitle } from './features/tab-title/tab-title-feature';
 import { EdgeExtender } from './layout/edge-extender';
 import { applyPaddingColor, installLayout } from './layout/layout-feature';
 import { installRepaintOnVisible } from './layout/repaint-on-visible';
@@ -88,52 +89,21 @@ const graphics = new KittyGraphics(term, container, (data: string) => connection
 
 // A program's OSC 52 clipboard write, decoded by Ghostty, written to the browser
 // clipboard once the user has used this tab since connecting (ADR 052).
-const clipboardWriter = new ClipboardWriter(navigator.clipboard);
-term.onClipboardWrite((text) => {
-  void clipboardWriter.write(text);
-});
-for (const type of ['keydown', 'mousedown', 'paste', 'drop'] as const) {
-  window.addEventListener(type, () => clipboardWriter.userInput(), { capture: true });
-}
+const clipboard = installClipboard(ctx, { clipboard: env.navigator.clipboard });
 
-const terminalFocused = (): boolean => isTerminalFocused(document, container);
-
-// The title and the bell mark (ADR 053). Ghostty clears the mark when the terminal
-// gains focus (a window focus reaches the container as a focusin too; Chrome switching
-// back to the tab only shows it) or gets a key.
-term.onTitleChange((title) => tabTitle.title(title));
-term.onBell(() => tabTitle.bell());
-container.addEventListener('focusin', () => tabTitle.attended());
-window.addEventListener('keydown', () => tabTitle.attended(), { capture: true });
+// The title and the bell mark (ADR 053).
+installTabTitle(ctx, { tabTitle });
 
 // Desktop notifications (OSC 9, OSC 777), shown while the terminal is not focused, as
-// Ghostty on macOS does; the bell mark without permission. Permission is asked on the
-// next key or click after the first one that activates the page (not Esc), a gesture
-// browsers accept (ADR 056).
-const notifier = new DesktopNotifier(browserNotifications(), sessionId, replay, {
-  focused: terminalFocused,
-  name: () => tabTitle.name,
-  mark: () => tabTitle.bell(),
-  focus: () => {
-    window.focus();
-    term.focus();
-  },
+// Ghostty on macOS does; the bell mark without permission (ADR 056).
+installNotifications(ctx, {
+  sessionId,
+  replay,
+  title: tabTitle,
+  notifications: browserNotifications(env.Notification),
+  userActivation: env.navigator.userActivation,
+  now: () => env.performance.now(),
 });
-term.onDesktopNotification((n) => notifier.notify(n, performance.now()));
-for (const type of ['keydown', 'mousedown'] as const) {
-  window.addEventListener(
-    type,
-    (e) => notifier.userInput(activates(e instanceof KeyboardEvent ? e : {})),
-    { capture: true },
-  );
-}
-container.addEventListener('focusin', () => notifier.attended());
-document.addEventListener('visibilitychange', () => {
-  if (!terminalFocused()) return;
-  tabTitle.attended();
-  notifier.attended();
-});
-window.addEventListener('keydown', () => notifier.attended(), { capture: true });
 
 // The PTY socket (ADR 048, ADR 060). PtyConnection owns the URL, the reconnects and the
 // close codes; this says what runs around them.
@@ -143,7 +113,7 @@ connection = new PtyConnection(
     size: () => ({ cols: term.cols, rows: term.rows }),
     created: () => {
       // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
-      clipboardWriter.connected();
+      clipboard.connected();
       // ... and ignore its bells and notifications until the replay's last piece (ADR 053,
       // ADR 056)
       replay.connected();

@@ -1,3 +1,6 @@
+// The tab title and its bell mark (object, ADR 053): the program's title or the session
+// id, as `<title> | webtty`, with a 🔔 after a bell until the terminal is attended.
+
 const BELL_MARK = '🔔 ';
 
 /**

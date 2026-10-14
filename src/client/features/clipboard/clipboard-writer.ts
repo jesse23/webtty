@@ -1,3 +1,6 @@
+// Decides whether a program's OSC 52 clipboard write reaches the browser clipboard
+// (object, ADR 052); the clipboard comes in through TextClipboard.
+
 /** The part of `navigator.clipboard` a program's clipboard write uses. */
 export interface TextClipboard {
   writeText(text: string): Promise<void>;
