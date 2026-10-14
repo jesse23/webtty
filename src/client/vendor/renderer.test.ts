@@ -633,7 +633,6 @@ describe('overscan and copied scrolls (ADR 043)', () => {
           endRow: selection.endLine - sb + view,
         };
       },
-      clearDirtySelectionRows: () => {},
     } as unknown as Parameters<CanvasRenderer['setSelectionManager']>[0];
     let range: { startX: number; startY: number; endX: number; endY: number } | null = null;
     for (const overscan of [1, 3]) {
@@ -861,7 +860,6 @@ describe('overscan and copied scrolls (ADR 043)', () => {
         endCol: selection.endCol,
         endRow: selection.endLine - sb + view,
       }),
-      clearDirtySelectionRows: () => {},
     } as unknown as Parameters<CanvasRenderer['setSelectionManager']>[0];
     const range = { startX: 2, startY: 6, endX: 9, endY: 6 };
     for (const overscan of [1, 4]) {

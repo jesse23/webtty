@@ -15,7 +15,6 @@
 
 import type { Ghostty } from './ghostty';
 import type { KeyEncoder } from './ghostty';
-import type { IKeyEvent } from './interfaces';
 import { Key, KeyAction, KeyEncoderOption, Mods } from './types';
 
 /**
@@ -220,9 +219,6 @@ export class InputHandler {
   private container: HTMLElement;
   private inputElement?: HTMLElement;
   private onDataCallback: (data: string) => void;
-  private onBellCallback: () => void;
-  private onKeyCallback?: (keyEvent: IKeyEvent) => void;
-  private customKeyEventHandler?: (event: KeyboardEvent) => boolean;
   private getModeCallback?: (mode: number) => boolean;
   private onCopyCallback?: () => boolean;
   private mouseConfig?: MouseTrackingConfig;
@@ -252,9 +248,6 @@ export class InputHandler {
    * @param ghostty - Ghostty instance (for creating KeyEncoder)
    * @param container - DOM element to attach listeners to
    * @param onData - Callback for terminal data (escape sequences to send to PTY)
-   * @param onBell - Callback for bell/beep event
-   * @param onKey - Optional callback for raw key events
-   * @param customKeyEventHandler - Optional custom key event handler
    * @param getMode - Optional callback to query terminal mode state (for application cursor mode)
    * @param onCopy - Optional callback to handle copy (Cmd+C/Ctrl+C with selection)
    * @param inputElement - Optional input element for beforeinput events
@@ -264,9 +257,6 @@ export class InputHandler {
     ghostty: Ghostty,
     container: HTMLElement,
     onData: (data: string) => void,
-    onBell: () => void,
-    onKey?: (keyEvent: IKeyEvent) => void,
-    customKeyEventHandler?: (event: KeyboardEvent) => boolean,
     getMode?: (mode: number) => boolean,
     onCopy?: () => boolean,
     inputElement?: HTMLElement,
@@ -276,22 +266,12 @@ export class InputHandler {
     this.container = container;
     this.inputElement = inputElement;
     this.onDataCallback = onData;
-    this.onBellCallback = onBell;
-    this.onKeyCallback = onKey;
-    this.customKeyEventHandler = customKeyEventHandler;
     this.getModeCallback = getMode;
     this.onCopyCallback = onCopy;
     this.mouseConfig = mouseConfig;
 
     // Attach event listeners
     this.attach();
-  }
-
-  /**
-   * Set custom key event handler (for runtime updates)
-   */
-  setCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean): void {
-    this.customKeyEventHandler = handler;
   }
 
   /**
@@ -405,21 +385,6 @@ export class InputHandler {
     // Note: Some browsers send keyCode 229 for all keys during composition
     if (this.isComposing || event.isComposing || event.keyCode === 229) {
       return;
-    }
-
-    // Emit onKey event first (before any processing)
-    if (this.onKeyCallback) {
-      this.onKeyCallback({ key: event.key, domEvent: event });
-    }
-
-    // Check custom key event handler
-    if (this.customKeyEventHandler) {
-      const handled = this.customKeyEventHandler(event);
-      if (handled) {
-        // Custom handler consumed the event
-        event.preventDefault();
-        return;
-      }
     }
 
     // Allow Ctrl+V and Cmd+V to trigger paste event (don't preventDefault)
@@ -934,12 +899,5 @@ export class InputHandler {
     }
 
     this.isDisposed = true;
-  }
-
-  /**
-   * Check if handler is disposed
-   */
-  isActive(): boolean {
-    return !this.isDisposed;
   }
 }

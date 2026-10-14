@@ -60,13 +60,17 @@ describe('SelectionManager copy on select', () => {
   });
 
   /** A manager over the wasm terminal, counting the times it builds the selected text. */
-  function manager(copyOnSelect: boolean) {
-    const canvas = target();
+  function manager(copyOnSelect: boolean, scrolls: number[] = []) {
+    const canvas = {
+      ...target(),
+      getBoundingClientRect: () => ({ left: 0, top: 0, right: 160, bottom: 64 }),
+    };
     const terminal = {
       cols: 20,
       rows: 4,
       options: { copyOnSelect },
       getViewportY: () => 0,
+      scrollLines: (amount: number) => scrolls.push(amount),
     } as unknown as Terminal;
     const renderer = {
       getCanvas: () => canvas,
@@ -106,6 +110,19 @@ describe('SelectionManager copy on select', () => {
     canvas.dispatch('click', { detail: 2, offsetX: 8 * 7, offsetY: 4 });
     canvas.dispatch('click', { detail: 3, offsetX: 8, offsetY: 20 });
     expect(writes).toEqual(['world', 'second line']);
+  });
+
+  // The terminal's scrollLines is reached only from here, so a call graph from
+  // src/client/index.ts does not show it.
+  test('a drag below the terminal scrolls it down through scrollLines', async () => {
+    const scrolls: number[] = [];
+    const { canvas } = manager(true, scrolls);
+    canvas.dispatch('mousedown', { button: 0, offsetX: 1, offsetY: 4 });
+    documentTarget.dispatch('mousemove', { clientX: 40, clientY: 100 });
+    await Bun.sleep(80);
+    documentTarget.dispatch('mouseup', {});
+    expect(scrolls.length).toBeGreaterThan(0);
+    expect(scrolls.every((amount) => amount === 3)).toBe(true);
   });
 
   test('nothing is copied or built with copyOnSelect off, but the change is reported', () => {

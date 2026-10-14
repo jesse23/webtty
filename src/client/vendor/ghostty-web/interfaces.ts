@@ -25,9 +25,9 @@ export interface ITerminalOptions {
   // Selection options
   copyOnSelect?: boolean; // Copy a mouse selection to the clipboard when it is made (default: true) (webtty)
 
-  // Internal: Ghostty WASM instance (optional, for test isolation)
-  // If not provided, uses the module-level instance from init()
-  ghostty?: Ghostty;
+  // The Ghostty WASM instance, from Ghostty.load() (webtty: upstream's init() and its
+  // module-level instance are removed)
+  ghostty: Ghostty;
 }
 
 export interface ITheme {
@@ -73,29 +73,6 @@ export interface ITerminalCore {
   rows: number;
   element?: HTMLElement;
   textarea?: HTMLTextAreaElement;
-}
-
-/**
- * Buffer range for selection coordinates
- */
-export interface IBufferRange {
-  start: { x: number; y: number };
-  end: { x: number; y: number };
-}
-
-/**
- * Keyboard event with key and DOM event
- */
-export interface IKeyEvent {
-  key: string;
-  domEvent: KeyboardEvent;
-}
-
-/**
- * Unicode version provider (xterm.js compatibility)
- */
-export interface IUnicodeVersionProvider {
-  readonly activeVersion: string;
 }
 
 // ============================================================================

@@ -5,10 +5,9 @@
  *
  * Usage:
  * ```typescript
- * import { init, Terminal } from 'ghostty-web';
+ * import { Ghostty, Terminal } from 'ghostty-web';
  *
- * await init();
- * const term = new Terminal();
+ * const term = new Terminal({ ghostty: await Ghostty.load() });
  * term.open(document.getElementById('container'));
  * term.write('Hello, World!\n');
  * term.onData(data => console.log('User typed:', data));
@@ -18,26 +17,22 @@
 import { BufferNamespace } from './buffer';
 import { EventEmitter } from './event-emitter';
 import type { Ghostty, GhosttyCell, GhosttyTerminal, GhosttyTerminalConfig } from './ghostty';
-import { getGhostty } from './index';
 import { AT_ONCE, type Pace } from './glide';
 import { InputHandler, type MouseTrackingConfig } from './input-handler';
 import type {
   IBufferNamespace,
-  IBufferRange,
   IDisposable,
   IEvent,
-  IKeyEvent,
   ITerminalAddon,
   ITerminalCore,
   ITerminalOptions,
-  IUnicodeVersionProvider,
 } from './interfaces';
 import { LinkDetector } from './link-detector';
 import { OSC8LinkProvider } from './providers/osc8-link-provider';
 import { UrlRegexProvider } from './providers/url-regex-provider';
 import { CanvasRenderer } from './renderer';
 import { SelectionManager } from './selection-manager';
-import type { ILink, ILinkProvider } from './types';
+import type { ILink } from './types';
 import {
   TickPacer,
   type WheelAccumulator,
@@ -156,13 +151,6 @@ export class Terminal implements ITerminalCore {
   // Buffer API (xterm.js compatibility)
   public readonly buffer: IBufferNamespace;
 
-  // Unicode API (xterm.js compatibility)
-  public readonly unicode: IUnicodeVersionProvider = {
-    get activeVersion(): string {
-      return '15.1'; // Ghostty supports Unicode 15.1
-    },
-  };
-
   // Options (public for xterm.js compatibility)
   public readonly options!: Required<ITerminalOptions>;
 
@@ -185,21 +173,15 @@ export class Terminal implements ITerminalCore {
   private resizeEmitter = new EventEmitter<{ cols: number; rows: number }>();
   private bellEmitter = new EventEmitter<void>();
   private selectionChangeEmitter = new EventEmitter<void>();
-  private keyEmitter = new EventEmitter<IKeyEvent>();
   private titleChangeEmitter = new EventEmitter<string>();
   private scrollEmitter = new EventEmitter<number>();
-  private renderEmitter = new EventEmitter<{ start: number; end: number }>();
-  private cursorMoveEmitter = new EventEmitter<void>();
   // Public event accessors (xterm.js compatibility)
   public readonly onData: IEvent<string> = this.dataEmitter.event;
   public readonly onResize: IEvent<{ cols: number; rows: number }> = this.resizeEmitter.event;
   public readonly onBell: IEvent<void> = this.bellEmitter.event;
   public readonly onSelectionChange: IEvent<void> = this.selectionChangeEmitter.event;
-  public readonly onKey: IEvent<IKeyEvent> = this.keyEmitter.event;
   public readonly onTitleChange: IEvent<string> = this.titleChangeEmitter.event;
   public readonly onScroll: IEvent<number> = this.scrollEmitter.event;
-  public readonly onRender: IEvent<{ start: number; end: number }> = this.renderEmitter.event;
-  public readonly onCursorMove: IEvent<void> = this.cursorMoveEmitter.event;
 
   // Lifecycle state
   private isOpen = false;
@@ -210,9 +192,6 @@ export class Terminal implements ITerminalCore {
 
   // Addons
   private addons: ITerminalAddon[] = [];
-
-  // Phase 1: Custom event handlers
-  private customKeyEventHandler?: (event: KeyboardEvent) => boolean;
 
   // Phase 1: Title tracking
   private currentTitle: string = '';
@@ -225,7 +204,6 @@ export class Terminal implements ITerminalCore {
   private wheelPace?: (event: WheelEvent) => Pace;
   private beforeRender?: (now: number) => void;
   private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
-  private lastCursorY: number = 0; // Track cursor position for onCursorMove
   // DECSCUSR state: the app's cursor shape (undefined = options) and the
   // unfinished sequence at the end of the last write
   private appCursorShape?: CursorShape;
@@ -244,9 +222,8 @@ export class Terminal implements ITerminalCore {
   private readonly SCROLLBAR_HIDE_DELAY_MS = 1500; // Hide after 1.5 seconds
   private readonly SCROLLBAR_FADE_DURATION_MS = 200; // 200ms fade animation
 
-  constructor(options: ITerminalOptions = {}) {
-    // Use provided Ghostty instance (for test isolation) or get module-level instance
-    this.ghostty = options.ghostty ?? getGhostty();
+  constructor(options: ITerminalOptions) {
+    this.ghostty = options.ghostty;
 
     // Create base options object with all defaults (excluding ghostty)
     const baseOptions = {
@@ -585,15 +562,6 @@ export class Terminal implements ITerminalCore {
           // Input handler fires data events
           this.dataEmitter.fire(data);
         },
-        () => {
-          // Input handler can also fire bell
-          this.bellEmitter.fire();
-        },
-        (keyEvent: IKeyEvent) => {
-          // Forward key events
-          this.keyEmitter.fire(keyEvent);
-        },
-        this.customKeyEventHandler,
         (mode: number) => {
           // Query terminal mode state (e.g., mode 1 for application cursor mode)
           return this.wasmTerm?.getMode(mode, false) ?? false;
@@ -731,69 +699,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Write data with newline
-   */
-  writeln(data: string | Uint8Array, callback?: () => void): void {
-    if (typeof data === 'string') {
-      this.write(data + '\r\n', callback);
-    } else {
-      // Append \r\n to Uint8Array
-      const newData = new Uint8Array(data.length + 2);
-      newData.set(data);
-      newData[data.length] = 0x0d; // \r
-      newData[data.length + 1] = 0x0a; // \n
-      this.write(newData, callback);
-    }
-  }
-
-  /**
-   * Paste text into terminal (triggers bracketed paste if supported)
-   */
-  paste(data: string): void {
-    this.assertOpen();
-
-    // Don't paste if stdin is disabled
-    if (this.options.disableStdin) {
-      return;
-    }
-
-    this.awaitingEcho = true;
-
-    // Check if terminal has bracketed paste mode enabled
-    if (this.wasmTerm!.hasBracketedPaste()) {
-      // Wrap with bracketed paste sequences (DEC mode 2004)
-      this.dataEmitter.fire('\x1b[200~' + data + '\x1b[201~');
-    } else {
-      // Send data directly
-      this.dataEmitter.fire(data);
-    }
-  }
-
-  /**
-   * Input data into terminal (as if typed by user)
-   *
-   * @param data - Data to input
-   * @param wasUserInput - If true, triggers onData event (default: false for compat with some apps)
-   */
-  input(data: string, wasUserInput: boolean = false): void {
-    this.assertOpen();
-
-    // Don't input if stdin is disabled
-    if (this.options.disableStdin) {
-      return;
-    }
-
-    if (wasUserInput) {
-      this.awaitingEcho = true;
-      // Trigger onData event as if user typed it
-      this.dataEmitter.fire(data);
-    } else {
-      // Just write to terminal without triggering onData
-      this.write(data);
-    }
-  }
-
-  /**
    * Resize terminal
    */
   resize(cols: number, rows: number): void {
@@ -872,15 +777,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Clear terminal screen
-   */
-  clear(): void {
-    this.assertOpen();
-    // Send ANSI clear screen and cursor home sequences
-    this.wasmTerm!.write('\x1b[2J\x1b[H');
-  }
-
-  /**
    * Reset terminal state
    */
   reset(): void {
@@ -934,15 +830,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Blur terminal (remove focus)
-   */
-  blur(): void {
-    if (this.isOpen && this.element) {
-      this.element.blur();
-    }
-  }
-
-  /**
    * Load an addon
    */
   loadAddon(addon: ITerminalAddon): void {
@@ -962,13 +849,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Check if there's an active selection
-   */
-  public hasSelection(): boolean {
-    return this.selectionManager?.hasSelection() || false;
-  }
-
-  /**
    * Clear the current selection
    */
   public clearSelection(): void {
@@ -984,29 +864,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Select all text in the terminal
-   */
-  public selectAll(): void {
-    this.selectionManager?.selectAll();
-  }
-
-  /**
-   * Select text at specific column and row with length
-   */
-  public select(column: number, row: number, length: number): void {
-    this.selectionManager?.select(column, row, length);
-  }
-
-  /**
-   * Select entire lines from start to end
-   */
-  public selectLines(start: number, end: number): void {
-    this.selectionManager?.selectLines(start, end);
-  }
-
-  /**
-   * Get selection position as buffer range
-   */
   /**
    * Get the current viewport Y position.
    *
@@ -1017,27 +874,9 @@ export class Terminal implements ITerminalCore {
     return this.viewportY;
   }
 
-  public getSelectionPosition(): IBufferRange | undefined {
-    return this.selectionManager?.getSelectionPosition();
-  }
-
   // ==========================================================================
   // Phase 1: Custom Event Handlers
   // ==========================================================================
-
-  /**
-   * Attach a custom keyboard event handler
-   * Returns true to prevent default handling
-   */
-  public attachCustomKeyEventHandler(
-    customKeyEventHandler: (event: KeyboardEvent) => boolean
-  ): void {
-    this.customKeyEventHandler = customKeyEventHandler;
-    // Update input handler if already created
-    if (this.inputHandler) {
-      this.inputHandler.setCustomKeyEventHandler(customKeyEventHandler);
-    }
-  }
 
   /**
    * Attach a custom wheel event handler (Phase 2)
@@ -1064,31 +903,6 @@ export class Terminal implements ITerminalCore {
    */
   public attachBeforeRender(callback?: (now: number) => void): void {
     this.beforeRender = callback;
-  }
-
-  // ==========================================================================
-  // Link Detection Methods
-  // ==========================================================================
-
-  /**
-   * Register a custom link provider
-   * Multiple providers can be registered to detect different types of links
-   *
-   * @example
-   * ```typescript
-   * term.registerLinkProvider({
-   *   provideLinks(y, callback) {
-   *     // Detect URLs, file paths, etc.
-   *     callback(detectedLinks);
-   *   }
-   * });
-   * ```
-   */
-  public registerLinkProvider(provider: ILinkProvider): void {
-    if (!this.linkDetector) {
-      throw new Error('Terminal must be opened before registering link providers');
-    }
-    this.linkDetector.registerProvider(provider);
   }
 
   // ==========================================================================
@@ -1123,26 +937,6 @@ export class Terminal implements ITerminalCore {
       if (scrollbackLength > 0) {
         this.showScrollbar();
       }
-    }
-  }
-
-  /**
-   * Scroll viewport by a number of pages
-   * @param amount Number of pages to scroll (positive = down, negative = up)
-   */
-  public scrollPages(amount: number): void {
-    this.scrollLines(amount * this.rows);
-  }
-
-  /**
-   * Scroll viewport to the top of the scrollback buffer
-   */
-  public scrollToTop(): void {
-    const scrollbackLength = this.getScrollbackLength();
-    if (scrollbackLength > 0 && this.viewportY !== scrollbackLength) {
-      this.viewportY = scrollbackLength;
-      this.scrollEmitter.fire(this.viewportY);
-      this.showScrollbar();
     }
   }
 
@@ -1221,11 +1015,8 @@ export class Terminal implements ITerminalCore {
     this.resizeEmitter.dispose();
     this.bellEmitter.dispose();
     this.selectionChangeEmitter.dispose();
-    this.keyEmitter.dispose();
     this.titleChangeEmitter.dispose();
     this.scrollEmitter.dispose();
-    this.renderEmitter.dispose();
-    this.cursorMoveEmitter.dispose();
   }
 
   // ==========================================================================
@@ -1317,20 +1108,8 @@ export class Terminal implements ITerminalCore {
         // Replies that arose outside write() reach the PTY within a frame (webtty, ADR 042)
         if (this.wasmTerm!.hasResponse()) this.processTerminalResponses();
 
-        // Check for cursor movement (Phase 2: onCursorMove event)
-        // Note: getCursor() reads from already-updated render state (from render() above)
-        const cursor = this.wasmTerm!.getCursor();
-        if (cursor.y !== this.lastCursorY) {
-          this.lastCursorY = cursor.y;
-          this.cursorMoveEmitter.fire();
-        }
-
         // Keep the input textarea on the cursor cell (webtty)
         this.anchorTextarea();
-
-        // Note: onRender event is intentionally not fired in the render loop
-        // to avoid performance issues. For now, consumers can use requestAnimationFrame
-        // if they need frame-by-frame updates.
 
         this.animationFrameId = requestAnimationFrame(loop);
       }
@@ -1983,22 +1762,6 @@ export class Terminal implements ITerminalCore {
   public getMode(mode: number, isAnsi: boolean = false): boolean {
     this.assertOpen();
     return this.wasmTerm!.getMode(mode, isAnsi);
-  }
-
-  /**
-   * Check if bracketed paste mode is enabled
-   */
-  public hasBracketedPaste(): boolean {
-    this.assertOpen();
-    return this.wasmTerm!.hasBracketedPaste();
-  }
-
-  /**
-   * Check if focus event reporting is enabled
-   */
-  public hasFocusEvents(): boolean {
-    this.assertOpen();
-    return this.wasmTerm!.hasFocusEvents();
   }
 
   /**

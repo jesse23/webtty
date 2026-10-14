@@ -48,11 +48,6 @@ export class SelectionManager {
   private dragThresholdMet: boolean = false;
   private mouseDownTarget: EventTarget | null = null; // Track where mousedown occurred
 
-  // Track rows that need redraw for clearing old selection
-  // Using a Set prevents the overwrite bug where mousemove would clobber
-  // the rows marked by clearSelection()
-  private dirtySelectionRows: Set<number> = new Set();
-
   // Event emitter
   private selectionChangedEmitter = new EventEmitter<void>();
 
@@ -239,14 +234,6 @@ export class SelectionManager {
   clearSelection(): void {
     if (!this.hasSelection()) return;
 
-    // Mark current selection rows as dirty for redraw
-    const coords = this.normalizeSelection();
-    if (coords) {
-      for (let row = coords.startRow; row <= coords.endRow; row++) {
-        this.dirtySelectionRows.add(row);
-      }
-    }
-
     this.selectionStart = null;
     this.selectionEnd = null;
     this.isSelecting = false;
@@ -256,117 +243,8 @@ export class SelectionManager {
   }
 
   /**
-   * Select all text in the terminal
-   */
-  selectAll(): void {
-    const dims = this.wasmTerm.getDimensions();
-    const viewportY = this.getViewportY();
-    this.selectionStart = { col: 0, absoluteRow: viewportY };
-    this.selectionEnd = { col: dims.cols - 1, absoluteRow: viewportY + dims.rows - 1 };
-    this.requestRender();
-    this.selectionChangedEmitter.fire();
-  }
-
-  /**
-   * Select text at specific column and row with length
-   * xterm.js compatible API
-   */
-  select(column: number, row: number, length: number): void {
-    // Clamp to valid ranges
-    const dims = this.wasmTerm.getDimensions();
-    row = Math.max(0, Math.min(row, dims.rows - 1));
-    column = Math.max(0, Math.min(column, dims.cols - 1));
-
-    // Calculate end position
-    let endRow = row;
-    let endCol = column + length - 1;
-
-    // Handle wrapping if selection extends past end of line
-    while (endCol >= dims.cols) {
-      endCol -= dims.cols;
-      endRow++;
-    }
-
-    // Clamp end row
-    endRow = Math.min(endRow, dims.rows - 1);
-
-    // Convert viewport rows to absolute rows
-    const viewportY = this.getViewportY();
-    this.selectionStart = { col: column, absoluteRow: viewportY + row };
-    this.selectionEnd = { col: endCol, absoluteRow: viewportY + endRow };
-    this.requestRender();
-    this.selectionChangedEmitter.fire();
-  }
-
-  /**
-   * Select entire lines from start to end
-   * xterm.js compatible API
-   */
-  selectLines(start: number, end: number): void {
-    const dims = this.wasmTerm.getDimensions();
-
-    // Clamp to valid row ranges
-    start = Math.max(0, Math.min(start, dims.rows - 1));
-    end = Math.max(0, Math.min(end, dims.rows - 1));
-
-    // Ensure start <= end
-    if (start > end) {
-      [start, end] = [end, start];
-    }
-
-    // Convert viewport rows to absolute rows
-    this.selectionStart = { col: 0, absoluteRow: this.viewportRowToAbsolute(start) };
-    this.selectionEnd = { col: dims.cols - 1, absoluteRow: this.viewportRowToAbsolute(end) };
-    this.requestRender();
-    this.selectionChangedEmitter.fire();
-  }
-
-  /**
-   * Get selection position as buffer range
-   * xterm.js compatible API
-   */
-  getSelectionPosition():
-    | { start: { x: number; y: number }; end: { x: number; y: number } }
-    | undefined {
-    const coords = this.normalizeSelection();
-    if (!coords) return undefined;
-
-    return {
-      start: { x: coords.startCol, y: coords.startRow },
-      end: { x: coords.endCol, y: coords.endRow },
-    };
-  }
-
-  /**
-   * Deselect all text
-   * xterm.js compatible API
-   */
-  deselect(): void {
-    this.clearSelection();
-    this.selectionChangedEmitter.fire();
-  }
-
-  /**
-   * Focus the terminal (make it receive keyboard input)
-   */
-  focus(): void {
-    const canvas = this.renderer.getCanvas();
-    if (canvas.parentElement) {
-      canvas.parentElement.focus();
-    }
-  }
-
-  /**
-   * Get current selection coordinates (for rendering)
-   */
-  getSelectionCoords(): SelectionCoordinates | null {
-    return this.normalizeSelection();
-  }
-
-  /**
-   * The selection in viewport rows like getSelectionCoords, but not clamped to the
-   * viewport: rows above it are negative. The renderer also draws rows out of view.
-   * (webtty, ADR 043)
+   * The selection in viewport rows, not clamped to the viewport: rows above it are
+   * negative. The renderer also draws rows out of view. (webtty, ADR 043)
    */
   getSelectionRange(): SelectionCoordinates | null {
     if (!this.selectionStart || !this.selectionEnd) return null;
@@ -386,20 +264,6 @@ export class SelectionManager {
       endCol,
       endRow: this.absoluteRowToViewport(endAbsRow),
     };
-  }
-
-  /**
-   * Get dirty selection rows that need redraw (for clearing old highlight)
-   */
-  getDirtySelectionRows(): Set<number> {
-    return this.dirtySelectionRows;
-  }
-
-  /**
-   * Clear the dirty selection rows tracking (after redraw)
-   */
-  clearDirtySelectionRows(): void {
-    this.dirtySelectionRows.clear();
   }
 
   /**
@@ -501,9 +365,6 @@ export class SelectionManager {
           this.dragThresholdMet = true;
         }
 
-        // Mark current selection rows as dirty before updating
-        this.markCurrentSelectionDirty();
-
         const cell = this.pixelToCell(e.offsetX, e.offsetY);
         const absoluteRow = this.viewportRowToAbsolute(cell.row);
         this.selectionEnd = { col: cell.col, absoluteRow };
@@ -577,9 +438,6 @@ export class SelectionManager {
           // Only update selection position if NOT auto-scrolling
           // During auto-scroll, the scroll handler extends the selection
           if (this.autoScrollDirection === 0) {
-            // Mark current selection rows as dirty before updating
-            this.markCurrentSelectionDirty();
-
             const cell = this.pixelToCell(offsetX, offsetY);
             const absoluteRow = this.viewportRowToAbsolute(cell.row);
             this.selectionEnd = { col: cell.col, absoluteRow };
@@ -761,18 +619,6 @@ export class SelectionManager {
   }
 
   /**
-   * Mark current selection rows as dirty for redraw
-   */
-  private markCurrentSelectionDirty(): void {
-    const coords = this.normalizeSelection();
-    if (coords) {
-      for (let row = coords.startRow; row <= coords.endRow; row++) {
-        this.dirtySelectionRows.add(row);
-      }
-    }
-  }
-
-  /**
    * Update auto-scroll based on mouse Y position within canvas
    */
   private updateAutoScroll(offsetY: number, canvasHeight: number): void {
@@ -816,7 +662,7 @@ export class SelectionManager {
       // scrollLines convention: negative = scroll up into history, positive = scroll down to newer
       // So direction maps directly to scrollLines sign
       const scrollAmount = SelectionManager.AUTO_SCROLL_SPEED * this.autoScrollDirection;
-      (this.terminal as any).scrollLines(scrollAmount);
+      this.terminal.scrollLines(scrollAmount);
 
       // Extend selection in the scroll direction
       // Key insight: we need to EXTEND the selection, not reset it to viewport edge
@@ -869,37 +715,6 @@ export class SelectionManager {
       col: Math.max(0, Math.min(col, this.terminal.cols - 1)),
       row: Math.max(0, Math.min(row, this.terminal.rows - 1)),
     };
-  }
-
-  /**
-   * Normalize selection coordinates (handle backward selection)
-   * Returns coordinates in VIEWPORT space for rendering, clamped to visible area
-   */
-  private normalizeSelection(): SelectionCoordinates | null {
-    const range = this.getSelectionRange();
-    if (!range) return null;
-    let { startCol, startRow, endCol, endRow } = range;
-
-    // Clamp to visible viewport range
-    const dims = this.wasmTerm.getDimensions();
-    const maxRow = dims.rows - 1;
-
-    // If entire selection is outside viewport, return null
-    if (endRow < 0 || startRow > maxRow) {
-      return null;
-    }
-
-    // Clamp rows to visible range, adjusting columns for partial rows
-    if (startRow < 0) {
-      startRow = 0;
-      startCol = 0; // Selection starts from beginning of first visible row
-    }
-    if (endRow > maxRow) {
-      endRow = maxRow;
-      endCol = dims.cols - 1; // Selection extends to end of last visible row
-    }
-
-    return { startCol, startRow, endCol, endRow };
   }
 
   /**
@@ -1060,8 +875,5 @@ export class SelectionManager {
   private requestRender(): void {
     // The render loop will automatically pick up the new selection state
     // and redraw the affected lines. This happens at 60fps.
-    //
-    // Note: When clearSelection() is called, it adds dirty rows to dirtySelectionRows
-    // which the renderer can use to know which lines to redraw.
   }
 }

@@ -631,7 +631,6 @@ export class CanvasRenderer {
       }
     }
     this.drawnSelection = this.currentSelectionCoords;
-    this.selectionManager?.clearDirtySelectionRows();
 
     const rowAt = (k: number) =>
       this.rowAt(k - this.overscan, band, rows, getLine, buffer, scrollbackProvider, scrollbackLength);
