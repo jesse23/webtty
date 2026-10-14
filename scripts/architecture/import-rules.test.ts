@@ -62,6 +62,18 @@ describe('checkImports', () => {
       ['client-config-value'],
     ],
     [
+      'client imports config values in commented multi-line braces',
+      'src/client/a.ts',
+      "import {\n  loadConfig, // why\n} from '../config';",
+      ['client-config-value'],
+    ],
+    [
+      'client without semicolons imports config values after a type re-export',
+      'src/client/a.ts',
+      "export type { Config } from '../config'\nimport { loadConfig } from '../config'",
+      ['client-config-value'],
+    ],
+    [
       'client imports config types',
       'src/client/a.ts',
       "import type { Config } from '../config';",

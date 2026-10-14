@@ -15,10 +15,18 @@ export interface ImportRef {
   dynamic: boolean;
 }
 
-// An import or re-export head holds only names, braces, commas, `*` and `as`; keeping
-// `;`, `=`, `(` and quotes out of it stops a match from running into ordinary code.
-const STATIC_RE =
-  /^[ \t]*(import|export)\s+(type\s+)?([\w$\s{},*]*?)\s*from\s*['"]([^'"\n]+)['"]/gm;
+// An import or re-export head holds only names, braces, commas, `*`, `as` and comments
+// (a `// why` after a name in multi-line braces). Keeping `;`, `=`, `(` and quotes out
+// of it stops a match from running into ordinary code, and refusing a bare `import` or
+// `export` keyword stops it from swallowing the next statement in a file without
+// semicolons (`export type { A }` then `import x from '...'`).
+const COMMENT = String.raw`\/\/[^\n]*|\/\*[\s\S]*?\*\/`;
+const HEAD = String.raw`(?:(?!\b(?:import|export)\b)(?:[\w$\s{},*]|${COMMENT}))*?`;
+const STATIC_RE = new RegExp(
+  String.raw`^[ \t]*(import|export)\s+(type\s+)?(${HEAD})\s*from\s*['"]([^'"\n]+)['"]`,
+  'gm',
+);
+const COMMENT_RE = new RegExp(COMMENT, 'g');
 const SIDE_EFFECT_RE = /^[ \t]*import\s*['"]([^'"\n]+)['"]/gm;
 const DYNAMIC_RE = /(\btypeof\s+)?\bimport\s*\(\s*['"]([^'"\n]+)['"]\s*\)/g;
 const REQUIRE_RE = /\brequire\s*\(\s*['"]([^'"\n]+)['"]\s*\)/g;
@@ -31,7 +39,7 @@ function lineAt(text: string, index: number): number {
 
 /** `{ type A, type B }`: every named binding is a type, so the import is erased. */
 function allInlineTypes(head: string): boolean {
-  const braces = /^\{([\s\S]*)\}$/.exec(head.trim());
+  const braces = /^\{([\s\S]*)\}$/.exec(head.replace(COMMENT_RE, ' ').trim());
   if (!braces) return false;
   const names = braces[1]
     .split(',')

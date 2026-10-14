@@ -59,6 +59,26 @@ describe('scanImports', () => {
       [{ specifier: './x', typeOnly: false, dynamic: false }],
     ],
     [
+      'line comment inside multi-line braces',
+      "import {\n  loadConfig, // why: it's import-time\n} from '../config';",
+      [{ specifier: '../config', typeOnly: false, dynamic: false }],
+    ],
+    [
+      'block comment inside braces',
+      "import { a, /* (webtty, ADR 065) */ b } from './x';",
+      [{ specifier: './x', typeOnly: false, dynamic: false }],
+    ],
+    [
+      'commented inline types stay type-only',
+      "import {\n  type A, // note\n  type B,\n} from './x';",
+      [{ specifier: './x', typeOnly: true, dynamic: false }],
+    ],
+    [
+      'no semicolons: export type does not swallow the next import',
+      "export type { A }\nimport x from '../config'",
+      [{ specifier: '../config', typeOnly: false, dynamic: false }],
+    ],
+    [
       'side effect',
       "import './x.css';",
       [{ specifier: './x.css', typeOnly: false, dynamic: false }],
