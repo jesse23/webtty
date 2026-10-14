@@ -41,8 +41,8 @@ export class Composer {
     container.addEventListener('focusout', this.onCompositionEnd);
   }
 
-  // ghostty-web's onRender never fires and onCursorMove only reports row changes, so
-  // the overlay follows the cursor every frame while composing. setPx only writes
+  // The terminal has no per-frame cursor event, so the overlay follows the cursor
+  // every frame while composing. setPx only writes
   // styles that changed.
   private readonly tick = (): void => {
     if (!this.composing) {

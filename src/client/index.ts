@@ -266,8 +266,8 @@ connect();
 // trackpad and a TrackPoint apart and picks how each event moves:
 // - on the normal screen, unless the app tracks the mouse, SmoothScroll glides the
 //   scrollback pixel by pixel, advanced just before each render;
-// - otherwise the terminal sends the app SGR scroll buttons, or arrow keys on the
-//   alternate screen, paced the same way.
+// - otherwise the terminal sends the app mouse wheel reports in the app's mouse format
+//   (ADR 049), or arrow keys on the alternate screen, paced the same way.
 term.attachCustomWheelEventHandler(
   (e: WheelEvent): boolean => !term.hasMouseTracking() && smoothScroll.handleWheel(e),
 );

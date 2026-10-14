@@ -203,14 +203,12 @@ export class Terminal implements ITerminalCore {
   private dataEmitter = new EventEmitter<string>();
   private resizeEmitter = new EventEmitter<{ cols: number; rows: number }>();
   private bellEmitter = new EventEmitter<void>();
-  private selectionChangeEmitter = new EventEmitter<void>();
   private titleChangeEmitter = new EventEmitter<string>();
   private scrollEmitter = new EventEmitter<number>();
   // Public event accessors (xterm.js compatibility)
   public readonly onData: IEvent<string> = this.dataEmitter.event;
   public readonly onResize: IEvent<{ cols: number; rows: number }> = this.resizeEmitter.event;
   public readonly onBell: IEvent<void> = this.bellEmitter.event;
-  public readonly onSelectionChange: IEvent<void> = this.selectionChangeEmitter.event;
   public readonly onTitleChange: IEvent<string> = this.titleChangeEmitter.event;
   public readonly onScroll: IEvent<number> = this.scrollEmitter.event;
 
@@ -596,11 +594,6 @@ export class Terminal implements ITerminalCore {
 
       // Connect selection manager to renderer
       this.renderer.setSelectionManager(this.selectionManager);
-
-      // Forward selection change events
-      this.selectionManager.onSelectionChange(() => {
-        this.selectionChangeEmitter.fire();
-      });
 
       // Initialize link detection system
       this.linkDetector = new LinkDetector(this);
@@ -1012,7 +1005,6 @@ export class Terminal implements ITerminalCore {
     this.dataEmitter.dispose();
     this.resizeEmitter.dispose();
     this.bellEmitter.dispose();
-    this.selectionChangeEmitter.dispose();
     this.titleChangeEmitter.dispose();
     this.scrollEmitter.dispose();
   }
@@ -1178,7 +1170,7 @@ export class Terminal implements ITerminalCore {
 
     // Remove event listeners
     if (this.element) {
-      this.element.removeEventListener('wheel', this.handleWheel);
+      this.element.removeEventListener('wheel', this.handleWheel, { capture: true });
       this.element.removeEventListener('mousedown', this.handleMouseDown, { capture: true });
       this.element.removeEventListener('mousemove', this.handleMouseMove);
       this.element.removeEventListener('mouseleave', this.handleMouseLeave);
