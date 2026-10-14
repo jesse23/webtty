@@ -22,6 +22,7 @@ import type {
   GhosttyTerminal,
   GhosttyTerminalConfig,
   MouseGeometry,
+  SearchState,
 } from './ghostty';
 import { AT_ONCE, type Pace } from './glide';
 import {
@@ -43,6 +44,7 @@ import { MenuSource, rightClickAction } from './mouse-route';
 import { OSC8LinkProvider } from './providers/osc8-link-provider';
 import { UrlRegexProvider } from './providers/url-regex-provider';
 import { CanvasRenderer } from './renderer';
+import { type FindAnchor, keptViewportY, viewportYToShow } from './search';
 import { SelectionManager } from './selection-manager';
 import type { ILink } from './types';
 import {
@@ -118,6 +120,9 @@ const MOUSE_REPORT_DECODER = new TextDecoder('utf-8', { fatal: true });
 
 /** DEC private mode 1004: the app hears `CSI I` / `CSI O` on focus changes. (webtty, ADR 053) */
 const FOCUS_EVENT_MODE = 1004;
+
+/** The time the search may take in a frame (webtty, ADR 055) */
+const FIND_STEP_MS = 4;
 
 /**
  * A mouse report as text for the PTY, or '' when it is not valid UTF-8. Input travels as
@@ -211,6 +216,7 @@ export class Terminal implements ITerminalCore {
   private scrollEmitter = new EventEmitter<number>();
   private pasteRequestEmitter = new EventEmitter<void>();
   private clipboardWriteEmitter = new EventEmitter<string>();
+  private findChangeEmitter = new EventEmitter<SearchState>();
   // Public event accessors (xterm.js compatibility)
   public readonly onData: IEvent<string> = this.dataEmitter.event;
   public readonly onResize: IEvent<{ cols: number; rows: number }> = this.resizeEmitter.event;
@@ -228,6 +234,8 @@ export class Terminal implements ITerminalCore {
    * embedder writes the browser clipboard. (webtty, ADR 052)
    */
   public readonly onClipboardWrite: IEvent<string> = this.clipboardWriteEmitter.event;
+  /** The match count or the selected match changed (webtty, ADR 055) */
+  public readonly onFindChange: IEvent<SearchState> = this.findChangeEmitter.event;
 
   // Lifecycle state
   private isOpen = false;
@@ -249,6 +257,15 @@ export class Terminal implements ITerminalCore {
 
   // A clearScreen waiting for the output to reach ground (webtty, ADR 054)
   private pendingClear = false;
+
+  // Find (webtty, ADR 055): the needle ('' with no search open), whether the matches need
+  // reading again and when they may be, where the selected match was when the view last
+  // followed it, and the count last reported
+  private findNeedle = '';
+  private findStale = false;
+  private findReadAt = 0;
+  private findAnchor: FindAnchor | null = null;
+  private findState: SearchState = { total: 0, selected: null };
 
   // Phase 2: Viewport and scrolling state
   public viewportY: number = 0; // Top line of viewport in scrollback buffer (0 = at bottom)
@@ -677,6 +694,96 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
+   * Finds `needle` in the scrollback and on screen with libghostty-vt's search, as
+   * Ghostty's `search` action does: every match is highlighted, none selected. The
+   * search runs in the render loop, a few milliseconds a frame. `''` ends it.
+   * (webtty, ADR 055)
+   */
+  find(needle: string): void {
+    this.findNeedle = needle;
+    this.wasmTerm?.setSearch(needle);
+    this.findAnchor = null;
+    this.findStale = !!needle;
+    this.findReadAt = 0;
+    this.renderer?.setSearchHighlights(null);
+    this.reportFind();
+  }
+
+  /** Ends the search and clears its highlights (Ghostty's `end_search`). */
+  endFind(): void {
+    this.find('');
+  }
+
+  /** Whether a search is open. */
+  get finding(): boolean {
+    return this.findNeedle !== '';
+  }
+
+  /**
+   * Selects the next match, toward older output (Ghostty's `navigate_search:next`), and
+   * scrolls to it if none of its rows is in view. False with no search open.
+   */
+  findNext(): boolean {
+    return this.selectMatch('next');
+  }
+
+  /** Selects the previous match, toward newer output. False with no search open. */
+  findPrevious(): boolean {
+    return this.selectMatch('previous');
+  }
+
+  private selectMatch(direction: 'next' | 'previous'): boolean {
+    if (!this.findNeedle || !this.wasmTerm) return false;
+    this.wasmTerm.searchSelect(direction);
+    const match = this.wasmTerm.searchSelectedMatch();
+    if (match) {
+      const y = viewportYToShow(match, this.getScrollbackLength(), this.viewportY, this.rows);
+      if (y !== null) this.scrollToLine(y);
+    }
+    this.findAnchor = match && { row: match.start.row, scrollback: this.getScrollbackLength() };
+    this.findStale = true;
+    this.findReadAt = 0;
+    this.reportFind();
+    return true;
+  }
+
+  /**
+   * Runs the search for a few milliseconds and, when its results changed, gives the
+   * renderer the matches. Reading them takes a few milliseconds with tens of thousands,
+   * so while output keeps changing them they are read at most every ten times the last
+   * read took. A scrolled view on a selected match is kept on its rows.
+   */
+  private stepFind(now: number): void {
+    const wasmTerm = this.wasmTerm;
+    if (!this.findNeedle || !wasmTerm) return;
+    if (wasmTerm.searchStep(FIND_STEP_MS)) {
+      this.findStale = true;
+      this.reportFind();
+    }
+    if (!this.findStale || now < this.findReadAt) return;
+    const started = performance.now();
+    const selected = wasmTerm.searchSelectedMatch();
+    this.renderer?.setSearchHighlights({ matches: wasmTerm.searchMatches(), selected });
+    this.findStale = false;
+    this.findReadAt = now + (performance.now() - started) * 10;
+    const scrollback = this.getScrollbackLength();
+    if (selected && this.findAnchor && this.viewportY > 0) {
+      this.scrollToLine(keptViewportY(this.viewportY, this.findAnchor, selected.start.row, scrollback));
+    }
+    this.findAnchor = selected && { row: selected.start.row, scrollback };
+  }
+
+  /** Fires onFindChange if the count or the selected match changed. */
+  private reportFind(): void {
+    const state = this.wasmTerm?.searchState() ?? { total: 0, selected: null };
+    if (state.total === this.findState.total && state.selected === this.findState.selected) {
+      return;
+    }
+    this.findState = state;
+    this.findChangeEmitter.fire(state);
+  }
+
+  /**
    * Ghostty's `clear_screen` (Cmd+K): clears the selection and the scrollback, then at a
    * shell prompt the screen, sending FF so the shell redraws its prompt, and elsewhere the
    * rows above the cursor, whose row becomes the top one. Returns false, doing nothing, on
@@ -763,8 +870,9 @@ export class Terminal implements ITerminalCore {
     // Invalidate link cache (content changed)
     this.linkDetector?.invalidateCache();
 
-    // Phase 2: Auto-scroll to bottom on new output (xterm.js behavior)
-    if (this.viewportY !== 0) {
+    // Phase 2: Auto-scroll to bottom on new output (xterm.js behavior), except while the
+    // view is on a selected match: stepFind keeps it on its rows (webtty, ADR 055)
+    if (this.viewportY !== 0 && !this.findAnchor) {
       this.scrollToBottom();
     }
 
@@ -885,6 +993,8 @@ export class Terminal implements ITerminalCore {
     this.focusReporting = false;
     // A clear waiting for the old engine's output is not for the new one (webtty, ADR 054)
     this.pendingClear = false;
+    // A search goes on in the new engine (webtty, ADR 055)
+    if (this.findNeedle) this.find(this.findNeedle);
   }
 
   /**
@@ -1092,6 +1202,7 @@ export class Terminal implements ITerminalCore {
     this.scrollEmitter.dispose();
     this.pasteRequestEmitter.dispose();
     this.clipboardWriteEmitter.dispose();
+    this.findChangeEmitter.dispose();
   }
 
   // ==========================================================================
@@ -1209,6 +1320,7 @@ export class Terminal implements ITerminalCore {
     const loop = (now?: number) => {
       if (!this.isDisposed && this.isOpen) {
         this.beforeRender?.(now ?? performance.now());
+        this.stepFind(now ?? performance.now());
 
         // Render using WASM's native dirty tracking
         // The render() method:

@@ -442,6 +442,151 @@ describe('Terminal clearScreen', () => {
   });
 });
 
+describe('Terminal find', () => {
+  // Find with libghostty-vt's search, run in the render loop (ADR 055).
+  async function findTerm() {
+    const ghostty = await Ghostty.load(WASM);
+    const term = new Terminal({ ghostty, cols: 20, rows: 4, scrollbackLines: 1000 });
+    const highlights: unknown[] = [];
+    const renderer = {
+      clear: () => {},
+      getMetrics: () => ({ width: 8, height: 16, baseline: 12 }),
+      devicePixelRatio: 1,
+      setSearchHighlights: (h: unknown) => highlights.push(h),
+    };
+    const internals = term as unknown as {
+      isOpen: boolean;
+      wasmTerm: ReturnType<typeof ghostty.createTerminal>;
+      ghostty: typeof ghostty;
+      renderer: typeof renderer;
+      showScrollbar: () => void;
+      stepFind: (now: number) => void;
+    };
+    internals.wasmTerm = ghostty.createTerminal(20, 4, { scrollbackLines: 1000 });
+    internals.ghostty = ghostty;
+    internals.renderer = renderer;
+    internals.isOpen = true;
+    internals.showScrollbar = () => {};
+    let now = 0;
+    /** Render-loop frames: the search steps before each. */
+    const frames = (n = 1) => {
+      for (let i = 0; i < n; i++) {
+        now += 1000;
+        internals.stepFind(now);
+      }
+    };
+    const states: unknown[] = [];
+    term.onFindChange((s) => states.push(s));
+    const last = () =>
+      highlights[highlights.length - 1] as {
+        matches: Int32Array;
+        selected: unknown;
+      } | null;
+    return { term, internals, frames, states, last };
+  }
+
+  test('finds in the render loop, reports the count, and highlights every match', async () => {
+    const { term, internals, frames, states, last } = await findTerm();
+    for (let i = 0; i < 20; i++) term.write(i % 5 === 0 ? `Error ${i}\r\n` : `ok ${i}\r\n`);
+    expect(term.finding).toBe(false);
+    term.find('error');
+    expect(term.finding).toBe(true);
+    frames(3);
+    expect(states[states.length - 1]).toEqual({ total: 4, selected: null });
+    expect(last()?.matches.length).toBe(16);
+    expect(last()?.selected).toBeNull();
+    internals.wasmTerm.free();
+  });
+
+  test('next scrolls to a match out of view, its first row at the top, and wraps', async () => {
+    const { term, internals, frames, states } = await findTerm();
+    term.write('needle\r\n');
+    for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
+    term.write('needle');
+    term.find('needle');
+    frames(2);
+    const sb = term.getScrollbackLength();
+    // The newest match is on screen: no scroll
+    expect(term.findNext()).toBe(true);
+    expect(term.viewportY).toBe(0);
+    expect(states[states.length - 1]).toEqual({ total: 2, selected: 0 });
+    // The oldest is the first scrollback row
+    term.findNext();
+    expect(term.viewportY).toBe(sb);
+    expect(states[states.length - 1]).toEqual({ total: 2, selected: 1 });
+    term.findPrevious();
+    expect(term.viewportY).toBe(0);
+    internals.wasmTerm.free();
+  });
+
+  test('with no search open, next and previous are not performed', async () => {
+    const { term, internals } = await findTerm();
+    expect(term.findNext()).toBe(false);
+    expect(term.findPrevious()).toBe(false);
+    internals.wasmTerm.free();
+  });
+
+  test('output keeps a scrolled view on its rows while a match is selected', async () => {
+    const { term, internals, frames } = await findTerm();
+    term.write('needle\r\n');
+    for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
+    term.find('needle');
+    frames(2);
+    term.findNext();
+    const view = term.viewportY;
+    expect(view).toBeGreaterThan(0);
+    term.write('more\r\nmore\r\nmore\r\n');
+    expect(term.viewportY).toBe(view);
+    frames();
+    expect(term.viewportY).toBe(view + 3);
+    // The view still starts at the match
+    expect(term.getScrollbackLength() - term.viewportY).toBe(0);
+    internals.wasmTerm.free();
+  });
+
+  test('without a selected match, output scrolls to the bottom as before', async () => {
+    const { term, internals, frames } = await findTerm();
+    for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
+    term.find('line');
+    frames(2);
+    term.scrollToLine(5);
+    term.write('x\r\n');
+    expect(term.viewportY).toBe(0);
+    internals.wasmTerm.free();
+  });
+
+  test('ending the search clears the highlights and the count', async () => {
+    const { term, internals, frames, states, last } = await findTerm();
+    term.write('abc abc');
+    term.find('abc');
+    frames();
+    term.findNext();
+    frames();
+    term.endFind();
+    expect(term.finding).toBe(false);
+    expect(last()).toBeNull();
+    expect(states[states.length - 1]).toEqual({ total: 0, selected: null });
+    frames();
+    expect(last()).toBeNull();
+    internals.wasmTerm.free();
+  });
+
+  test('a reset (reconnect) searches the new engine', async () => {
+    const { term, internals, frames, states } = await findTerm();
+    term.write('abc');
+    term.find('abc');
+    frames();
+    expect(states[states.length - 1]).toEqual({ total: 1, selected: null });
+    term.reset();
+    frames();
+    expect(states[states.length - 1]).toEqual({ total: 0, selected: null });
+    term.write('abc abc');
+    frames();
+    expect(states[states.length - 1]).toEqual({ total: 2, selected: null });
+    internals.wasmTerm.free();
+  });
+});
+
 describe('Terminal bell and title', () => {
   // Bell and title come from the engine's readEffects, not from scanning the output
   // (ADR 047).
