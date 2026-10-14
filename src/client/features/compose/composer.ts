@@ -1,5 +1,5 @@
 /**
- * Shows IME / dictation composition text at the terminal cursor. See ADR 038.
+ * Shows IME / dictation composition text at the terminal cursor (view, ADR 038).
  *
  * The vendored terminal keeps focus on its hidden textarea and anchors the textarea at
  * the cursor cell, so the OS dictation and candidate panels follow the cursor. The
@@ -8,23 +8,44 @@
  * ghostty-web's own compositionend handling.
  */
 
-import type { Terminal } from '../../vendor/ghostty-web';
+import { DisposableStore, listen } from '../../vendor/ghostty-web';
+import { type OverlayBox, overlayBox } from './composer-geometry';
 
 // ghostty-web's defaults for a theme without foreground/background.
 const DEFAULT_FOREGROUND = '#d4d4d4';
 const DEFAULT_BACKGROUND = '#1e1e1e';
 
+/** The box's properties, in the order they are written. */
+const BOX_PROPS = ['left', 'top', 'height', 'lineHeight', 'maxWidth'] as const;
+
+/** The part of the terminal the overlay reads: the cursor cell, the font and the cell size. */
+export interface ComposerTerminal {
+  getCursorCellOffset(): { left: number; top: number } | undefined;
+  readonly options: { fontFamily: string; fontSize: number };
+  readonly renderer?: { getMetrics(): { width: number; height: number } | undefined };
+}
+
+/** The browser objects the overlay is built in and follows the cursor with. */
+export interface ComposerDeps {
+  document: Document;
+  window: Pick<Window, 'requestAnimationFrame' | 'cancelAnimationFrame'>;
+}
+
+/** The composition overlay: follows the cursor every frame while a composition is open. */
 export class Composer {
-  private readonly overlay = document.createElement('div');
+  private readonly overlay: HTMLDivElement;
+  private readonly store = new DisposableStore();
   private composing = false;
   private frame = 0;
 
   constructor(
-    private readonly term: Terminal,
+    private readonly term: ComposerTerminal,
     private readonly container: HTMLElement,
     private readonly theme: { foreground?: string; background?: string },
+    private readonly deps: ComposerDeps = { document: container.ownerDocument, window },
   ) {
-    const o = this.overlay;
+    const o = deps.document.createElement('div');
+    this.overlay = o;
     o.dataset.compose = 'true';
     o.style.position = 'absolute';
     o.style.display = 'none';
@@ -35,21 +56,20 @@ export class Composer {
     o.style.textDecoration = 'underline';
     container.append(o);
 
-    container.addEventListener('compositionstart', this.onCompositionStart);
-    container.addEventListener('compositionupdate', this.onCompositionUpdate);
-    container.addEventListener('compositionend', this.onCompositionEnd);
-    container.addEventListener('focusout', this.onCompositionEnd);
+    this.store.add(listen(container, 'compositionstart', this.onCompositionStart));
+    this.store.add(listen(container, 'compositionupdate', this.onCompositionUpdate));
+    this.store.add(listen(container, 'compositionend', this.onCompositionEnd));
+    this.store.add(listen(container, 'focusout', this.onCompositionEnd));
   }
 
   // The terminal has no per-frame cursor event, so the overlay follows the cursor
-  // every frame while composing. setPx only writes
-  // styles that changed.
+  // every frame while composing. setPx only writes styles that changed.
   private readonly tick = (): void => {
     if (!this.composing) {
       this.frame = 0;
       return;
     }
-    this.frame = window.requestAnimationFrame(this.tick);
+    this.frame = this.deps.window.requestAnimationFrame(this.tick);
     this.update();
   };
 
@@ -59,15 +79,25 @@ export class Composer {
     if (spot) this.placeOverlay(spot);
   }
 
+  /** Removes the overlay and its listeners and stops following the cursor. Idempotent. */
+  dispose(): void {
+    if (this.store.isDisposed) return;
+    this.store.dispose();
+    this.composing = false;
+    if (this.frame) this.deps.window.cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.overlay.remove();
+  }
+
   private readonly onCompositionStart = (): void => {
     this.composing = true;
     this.update();
-    if (!this.frame) this.frame = window.requestAnimationFrame(this.tick);
+    if (!this.frame) this.frame = this.deps.window.requestAnimationFrame(this.tick);
   };
 
   private readonly onCompositionUpdate = (e: CompositionEvent): void => {
     this.composing = true;
-    if (!this.frame) this.frame = window.requestAnimationFrame(this.tick);
+    if (!this.frame) this.frame = this.deps.window.requestAnimationFrame(this.tick);
     const text = e.data ?? '';
     if (!text) {
       this.overlay.style.display = 'none';
@@ -86,14 +116,13 @@ export class Composer {
 
   private placeOverlay(spot: { left: number; top: number }): void {
     const o = this.overlay;
-    const cell = this.cell();
     const canvas = this.terminalCanvas();
-    const right = canvas ? canvas.offsetLeft + canvas.offsetWidth : spot.left;
-    setPx(o, 'left', spot.left);
-    setPx(o, 'top', spot.top);
-    setPx(o, 'height', cell.height);
-    setPx(o, 'lineHeight', cell.height);
-    setPx(o, 'maxWidth', Math.max(cell.width, right - spot.left));
+    const box = overlayBox(
+      spot,
+      this.cell(),
+      canvas ? canvas.offsetLeft + canvas.offsetWidth : null,
+    );
+    for (const prop of BOX_PROPS) setPx(o, prop, box[prop]);
     o.style.fontFamily = this.term.options.fontFamily;
     o.style.fontSize = `${this.term.options.fontSize}px`;
     o.style.color = this.theme.foreground ?? DEFAULT_FOREGROUND;
@@ -110,11 +139,7 @@ export class Composer {
   }
 }
 
-function setPx(
-  el: HTMLElement,
-  prop: 'left' | 'top' | 'height' | 'lineHeight' | 'maxWidth',
-  value: number,
-): void {
+function setPx(el: HTMLElement, prop: keyof OverlayBox, value: number): void {
   const px = `${value}px`;
   if (el.style[prop] !== px) el.style[prop] = px;
 }
