@@ -15,6 +15,7 @@ import { EventEmitter } from './event-emitter';
 import type { GhosttyTerminal } from './ghostty';
 import type { IEvent } from './interfaces';
 import { pressToApp } from './mouse-route';
+import type { CellRange } from './render/cell-range';
 import type { CanvasRenderer } from './renderer';
 import type { Terminal } from './terminal';
 
@@ -22,12 +23,8 @@ import type { Terminal } from './terminal';
 // Type Definitions
 // ============================================================================
 
-export interface SelectionCoordinates {
-  startCol: number;
-  startRow: number;
-  endCol: number;
-  endRow: number;
-}
+/** A selection's start and end cell, rows inclusive: the one cell range shape (ADR 061). */
+export type SelectionCoordinates = CellRange;
 
 // ============================================================================
 // SelectionManager Class

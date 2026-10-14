@@ -11,6 +11,7 @@
  */
 
 import type { ITheme } from './interfaces';
+import { type CellRange, cellInRange, moveRangeRows, sameRange } from './render/cell-range';
 import { DEFAULT_THEME } from './render/default-theme';
 import { watchDevicePixelRatio, wholeDevicePixelRatio } from './render/device-pixel-ratio';
 import { type FontMetrics, measureFont } from './render/font-metrics';
@@ -73,42 +74,6 @@ const ROW_CUT = 2;
  * rows high instead of growing to the canvas' size. (webtty, ADR 043)
  */
 export const REPAINT_CHUNK_ROWS = 8;
-
-/** A selection: start and end cell, rows inclusive. */
-interface CellRange {
-  startCol: number;
-  startRow: number;
-  endCol: number;
-  endRow: number;
-}
-
-/** A hovered regex link: start and end cell, rows inclusive. */
-interface LinkRange {
-  startX: number;
-  startY: number;
-  endX: number;
-  endY: number;
-}
-
-/** A selection moved down by `rows` rows (up when negative). */
-function moveRows(range: CellRange | null, rows: number): CellRange | null {
-  return range && { ...range, startRow: range.startRow + rows, endRow: range.endRow + rows };
-}
-
-/** A link range moved down by `rows` rows (up when negative). */
-function moveRange(range: LinkRange | null, rows: number): LinkRange | null {
-  return range && { ...range, startY: range.startY + rows, endY: range.endY + rows };
-}
-
-function sameRange(a: CellRange | null, b: CellRange | null): boolean {
-  if (!a || !b) return a === b;
-  return (
-    a.startCol === b.startCol &&
-    a.startRow === b.startRow &&
-    a.endCol === b.endCol &&
-    a.endRow === b.endRow
-  );
-}
 
 // ============================================================================
 // CanvasRenderer Class
@@ -194,12 +159,11 @@ export class CanvasRenderer {
   // The hovered link's range (OSC 8 or regex), in viewport rows. The engine's
   // hyperlink_id is a 1-bit "has a link" flag, not an id, so the range is the only
   // thing that tells one link from another. (webtty)
-  private hoveredLinkRange: { startX: number; startY: number; endX: number; endY: number } | null =
-    null;
+  private hoveredLinkRange: CellRange | null = null;
   // The regex link range this frame draws and the one the canvas rows were drawn with,
   // in canvas rows (webtty, ADR 043)
-  private currentLinkRange: LinkRange | null = null;
-  private drawnLinkRange: LinkRange | null = null;
+  private currentLinkRange: CellRange | null = null;
+  private drawnLinkRange: CellRange | null = null;
 
   // Search matches (webtty, ADR 055): the matches, the spans this frame draws per canvas
   // row, and the spans each canvas row was drawn with (as `spansKey`)
@@ -450,8 +414,8 @@ export class CanvasRenderer {
         this.rowState = state;
         if (this.cursorRow !== null) this.cursorRow += shift;
         if (this.scrollbarRow !== null) this.scrollbarRow += shift;
-        this.drawnSelection = moveRows(this.drawnSelection, shift);
-        this.drawnLinkRange = moveRange(this.drawnLinkRange, shift);
+        this.drawnSelection = moveRangeRows(this.drawnSelection, shift);
+        this.drawnLinkRange = moveRangeRows(this.drawnLinkRange, shift);
         const drawnSearch = new Array<string>(total).fill('');
         for (let k = Math.max(0, -shift); k < Math.min(total, total - shift); k++) {
           drawnSearch[k + shift] = this.drawnSearch[k] ?? '';
@@ -491,7 +455,7 @@ export class CanvasRenderer {
       this.selectionManager && this.selectionManager.hasSelection()
         ? this.selectionManager.getSelectionRange()
         : null;
-    this.currentSelectionCoords = moveRows(selection, top);
+    this.currentSelectionCoords = moveRangeRows(selection, top);
     if (!sameRange(this.currentSelectionCoords, this.drawnSelection)) {
       for (const range of [this.drawnSelection, this.currentSelectionCoords]) {
         if (!range) continue;
@@ -520,11 +484,11 @@ export class CanvasRenderer {
 
     // A link underline is drawn at viewport rows, which are other canvas rows after a
     // scroll: clear it where it was drawn and draw it where it is.
-    this.currentLinkRange = moveRange(this.hoveredLinkRange, top);
-    if (JSON.stringify(this.currentLinkRange) !== JSON.stringify(this.drawnLinkRange)) {
+    this.currentLinkRange = moveRangeRows(this.hoveredLinkRange, top);
+    if (!sameRange(this.currentLinkRange, this.drawnLinkRange)) {
       for (const range of [this.drawnLinkRange, this.currentLinkRange]) {
         if (!range) continue;
-        for (let k = range.startY; k <= range.endY; k++) changed(k);
+        for (let k = range.startRow; k <= range.endRow; k++) changed(k);
       }
     }
     this.drawnLinkRange = this.currentLinkRange;
@@ -866,7 +830,7 @@ export class CanvasRenderer {
     const cellWidth = this.metrics.width * cell.width;
 
     // Check if this cell is selected
-    const isSelected = this.isInSelection(x, y);
+    const isSelected = cellInRange(this.currentSelectionCoords, x, y);
 
     if (isSelected) {
       // Draw selection background (solid color, not overlay)
@@ -926,7 +890,7 @@ export class CanvasRenderer {
     }
 
     // Check if this cell is selected
-    const isSelected = this.isInSelection(x, y);
+    const isSelected = cellInRange(this.currentSelectionCoords, x, y);
 
     // Set text style
     let fontStyle = '';
@@ -1009,23 +973,14 @@ export class CanvasRenderer {
 
     // Draw the hovered link's underline (OSC 8 or plain text URL), in canvas rows
     // (webtty, ADR 043)
-    if (this.currentLinkRange) {
-      const range = this.currentLinkRange;
-      // Check if this cell is within the hovered link range
-      const isInRange =
-        (y === range.startY && x >= range.startX && (y < range.endY || x <= range.endX)) ||
-        (y > range.startY && y < range.endY) ||
-        (y === range.endY && x <= range.endX && (y > range.startY || x >= range.startX));
-
-      if (isInRange) {
-        const underlineY = cellY + this.metrics.baseline + 2;
-        this.ctx.strokeStyle = '#4A90E2'; // Blue underline on hover
-        this.ctx.lineWidth = 1;
-        this.ctx.beginPath();
-        this.ctx.moveTo(cellX, underlineY);
-        this.ctx.lineTo(cellX + cellWidth, underlineY);
-        this.ctx.stroke();
-      }
+    if (cellInRange(this.currentLinkRange, x, y)) {
+      const underlineY = cellY + this.metrics.baseline + 2;
+      this.ctx.strokeStyle = '#4A90E2'; // Blue underline on hover
+      this.ctx.lineWidth = 1;
+      this.ctx.beginPath();
+      this.ctx.moveTo(cellX, underlineY);
+      this.ctx.lineTo(cellX + cellWidth, underlineY);
+      this.ctx.stroke();
     }
   }
 
@@ -1265,36 +1220,6 @@ export class CanvasRenderer {
   }
 
   /**
-   * Check if a cell at (x, y) is within the current selection.
-   * Uses cached selection coordinates for performance.
-   */
-  private isInSelection(x: number, y: number): boolean {
-    const sel = this.currentSelectionCoords;
-    if (!sel) return false;
-
-    const { startCol, startRow, endCol, endRow } = sel;
-
-    // Single line selection
-    if (startRow === endRow) {
-      return y === startRow && x >= startCol && x <= endCol;
-    }
-
-    // Multi-line selection
-    if (y === startRow) {
-      // First line: from startCol to end of line
-      return x >= startCol;
-    } else if (y === endRow) {
-      // Last line: from start of line to endCol
-      return x <= endCol;
-    } else if (y > startRow && y < endRow) {
-      // Middle lines: entire line is selected
-      return true;
-    }
-
-    return false;
-  }
-
-  /**
    * The search matches to highlight, or null for none. Rows whose matches change are
    * repainted on the next frame. (webtty, ADR 055)
    */
@@ -1314,7 +1239,12 @@ export class CanvasRenderer {
       endY: number;
     } | null
   ): void {
-    this.hoveredLinkRange = range;
+    this.hoveredLinkRange = range && {
+      startCol: range.startX,
+      startRow: range.startY,
+      endCol: range.endX,
+      endRow: range.endY,
+    };
   }
 
   /**

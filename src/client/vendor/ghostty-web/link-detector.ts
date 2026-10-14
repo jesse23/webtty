@@ -6,7 +6,8 @@
  * providers (e.g. OSC8) take precedence over later ones (e.g. regex).
  */
 
-import type { IBufferCellPosition, ILink, ILinkProvider } from './types';
+import { cellInRange } from './render/cell-range';
+import type { ILink, ILinkProvider } from './types';
 
 /**
  * Manages link detection across multiple providers with intelligent caching
@@ -115,29 +116,15 @@ export class LinkDetector {
   }
 
   /**
-   * Check if a position is within a link's range
+   * Check if a position is within a link's range (the one inclusive test, ADR 061)
    */
   private isPositionInLink(col: number, row: number, link: ILink): boolean {
     const { start, end } = link.range;
-
-    // Check if row is in range
-    if (row < start.y || row > end.y) {
-      return false;
-    }
-
-    // Single-line link
-    if (start.y === end.y) {
-      return col >= start.x && col <= end.x;
-    }
-
-    // Multi-line link
-    if (row === start.y) {
-      return col >= start.x; // First line: from start.x to end of line
-    } else if (row === end.y) {
-      return col <= end.x; // Last line: from start of line to end.x
-    } else {
-      return true; // Middle line: entire line is part of link
-    }
+    return cellInRange(
+      { startCol: start.x, startRow: start.y, endCol: end.x, endRow: end.y },
+      col,
+      row
+    );
   }
 
   /**
