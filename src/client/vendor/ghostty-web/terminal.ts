@@ -4,11 +4,11 @@
 // `new Terminal({ ghostty: await Ghostty.load(url), ... })` and `open(container)` (ADR 061).
 
 import { BufferNamespace } from './buffer';
+import { FindController } from './core/find-controller';
+import { FocusTracker } from './core/focus-tracker';
+import { RenderLoop } from './core/render-loop';
 import {
   APP_CURSOR_KEYS_MODE,
-  FIND_READ_BACKOFF,
-  FIND_STEP_MS,
-  FOCUS_EVENT_MODE,
   MOUSE_MOVE_THROTTLE_MS,
   SCROLLBAR_FADE_DURATION_MS,
   SCROLLBAR_HIDE_DELAY_MS,
@@ -30,6 +30,7 @@ import {
   viewportRowToBufferRow,
 } from './core/terminal-geometry';
 import { Viewport } from './core/viewport';
+import { WritePipeline } from './core/write-pipeline';
 import { EventEmitter } from './event-emitter';
 import type {
   DesktopNotification,
@@ -65,7 +66,6 @@ import {
   scrollbarThumbY,
   scrollbarTrackHeight,
 } from './render/scrollbar-geometry';
-import { type FindAnchor, keptViewportY, viewportYToShow } from './search';
 import { SelectionManager } from './selection-manager';
 import type { ILink } from './types';
 import {
@@ -154,9 +154,6 @@ export class Terminal implements ITerminalCore {
   // Lifecycle state
   private isOpen = false;
   private isDisposed = false;
-  private animationFrameId?: number;
-  private writeQueue: Uint8Array[] = [];
-  private awaitingEcho = false;
 
   // Addons
   private addons: ITerminalAddon[] = [];
@@ -164,22 +161,58 @@ export class Terminal implements ITerminalCore {
   // The title last reported through onTitleChange
   private currentTitle: string = '';
 
-  // Focus reports (webtty, ADR 053): keyboard focus inside the container in a focused
-  // window, and whether mode 1004 was on after the last write.
-  private focused = false;
-  private focusReporting = false;
+  // Focus kept off the container and reported to the app under mode 1004 (webtty, ADR 053)
+  private readonly focusTracker = new FocusTracker({
+    element: () => this.element,
+    textarea: () => this.textarea,
+    engine: () => this.wasmTerm,
+    disableStdin: () => this.options.disableStdin,
+    send: (data) => this.dataEmitter.fire(data),
+  });
 
-  // A clearScreen waiting for the output to reach ground (webtty, ADR 054)
-  private pendingClear = false;
+  // Find in the scrollback, stepped by the render loop (webtty, ADR 055)
+  private readonly finder = new FindController({
+    engine: () => this.wasmTerm,
+    highlight: (highlights) => this.renderer?.setSearchHighlights(highlights),
+    getScrollbackLength: () => this.getScrollbackLength(),
+    viewportY: () => this.viewportY,
+    rows: () => this.rows,
+    scrollToLine: (line) => this.scrollToLine(line),
+    changed: (state) => this.findChangeEmitter.fire(state),
+  });
 
-  // Find (webtty, ADR 055): the needle ('' with no search open), whether the matches need
-  // reading again and when they may be, where the selected match was when the view last
-  // followed it, and the count last reported
-  private findNeedle = '';
-  private findStale = false;
-  private findReadAt = 0;
-  private findAnchor: FindAnchor | null = null;
-  private findState: SearchState = { total: 0, selected: null };
+  // Output into the engine and every step after it, in a fixed order (ADR 061)
+  private readonly writes = new WritePipeline({
+    engine: () => this.wasmTerm,
+    disableStdin: () => this.options.disableStdin,
+    send: (data) => this.dataEmitter.fire(data),
+    followFocusMode: () => this.focusTracker.followMode(),
+    bell: () => this.bellEmitter.fire(),
+    title: (title) => this.setTitle(title),
+    clipboardWrite: (text) => this.clipboardWriteEmitter.fire(text),
+    notify: (notification) => this.desktopNotificationEmitter.fire(notification),
+    outputChanged: () => this.linkDetector?.invalidateCache(),
+    viewportY: () => this.viewportY,
+    findAnchored: () => this.finder.anchored,
+    scrollToBottom: () => this.scrollToBottom(),
+    renderEcho: () => {
+      if (this.renderer && this.wasmTerm) {
+        this.renderer.render(this.wasmTerm, false, this.viewportY, this, this.scrollbarOpacity);
+      }
+    },
+  });
+
+  // One frame after another while open, each in a fixed order (ADR 061)
+  private readonly renderLoop = new RenderLoop({
+    live: () => !this.isDisposed && this.isOpen,
+    beforeRender: (now) => this.beforeRender?.(now),
+    stepFind: (now) => this.finder.step(now),
+    render: () =>
+      this.renderer!.render(this.wasmTerm!, false, this.viewportY, this, this.scrollbarOpacity),
+    hasReplies: () => this.wasmTerm!.hasResponse(),
+    drainReplies: () => this.writes.drainReplies(),
+    anchorTextarea: () => this.anchorTextarea(),
+  });
 
   // Where the view is in the scrollback; each move fires onScroll and shows the scrollbar
   private readonly viewport = new Viewport({
@@ -339,20 +372,8 @@ export class Terminal implements ITerminalCore {
           e.preventDefault();
         }
       });
-      // Never let the container hold focus, or the browser writes IME composition
-      // text into it; input goes to the textarea. This covers clicks in the padding,
-      // tab focus and focus(). (webtty)
-      parent.addEventListener('focusin', this.handleFocusIn);
-      // focus() on a background window moves activeElement without a focusin; catch
-      // the container still holding focus when the window comes back. (webtty)
-      window.addEventListener('focus', this.handleWindowFocus);
-      // Terminal focus for mode 1004: a window blur or focus usually reaches the focused
-      // element as focusout / focusin too, but Chrome switching tabs only changes the
-      // page's visibility, so blur and visibility are watched as well. (webtty, ADR 053)
-      parent.addEventListener('focusin', this.handleFocusGained);
-      parent.addEventListener('focusout', this.handleFocusLost);
-      window.addEventListener('blur', this.handleWindowBlur);
-      document.addEventListener('visibilitychange', this.handleVisibilityChange);
+      // Focus is followed, and kept on the textarea, by the focus tracker (webtty, ADR 053)
+      this.focusTracker.attach(parent);
 
       // Add accessibility attributes for screen readers and extensions
       parent.setAttribute('role', 'textbox');
@@ -484,7 +505,7 @@ export class Terminal implements ITerminalCore {
       this.renderer.render(this.wasmTerm, true, this.viewportY, this, this.scrollbarOpacity);
 
       // Start render loop
-      this.startRenderLoop();
+      this.renderLoop.start();
 
       // Focus input (auto-focus so user can start typing immediately)
       this.focus();
@@ -508,7 +529,7 @@ export class Terminal implements ITerminalCore {
     // Ghostty always scrolls to the bottom on a paste (webtty, ADR 055)
     this.scrollToBottom();
     this.wasmTerm!.paste(text);
-    this.processTerminalResponses();
+    this.writes.drainReplies();
   }
 
   /**
@@ -518,13 +539,7 @@ export class Terminal implements ITerminalCore {
    * (webtty, ADR 055)
    */
   find(needle: string): void {
-    this.findNeedle = needle;
-    this.wasmTerm?.setSearch(needle);
-    this.findAnchor = null;
-    this.findStale = !!needle;
-    this.findReadAt = 0;
-    this.renderer?.setSearchHighlights(null);
-    this.reportFind();
+    this.finder.find(needle);
   }
 
   /** Ends the search and clears its highlights (Ghostty's `end_search`). */
@@ -534,7 +549,7 @@ export class Terminal implements ITerminalCore {
 
   /** Whether a search is open. */
   get finding(): boolean {
-    return this.findNeedle !== '';
+    return this.finder.finding;
   }
 
   /**
@@ -542,53 +557,12 @@ export class Terminal implements ITerminalCore {
    * scrolls to it if none of its rows is in view. False with no search open.
    */
   findNext(): boolean {
-    return this.selectMatch('next');
+    return this.finder.select('next');
   }
 
   /** Selects the previous match, toward newer output. False with no search open. */
   findPrevious(): boolean {
-    return this.selectMatch('previous');
-  }
-
-  private selectMatch(direction: 'next' | 'previous'): boolean {
-    if (!this.findNeedle || !this.wasmTerm) return false;
-    this.wasmTerm.searchSelect(direction);
-    const match = this.wasmTerm.searchSelectedMatch();
-    if (match) {
-      const y = viewportYToShow(match, this.getScrollbackLength(), this.viewportY, this.rows);
-      if (y !== null) this.scrollToLine(y);
-    }
-    this.findAnchor = match && { row: match.start.row, scrollback: this.getScrollbackLength() };
-    this.findStale = true;
-    this.findReadAt = 0;
-    this.reportFind();
-    return true;
-  }
-
-  /**
-   * Runs the search for a few milliseconds and, when its results changed, gives the
-   * renderer the matches. Reading them takes a few milliseconds with tens of thousands,
-   * so while output keeps changing them they are read at most every ten times the last
-   * read took. A scrolled view on a selected match is kept on its rows.
-   */
-  private stepFind(now: number): void {
-    const wasmTerm = this.wasmTerm;
-    if (!this.findNeedle || !wasmTerm) return;
-    if (wasmTerm.searchStep(FIND_STEP_MS)) {
-      this.findStale = true;
-      this.reportFind();
-    }
-    if (!this.findStale || now < this.findReadAt) return;
-    const started = performance.now();
-    const selected = wasmTerm.searchSelectedMatch();
-    this.renderer?.setSearchHighlights({ matches: wasmTerm.searchMatches(), selected });
-    this.findStale = false;
-    this.findReadAt = now + (performance.now() - started) * FIND_READ_BACKOFF;
-    const scrollback = this.getScrollbackLength();
-    if (selected && this.findAnchor && this.viewportY > 0) {
-      this.scrollToLine(keptViewportY(this.viewportY, this.findAnchor, selected.start.row, scrollback));
-    }
-    this.findAnchor = selected && { row: selected.start.row, scrollback };
+    return this.finder.select('previous');
   }
 
   /**
@@ -604,16 +578,6 @@ export class Terminal implements ITerminalCore {
     if (row !== top) this.scrollToLine(scrollback - row);
   }
 
-  /** Fires onFindChange if the count or the selected match changed. */
-  private reportFind(): void {
-    const state = this.wasmTerm?.searchState() ?? { total: 0, selected: null };
-    if (state.total === this.findState.total && state.selected === this.findState.selected) {
-      return;
-    }
-    this.findState = state;
-    this.findChangeEmitter.fire(state);
-  }
-
   /**
    * Ghostty's `clear_screen` (Cmd+K): clears the selection and the scrollback, then at a
    * shell prompt the screen, sending FF so the shell redraws its prompt, and elsewhere the
@@ -626,24 +590,8 @@ export class Terminal implements ITerminalCore {
     this.assertOpen();
     if (this.wasmTerm!.isAlternateScreen()) return false;
     this.clearSelection();
-    this.pendingClear = true;
-    this.writeInternal(new Uint8Array(0));
+    this.writes.clearAtGround();
     return true;
-  }
-
-  /** The erasing of `clearScreen`, for when the parser is at ground. */
-  private writeClear(): void {
-    const wasmTerm = this.wasmTerm!;
-    // The output before it may have turned the alternate screen on
-    if (wasmTerm.isAlternateScreen()) return;
-    if (wasmTerm.cursorAtPrompt()) {
-      // ED 2 at a prompt moves the screen into the scrollback, so ED 3 comes after it
-      wasmTerm.write('\x1b[2J\x1b[3J');
-      if (!this.options.disableStdin) this.dataEmitter.fire('\x0c');
-    } else {
-      const y = wasmTerm.getCursor().y;
-      wasmTerm.write(`${y > 0 ? `\x1b[${y}S\x1b[${y}A` : ''}\x1b[3J`);
-    }
   }
 
   /**
@@ -657,75 +605,7 @@ export class Terminal implements ITerminalCore {
       data = data.replace(/\n/g, '\r\n');
     }
 
-    this.writeInternal(data, callback);
-  }
-
-  /**
-   * Internal write implementation (extracted from write())
-   */
-  private writeInternal(data: string | Uint8Array, callback?: () => void): void {
-    // Note: We intentionally do NOT clear selection on write - most modern terminals
-    // preserve selection when new data arrives. Selection is cleared by user actions
-    // like clicking or typing, not by incoming data.
-
-    // A waiting clear goes in where the output reaches ground (webtty, ADR 054)
-    if (this.pendingClear) {
-      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-      const n = this.wasmTerm!.writeUntilGround(bytes);
-      if (n !== null) {
-        this.pendingClear = false;
-        this.writeClear();
-      }
-      data = bytes.subarray(n ?? bytes.length);
-    }
-
-    // Write directly to WASM terminal (handles VT parsing internally)
-    this.wasmTerm!.write(data);
-
-    // Process any responses generated by the terminal (e.g., DSR cursor position)
-    // These need to be sent back to the PTY via onData
-    this.processTerminalResponses();
-
-    // Ghostty reports the focus when the app turns mode 1004 on (webtty, ADR 053)
-    const focusReporting = this.wasmTerm!.getMode(FOCUS_EVENT_MODE);
-    if (focusReporting && !this.focusReporting) this.reportFocus();
-    this.focusReporting = focusReporting;
-
-    // Bell, title (OSC 0/2), clipboard writes (OSC 52) and desktop notifications (OSC 9,
-    // OSC 777) as Ghostty reported them (webtty, ADR 042, ADR 052, ADR 056)
-    const effects = this.wasmTerm!.readEffects();
-    if (effects.bell) this.bellEmitter.fire();
-    if (effects.title !== null) this.setTitle(effects.title);
-    if (effects.clipboard !== null) this.clipboardWriteEmitter.fire(effects.clipboard);
-    for (const n of effects.notifications) this.desktopNotificationEmitter.fire(n);
-
-    // Invalidate link cache (content changed)
-    this.linkDetector?.invalidateCache();
-
-    // Auto-scroll to bottom on new output (xterm.js behavior), except while the
-    // view is on a selected match: stepFind keeps it on its rows. The alternate screen
-    // has no scrollback to keep a view in, and its matches are its own (webtty, ADR 055)
-    if (
-      this.viewportY !== 0 &&
-      (!this.findAnchor || this.wasmTerm!.isAlternateScreen())
-    ) {
-      this.scrollToBottom();
-    }
-
-    // Call callback if provided
-    if (callback) {
-      // Queue callback after next render
-      requestAnimationFrame(callback);
-    }
-
-    if (this.awaitingEcho) {
-      this.awaitingEcho = false;
-      if (this.renderer && this.wasmTerm) {
-        this.renderer.render(this.wasmTerm, false, this.viewportY, this, this.scrollbarOpacity);
-      }
-    }
-
-    // Render will happen on next animation frame
+    this.writes.write(data, callback);
   }
 
   /**
@@ -742,7 +622,7 @@ export class Terminal implements ITerminalCore {
     // views while WASM reallocates buffers. We restart it after resize completes.
     // This avoids the background-tab regression of using an isResizing flag
     // cleared via requestAnimationFrame (rAF is throttled/paused in background tabs).
-    this.cancelRenderLoop();
+    this.renderLoop.cancel();
 
     try {
       // Update dimensions
@@ -769,7 +649,7 @@ export class Terminal implements ITerminalCore {
 
       // A mode 2048 size report from the resize, sent after the PTY resize message
       // (webtty, ADR 042)
-      this.processTerminalResponses();
+      this.writes.drainReplies();
 
       // Force full render, the scrollbar at its current opacity (webtty, ADR 043)
       this.renderer!.render(this.wasmTerm!, true, this.viewportY, this, this.scrollbarOpacity);
@@ -777,9 +657,7 @@ export class Terminal implements ITerminalCore {
       console.error('Terminal resize failed:', e);
     }
 
-    // Flush any writes that were queued during resize, then restart render loop
-    this.flushWriteQueue();
-    this.startRenderLoop();
+    this.renderLoop.start();
   }
 
   /**
@@ -792,7 +670,7 @@ export class Terminal implements ITerminalCore {
     const px = this.cellPixelSize();
     if (!this.wasmTerm || !px) return;
     this.wasmTerm.setCellPixelSize(px.width, px.height);
-    this.processTerminalResponses();
+    this.writes.drainReplies();
   }
 
   /** The renderer's cell in whole device pixels, or null before open(). (webtty) */
@@ -826,11 +704,11 @@ export class Terminal implements ITerminalCore {
     // Reset title
     this.currentTitle = '';
     // The new engine starts with mode 1004 off (webtty, ADR 053)
-    this.focusReporting = false;
+    this.focusTracker.reset();
     // A clear waiting for the old engine's output is not for the new one (webtty, ADR 054)
-    this.pendingClear = false;
+    this.writes.reset();
     // A search goes on in the new engine (webtty, ADR 055)
-    if (this.findNeedle) this.find(this.findNeedle);
+    this.finder.restart();
   }
 
   /**
@@ -951,9 +829,8 @@ export class Terminal implements ITerminalCore {
     this.isDisposed = true;
     this.isOpen = false;
 
-    // Stop render loop and clear write queue
-    this.cancelRenderLoop();
-    this.writeQueue.length = 0;
+    // Stop render loop
+    this.renderLoop.cancel();
 
     this.tickPacer.cancel();
 
@@ -986,65 +863,11 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Sends focus that lands on the container itself to the textarea. (webtty)
-   */
-  private handleFocusIn = (e: FocusEvent): void => {
-    if (e.target === this.element) this.textarea?.focus();
-  };
-
-  private handleWindowFocus = (): void => {
-    if (this.element && document.activeElement === this.element) this.textarea?.focus();
-  };
-
-  /** Focus came into the container, or its window got focus back. (webtty, ADR 053) */
-  private handleFocusGained = (): void => {
-    this.setFocused(true);
-  };
-
-  /**
-   * Focus left the container, or its window lost focus (no `relatedTarget`). A move
-   * inside it, the container passing focus on to the textarea, is not a change.
-   * (webtty, ADR 053)
-   */
-  private handleFocusLost = (e: FocusEvent): void => {
-    const next = e.relatedTarget as Node | null;
-    if (next && this.element?.contains(next)) return;
-    this.setFocused(false);
-  };
-
-  /** The window lost focus: the terminal has none, whatever element is active. (webtty, ADR 053) */
-  private handleWindowBlur = (): void => {
-    this.setFocused(false);
-  };
-
-  /**
-   * The tab was hidden or shown. Chrome fires no blur or focus for a tab switch, so the
-   * focus is read again here. (webtty, ADR 053)
-   */
-  private handleVisibilityChange = (): void => {
-    const shown = document.visibilityState === 'visible' && document.hasFocus();
-    this.setFocused(shown && !!this.element?.contains(document.activeElement));
-  };
-
-  private setFocused(focused: boolean): void {
-    if (focused === this.focused) return;
-    this.focused = focused;
-    if (this.wasmTerm?.getMode(FOCUS_EVENT_MODE)) this.reportFocus();
-  }
-
-  /**
    * Sends the current focus if mode 1004 is on, for a new connection to the app: reports
    * sent while there was none were dropped. (webtty, ADR 053)
    */
   resyncFocus(): void {
-    if (this.wasmTerm?.getMode(FOCUS_EVENT_MODE)) this.reportFocus();
-  }
-
-  /** Sends `CSI I` or `CSI O` for the current focus, encoded by Ghostty. (webtty, ADR 053) */
-  private reportFocus(): void {
-    if (this.options.disableStdin || !this.wasmTerm) return;
-    const report = new TextDecoder().decode(this.wasmTerm.encodeFocus(this.focused));
-    if (report) this.dataEmitter.fire(report);
+    this.focusTracker.resync();
   }
 
   /**
@@ -1080,55 +903,6 @@ export class Terminal implements ITerminalCore {
     setStylePx(textarea, 'top', spot.top);
     setStylePx(textarea, 'width', 1);
     setStylePx(textarea, 'height', this.renderer!.getMetrics().height);
-  }
-
-  /**
-   * Cancel the render loop
-   */
-  private cancelRenderLoop(): void {
-    if (this.animationFrameId) {
-      cancelAnimationFrame(this.animationFrameId);
-      this.animationFrameId = undefined;
-    }
-  }
-
-  /**
-   * Flush any writes that were queued during resize
-   */
-  private flushWriteQueue(): void {
-    while (this.writeQueue.length > 0) {
-      const data = this.writeQueue.shift()!;
-      this.wasmTerm!.write(data);
-    }
-  }
-
-  /**
-   * Start the render loop
-   */
-  private startRenderLoop(): void {
-    if (this.animationFrameId) return; // already running
-    const loop = (now?: number) => {
-      if (!this.isDisposed && this.isOpen) {
-        this.beforeRender?.(now ?? performance.now());
-        this.stepFind(now ?? performance.now());
-
-        // Render using WASM's native dirty tracking
-        // The render() method:
-        // 1. Calls update() once to sync state and check dirty flags
-        // 2. Only redraws dirty rows when forceAll=false
-        // 3. Always calls clearDirty() at the end
-        this.renderer!.render(this.wasmTerm!, false, this.viewportY, this, this.scrollbarOpacity);
-
-        // Replies that arose outside write() reach the PTY within a frame (webtty, ADR 042)
-        if (this.wasmTerm!.hasResponse()) this.processTerminalResponses();
-
-        // Keep the input textarea on the cursor cell (webtty)
-        this.anchorTextarea();
-
-        this.animationFrameId = requestAnimationFrame(loop);
-      }
-    };
-    loop();
   }
 
   /**
@@ -1199,9 +973,7 @@ export class Terminal implements ITerminalCore {
       this.element.removeEventListener('mousemove', this.handleMouseMove);
       this.element.removeEventListener('mouseleave', this.handleMouseLeave);
       this.element.removeEventListener('click', this.handleClick);
-      this.element.removeEventListener('focusin', this.handleFocusIn);
-      this.element.removeEventListener('focusin', this.handleFocusGained);
-      this.element.removeEventListener('focusout', this.handleFocusLost);
+      this.focusTracker.dispose();
       this.element.removeEventListener('mousedown', this.handleMenuPress, { capture: true });
       this.element.removeEventListener('keydown', this.handleMenuKey, { capture: true });
       this.element.removeEventListener('contextmenu', this.handleContextMenu, {
@@ -1218,9 +990,7 @@ export class Terminal implements ITerminalCore {
     // Remove document-level listeners (only if opened)
     if (this.isOpen && typeof document !== 'undefined') {
       document.removeEventListener('mouseup', this.handleMouseUp);
-      window.removeEventListener('focus', this.handleWindowFocus);
-      window.removeEventListener('blur', this.handleWindowBlur);
-      document.removeEventListener('visibilitychange', this.handleVisibilityChange);
+      this.focusTracker.detachWindow();
     }
 
     // Clean up scrollbar timers
@@ -1530,7 +1300,7 @@ export class Terminal implements ITerminalCore {
       // match is selected (webtty, ADR 055)
       this.scrollToBottom();
     }
-    this.awaitingEcho = true;
+    this.writes.awaitEcho();
     this.dataEmitter.fire(data);
   };
 
@@ -1762,35 +1532,6 @@ export class Terminal implements ITerminalCore {
       }
     };
     animate();
-  }
-
-  /**
-   * Process any pending terminal responses and emit them via onData.
-   *
-   * This handles escape sequences that require the terminal to send a response
-   * back to the PTY, such as:
-   * - DSR 6 (cursor position): Shell sends \x1b[6n, terminal responds with \x1b[row;colR
-   * - DSR 5 (operating status): Shell sends \x1b[5n, terminal responds with \x1b[0n
-   *
-   * Without this, shells like nushell that rely on cursor position queries
-   * will hang waiting for a response that never comes.
-   *
-   * Note: We loop to read all pending responses, not just one. This is important
-   * when multiple queries are processed in a single write() call (e.g., when
-   * buffered data is written all at once during terminal initialization).
-   */
-  private processTerminalResponses(): void {
-    if (!this.wasmTerm) return;
-
-    // Read all pending responses from the WASM terminal
-    // Multiple responses can be queued if a single write() contained multiple queries
-    while (true) {
-      const response = this.wasmTerm.readResponse();
-      if (response === null) break;
-      // Send response back to the PTY via onData
-      // This is the same path as user keyboard input
-      this.dataEmitter.fire(response);
-    }
   }
 
   /** Fires onTitleChange when the title differs from the current one. */

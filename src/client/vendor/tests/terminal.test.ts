@@ -324,7 +324,7 @@ describe('Terminal find', () => {
       ghostty: typeof ghostty;
       renderer: typeof renderer;
       showScrollbar: () => void;
-      stepFind: (now: number) => void;
+      finder: { step(now: number): void };
     };
     internals.wasmTerm = ghostty.createTerminal(20, 4, { scrollbackLines: 1000 });
     internals.ghostty = ghostty;
@@ -336,7 +336,7 @@ describe('Terminal find', () => {
     const frames = (n = 1) => {
       for (let i = 0; i < n; i++) {
         now += 1000;
-        internals.stepFind(now);
+        internals.finder.step(now);
       }
     };
     const states: unknown[] = [];
@@ -348,47 +348,6 @@ describe('Terminal find', () => {
       } | null;
     return { term, internals, frames, states, last };
   }
-
-  test('finds in the render loop, reports the count, and highlights every match', async () => {
-    const { term, internals, frames, states, last } = await findTerm();
-    for (let i = 0; i < 20; i++) term.write(i % 5 === 0 ? `Error ${i}\r\n` : `ok ${i}\r\n`);
-    expect(term.finding).toBe(false);
-    term.find('error');
-    expect(term.finding).toBe(true);
-    frames(3);
-    expect(states[states.length - 1]).toEqual({ total: 4, selected: null });
-    expect(last()?.matches.length).toBe(16);
-    expect(last()?.selected).toBeNull();
-    internals.wasmTerm.free();
-  });
-
-  test('next scrolls to a match out of view, its first row at the top, and wraps', async () => {
-    const { term, internals, frames, states } = await findTerm();
-    term.write('needle\r\n');
-    for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
-    term.write('needle');
-    term.find('needle');
-    frames(2);
-    const sb = term.getScrollbackLength();
-    // The newest match is on screen: no scroll
-    expect(term.findNext()).toBe(true);
-    expect(term.viewportY).toBe(0);
-    expect(states[states.length - 1]).toEqual({ total: 2, selected: 0 });
-    // The oldest is the first scrollback row
-    term.findNext();
-    expect(term.viewportY).toBe(sb);
-    expect(states[states.length - 1]).toEqual({ total: 2, selected: 1 });
-    term.findPrevious();
-    expect(term.viewportY).toBe(0);
-    internals.wasmTerm.free();
-  });
-
-  test('with no search open, next and previous are not performed', async () => {
-    const { term, internals } = await findTerm();
-    expect(term.findNext()).toBe(false);
-    expect(term.findPrevious()).toBe(false);
-    internals.wasmTerm.free();
-  });
 
   test('output keeps a scrolled view on its rows while a match is selected', async () => {
     const { term, internals, frames } = await findTerm();
@@ -516,7 +475,7 @@ describe('Terminal bell and title', () => {
       },
     };
     const write = (data: string) =>
-      (term as unknown as { writeInternal(data: string): void }).writeInternal(data);
+      (term as unknown as { writes: { write(data: string): void } }).writes.write(data);
     let bells = 0;
     const titles: string[] = [];
     term.onBell(() => bells++);
@@ -533,137 +492,22 @@ describe('Terminal bell and title', () => {
 });
 
 describe('Terminal focus reports', () => {
-  // Mode 1004 reports are encoded by Ghostty and sent as Ghostty's Surface sends them:
-  // on a focus change while the mode is on, and the current state when it is set
-  // (ADR 053).
-  async function focusTerm(options: object = {}) {
+  // The focus tracker hears of each write and of a new connection (ADR 053); its own
+  // tests are in core/focus-tracker.test.ts.
+  test('reports when a write sets mode 1004, and on resyncFocus, the focus it has', async () => {
     const ghostty = await loadGhostty();
     const wasmTerm = ghostty.createTerminal(20, 2);
-    const term = new Terminal({ ghostty: {} as never, ...options });
-    const element = { contains: (node: unknown) => node === inside };
-    const inside = {};
-    const internals = term as unknown as {
-      isOpen: boolean;
-      wasmTerm: unknown;
-      element: unknown;
-      handleFocusGained(): void;
-      handleFocusLost(e: { relatedTarget: unknown }): void;
-      handleWindowBlur(): void;
-      handleVisibilityChange(): void;
-      writeInternal(data: string): void;
-    };
+    const term = new Terminal({ ghostty: {} as never });
+    const internals = term as unknown as { isOpen: boolean; wasmTerm: unknown };
     internals.wasmTerm = wasmTerm;
     internals.isOpen = true;
-    internals.element = element;
     const sent: string[] = [];
     term.onData((data) => sent.push(data));
-    return {
-      term,
-      wasmTerm,
-      sent,
-      write: (data: string) => internals.writeInternal(data),
-      focusIn: () => internals.handleFocusGained(),
-      focusOut: (relatedTarget: unknown = null) => internals.handleFocusLost({ relatedTarget }),
-      windowBlur: () => internals.handleWindowBlur(),
-      visibility: () => internals.handleVisibilityChange(),
-      inside,
-    };
-  }
-
-  test('sends nothing on focus changes while mode 1004 is off', async () => {
-    const { wasmTerm, sent, focusIn, focusOut } = await focusTerm();
-    focusIn();
-    focusOut();
-    expect(sent).toEqual([]);
-    wasmTerm.free();
-  });
-
-  test('sends the current focus when the app sets the mode, then each change', async () => {
-    const { wasmTerm, sent, write, focusIn, focusOut } = await focusTerm();
-    focusIn();
-    write('\x1b[?1004h');
-    expect(sent).toEqual(['\x1b[I']);
-    focusOut();
-    focusIn();
-    expect(sent).toEqual(['\x1b[I', '\x1b[O', '\x1b[I']);
-    // Setting it again while it is on, or other output, sends nothing.
-    write('\x1b[?1004hplain');
-    expect(sent).toHaveLength(3);
-    write('\x1b[?1004l');
-    focusOut();
-    expect(sent).toHaveLength(3);
-    // Set again while unfocused: the report says so.
-    write('\x1b[?1004h');
-    expect(sent).toEqual(['\x1b[I', '\x1b[O', '\x1b[I', '\x1b[O']);
-    wasmTerm.free();
-  });
-
-  test('a move inside the terminal, or a repeated event, is not a change', async () => {
-    const { wasmTerm, sent, write, focusIn, focusOut, inside } = await focusTerm();
-    focusIn();
-    write('\x1b[?1004h');
-    // The container passing focus on to the textarea: out with an inside target, in.
-    focusOut(inside);
-    focusIn();
-    focusIn();
-    expect(sent).toEqual(['\x1b[I']);
-    focusOut();
-    focusOut();
-    expect(sent).toEqual(['\x1b[I', '\x1b[O']);
-    wasmTerm.free();
-  });
-
-  test('a window blur, or a tab hidden and shown with no blur (Chrome), is a change', async () => {
-    const { wasmTerm, sent, write, focusIn, windowBlur, visibility, inside } = await focusTerm();
-    const doc = globalThis.document;
-    const page = { visibilityState: 'visible', hasFocus: () => true, activeElement: inside };
-    globalThis.document = page as unknown as Document;
-    try {
-      focusIn();
-      write('\x1b[?1004h');
-      windowBlur();
-      focusIn();
-      page.visibilityState = 'hidden';
-      visibility();
-      page.visibilityState = 'visible';
-      visibility();
-      expect(sent).toEqual(['\x1b[I', '\x1b[O', '\x1b[I', '\x1b[O', '\x1b[I']);
-      // Shown with focus elsewhere in the page, or in another window: still unfocused.
-      page.visibilityState = 'hidden';
-      visibility();
-      page.activeElement = {};
-      page.visibilityState = 'visible';
-      visibility();
-      expect(sent).toHaveLength(6);
-    } finally {
-      globalThis.document = doc;
-    }
-    wasmTerm.free();
-  });
-
-  test('resyncFocus sends the current focus while the mode is on, for a new connection', async () => {
-    const { term, wasmTerm, sent, write, focusIn, focusOut } = await focusTerm();
-    focusIn();
     term.resyncFocus();
     expect(sent).toEqual([]);
-    write('\x1b[?1004h');
-    // The socket goes down: this report is dropped on the way to the app.
-    focusOut();
-    sent.length = 0;
-    // The replay of a reconnect leaves the mode on, which sends nothing: the resync does.
-    write('\x1b[?1004h');
-    expect(sent).toEqual([]);
+    term.write('\x1b[?1004h');
     term.resyncFocus();
-    expect(sent).toEqual(['\x1b[O']);
-    wasmTerm.free();
-  });
-
-  test('sends nothing with stdin disabled', async () => {
-    const { wasmTerm, sent, write, focusIn, focusOut } = await focusTerm({ disableStdin: true });
-    write('\x1b[?1004h');
-    focusIn();
-    focusOut();
-    expect(sent).toEqual([]);
+    expect(sent).toEqual(['\x1b[O', '\x1b[O']);
     wasmTerm.free();
   });
 });
@@ -676,7 +520,7 @@ describe('Terminal clipboard writes', () => {
     const term = new Terminal({ ghostty: {} as never });
     (term as unknown as { wasmTerm: unknown }).wasmTerm = ghostty.createTerminal(20, 2);
     const write = (data: string) =>
-      (term as unknown as { writeInternal(data: string): void }).writeInternal(data);
+      (term as unknown as { writes: { write(data: string): void } }).writes.write(data);
     const copied: string[] = [];
     term.onClipboardWrite((text) => copied.push(text));
 
@@ -707,7 +551,7 @@ describe('Terminal desktop notifications', () => {
     const term = new Terminal({ ghostty: {} as never });
     (term as unknown as { wasmTerm: unknown }).wasmTerm = ghostty.createTerminal(20, 2);
     const write = (data: string) =>
-      (term as unknown as { writeInternal(data: string): void }).writeInternal(data);
+      (term as unknown as { writes: { write(data: string): void } }).writes.write(data);
     const shown: { title: string; body: string }[] = [];
     term.onDesktopNotification((n) => shown.push(n));
 
