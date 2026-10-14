@@ -1,10 +1,13 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import { GridRefs, gridRefSlots } from '../../ghostty-web/engine/grid-refs';
+import { SearchBinding, searchSlots } from '../../ghostty-web/engine/search-binding';
 import type { Ghostty, OfficialTerminal } from '../../ghostty-web/ghostty';
+import { bindingContext, freeContext, writeVt } from '../support/engine-harness';
 import { THEME } from '../support/terminal-text';
-import { loadGhostty } from '../support/wasm';
+import { countedGhostty, loadGhostty } from '../support/wasm';
 
 // The wasm search (ADR 055, ADR 061): matches found a step at a time, newest first, the
-// selected match, and the restart and pruning rules, tested through OfficialTerminal.
+// selected match, and the restart and pruning rules, through OfficialTerminal and directly.
 
 let vt: Ghostty;
 
@@ -118,5 +121,46 @@ describe('official engine: search (ADR 055)', () => {
     // Newest to oldest: rows never increase
     for (let i = 1; i < all.length; i++) expect(all[i][1]).toBeLessThanOrEqual(all[i - 1][1]);
     t.free();
+  });
+});
+
+describe('SearchBinding', () => {
+  test('without a needle every read is empty and nothing is made', async () => {
+    const { ghostty, calls } = await countedGhostty(['ghostty_search_new']);
+    const ctx = bindingContext(ghostty, 10, 3, {
+      ...gridRefSlots(ghostty.L),
+      ...searchSlots(ghostty.L),
+    });
+    const search = new SearchBinding(ctx, new GridRefs(ctx));
+    expect(search.searchStep(10)).toBe(false);
+    expect(search.searchSelect('next')).toBe(false);
+    expect(search.searchState()).toEqual({ total: 0, selected: null });
+    expect(search.searchSelectedMatch()).toBeNull();
+    expect(search.searchMatches()).toEqual(new Int32Array(0));
+    search.setSearch('');
+    expect(calls.ghostty_search_new).toBe(0);
+    freeContext(ctx);
+  });
+
+  test('free() frees the search and its match buffer once; a second call is a no-op', async () => {
+    const { ghostty, calls } = await countedGhostty(['ghostty_search_free', 'ghostty_wasm_free']);
+    const ctx = bindingContext(ghostty, 10, 3, {
+      ...gridRefSlots(ghostty.L),
+      ...searchSlots(ghostty.L),
+    });
+    const search = new SearchBinding(ctx, new GridRefs(ctx));
+    writeVt(ctx, 'ab ab ab');
+    search.setSearch('ab');
+    while (search.searchStep(50)) {}
+    expect(search.searchMatches().length).toBe(12);
+    const frees = calls.ghostty_wasm_free;
+    search.free();
+    expect(calls.ghostty_search_free).toBe(1);
+    // The match buffer
+    expect(calls.ghostty_wasm_free).toBe(frees + 1);
+    search.free();
+    expect([calls.ghostty_search_free, calls.ghostty_wasm_free]).toEqual([1, frees + 1]);
+    expect(search.searchState()).toEqual({ total: 0, selected: null });
+    freeContext(ctx);
   });
 });

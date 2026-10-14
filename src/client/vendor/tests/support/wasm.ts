@@ -44,6 +44,23 @@ export async function loadGhostty(): Promise<Ghostty> {
 /** Export call counts by name, filled in by a `countedGhostty` instance. */
 export type ExportCalls = Record<string, number>;
 
+/** Wraps one raw export: gets its name and the real function, returns the replacement. */
+export type ExportWrapper = (
+  name: string,
+  fn: (...args: number[]) => number,
+) => (...args: number[]) => number;
+
+/** A Ghostty on a fresh instance whose named exports are replaced by `wrap`. */
+export async function wrappedGhostty(
+  names: readonly string[],
+  wrap: ExportWrapper,
+): Promise<Ghostty> {
+  const real = (await instantiateWasm()).exports as Record<string, unknown>;
+  const spy: Record<string, unknown> = { ...real };
+  for (const name of names) spy[name] = wrap(name, real[name] as (...args: number[]) => number);
+  return new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]);
+}
+
 /**
  * A Ghostty on a fresh instance whose named exports count their calls, so a test can
  * assert how many times the engine crossed into the wasm for a given read.
@@ -51,19 +68,11 @@ export type ExportCalls = Record<string, number>;
 export async function countedGhostty(
   names: readonly string[],
 ): Promise<{ ghostty: Ghostty; calls: ExportCalls }> {
-  const real = (await instantiateWasm()).exports as Record<string, unknown>;
   const calls: ExportCalls = {};
-  const spy: Record<string, unknown> = { ...real };
-  for (const name of names) {
-    const fn = real[name] as (...args: number[]) => number;
-    calls[name] = 0;
-    spy[name] = (...args: number[]) => {
-      calls[name]++;
-      return fn(...args);
-    };
-  }
-  return {
-    ghostty: new Ghostty(spy as unknown as ConstructorParameters<typeof Ghostty>[0]),
-    calls,
-  };
+  for (const name of names) calls[name] = 0;
+  const ghostty = await wrappedGhostty(names, (name, fn) => (...args: number[]) => {
+    calls[name]++;
+    return fn(...args);
+  });
+  return { ghostty, calls };
 }

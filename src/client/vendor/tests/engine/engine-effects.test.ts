@@ -1,11 +1,13 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import { EngineEffects, effectsSlots } from '../../ghostty-web/engine/engine-effects';
 import type { Ghostty, OfficialTerminal } from '../../ghostty-web/ghostty';
+import { bindingContext, trackedHost, writeVt } from '../support/engine-harness';
 import { rowText, THEME } from '../support/terminal-text';
-import { loadGhostty } from '../support/wasm';
+import { loadGhostty, wrappedGhostty } from '../support/wasm';
 
 // What the engine reports back from the wasm callbacks (ADR 042, ADR 052, ADR 056, ADR 061):
 // the title, the bell, replies through WRITE_PTY, clipboard writes and desktop
-// notifications, tested through OfficialTerminal.
+// notifications, through OfficialTerminal and directly.
 
 let vt: Ghostty;
 
@@ -235,5 +237,58 @@ describe('official engine: desktop notifications (ADR 056)', () => {
     const off = { ...THEME, desktopNotifications: false };
     expect(notified('\x1b]9;Build done\x07', off)).toEqual([]);
     expect(notified('\x1b]777;notify;t;b\x07', off)).toEqual([]);
+  });
+});
+
+describe('EngineEffects', () => {
+  test('installs the five callbacks plus the two the config can turn off', () => {
+    for (const [on, count] of [
+      [false, 5],
+      [true, 7],
+    ] as const) {
+      const { host, installs } = trackedHost(vt);
+      const ctx = bindingContext(host, 10, 3, effectsSlots(host.L));
+      const effects = new EngineEffects(ctx, { clipboardWrite: on, desktopNotifications: on });
+      expect(installs.length).toBe(count);
+      ctx.ex.ghostty_terminal_free(ctx.term);
+      ctx.term = 0;
+      effects.free();
+      effects.free();
+      expect(installs.map((i) => i.releases)).toEqual(new Array(count).fill(1));
+      ctx.scratch.free();
+    }
+  });
+
+  test('the title is read after the write returns, and no callback re-enters the terminal', async () => {
+    let depth = 0;
+    const inside: string[] = [];
+    const names = ['ghostty_terminal_vt_write', 'ghostty_terminal_get'];
+    const ghostty = await wrappedGhostty(names, (name, fn) => (...args) => {
+      if (depth > 0) inside.push(name);
+      if (name !== 'ghostty_terminal_vt_write') return fn(...args);
+      depth++;
+      try {
+        return fn(...args);
+      } finally {
+        depth--;
+      }
+    });
+    const ctx = bindingContext(ghostty, 10, 3, effectsSlots(ghostty.L));
+    const effects = new EngineEffects(ctx, { clipboardWrite: true, desktopNotifications: true });
+    writeVt(ctx, '\x1b]2;hi\x07\x07\x1b[c\x1b[14t\x1b]52;c;YQ==\x07\x1b]9;n\x07');
+    expect(effects.readEffects()).toEqual({
+      bell: true,
+      title: null,
+      clipboard: 'a',
+      notifications: [{ title: '', body: 'n' }],
+    });
+    effects.afterWrite();
+    expect(effects.readEffects().title).toBe('hi');
+    expect(effects.readResponse()).toBe('\x1b[?62;22c\x1b[4;0;0t');
+    expect(inside).toEqual([]);
+    ctx.ex.ghostty_terminal_free(ctx.term);
+    ctx.term = 0;
+    effects.free();
+    ctx.scratch.free();
   });
 });

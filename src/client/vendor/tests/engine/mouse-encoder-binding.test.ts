@@ -1,4 +1,9 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import {
+  MOUSE_REPORT_MAX,
+  MouseEncoderBinding,
+  mouseEncoderSlots,
+} from '../../ghostty-web/engine/mouse-encoder-binding';
 import type {
   Ghostty,
   GhosttyTerminal,
@@ -6,11 +11,12 @@ import type {
   OfficialTerminal,
 } from '../../ghostty-web/ghostty';
 import { Mods } from '../../ghostty-web/types';
+import { bindingContext, freeContext, writeVt } from '../support/engine-harness';
 import { THEME } from '../support/terminal-text';
-import { loadGhostty } from '../support/wasm';
+import { countedGhostty, loadGhostty } from '../support/wasm';
 
 // The wasm mouse encoder (ADR 049, ADR 061): every tracking mode and report format, the
-// modifiers, the padding and the last-cell de-dup, tested through OfficialTerminal.
+// modifiers, the padding and the last-cell de-dup, through OfficialTerminal and directly.
 
 let vt: Ghostty;
 
@@ -182,5 +188,54 @@ describe('official engine: mouse encoder (ADR 049)', () => {
     t.write('\x1bc');
     expect(report(t, 'press', 'left', at(1, 1))).toBe('');
     t.free();
+  });
+});
+
+describe('MouseEncoderBinding', () => {
+  const press: MouseInput = {
+    action: 'press',
+    button: 'left',
+    mods: 0,
+    x: 15,
+    y: 5,
+    anyButtonPressed: false,
+  };
+
+  test('reports on a context of its own, within its report buffer', () => {
+    const ctx = bindingContext(vt, 10, 3, mouseEncoderSlots(vt.L));
+    const mouse = new MouseEncoderBinding(ctx);
+    expect(ctx.at.mouseOut % 8).toBe(0);
+    expect(MOUSE_REPORT_MAX).toBeGreaterThanOrEqual(32);
+    mouse.setMouseGeometry({
+      screenWidth: 100,
+      screenHeight: 30,
+      cellWidth: 10,
+      cellHeight: 10,
+      paddingTop: 0,
+      paddingRight: 0,
+      paddingBottom: 0,
+      paddingLeft: 0,
+    });
+    writeVt(ctx, '\x1b[?1000h\x1b[?1006h');
+    expect(new TextDecoder().decode(mouse.encodeMouse(press))).toBe('\x1b[<0;2;1M');
+    mouse.free();
+    freeContext(ctx);
+  });
+
+  test('free() frees the encoder and event once, only if made; a second call is a no-op', async () => {
+    const { ghostty, calls } = await countedGhostty([
+      'ghostty_mouse_encoder_free',
+      'ghostty_mouse_event_free',
+    ]);
+    const ctx = bindingContext(ghostty, 10, 3, mouseEncoderSlots(ghostty.L));
+    const unused = new MouseEncoderBinding(ctx);
+    unused.free();
+    expect([calls.ghostty_mouse_encoder_free, calls.ghostty_mouse_event_free]).toEqual([0, 0]);
+    const mouse = new MouseEncoderBinding(ctx);
+    mouse.encodeMouse(press);
+    mouse.free();
+    mouse.free();
+    expect([calls.ghostty_mouse_encoder_free, calls.ghostty_mouse_event_free]).toEqual([1, 1]);
+    freeContext(ctx);
   });
 });

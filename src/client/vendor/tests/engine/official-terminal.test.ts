@@ -1,11 +1,14 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import { EngineContext } from '../../ghostty-web/engine/engine-context';
+import { terminalSlotSpecs } from '../../ghostty-web/engine/official-terminal';
 import { Ghostty, type OfficialTerminal } from '../../ghostty-web/ghostty';
+import { freeContext } from '../support/engine-harness';
 import { markedSession, rgb, rowText, scrollbackText, THEME } from '../support/terminal-text';
-import { instantiateWasm, loadGhostty } from '../support/wasm';
+import { countedGhostty, instantiateWasm, loadGhostty } from '../support/wasm';
 
 // The official libghostty-vt terminal (ADR 042, ADR 061) on the vendored wasm: what the
 // facade itself does: the cursor and modes, resize, writes, prompt jumps and memory growth.
-// Its bindings are tested beside it in engine/, each through this facade.
+// Its bindings are tested beside it in engine/, through this facade and directly.
 
 let vt: Ghostty;
 
@@ -329,5 +332,43 @@ describe('official engine: prompt jumps (ADR 057)', () => {
     alt.write('\x1b[?1049h');
     expect(alt.promptJumpRow(0, -1)).toBe(0);
     alt.free();
+  });
+});
+
+describe('official engine: the facade over its bindings (ADR 061)', () => {
+  test('each binding declares its own scratch slots: no name twice, none of the context', () => {
+    const ctx = new EngineContext(vt, 1, 1, {});
+    const names = [...Object.keys(ctx.at)];
+    for (const spec of terminalSlotSpecs(vt.L)) names.push(...Object.keys(spec));
+    expect(new Set(names).size).toBe(names.length);
+    freeContext(ctx);
+  });
+
+  test('free() frees the terminal and every binding once; a second call is a no-op', async () => {
+    const names = [
+      'ghostty_terminal_free',
+      'ghostty_search_free',
+      'ghostty_mouse_encoder_free',
+      'ghostty_mouse_event_free',
+      'ghostty_render_state_free',
+    ];
+    const { ghostty, calls } = await countedGhostty(names);
+    const t = ghostty.createTerminal(10, 3, THEME) as OfficialTerminal;
+    t.write('a\r\n'.repeat(5));
+    t.getScrollbackLine(0);
+    t.setSearch('a');
+    t.encodeMouse({
+      action: 'press',
+      button: 'left',
+      mods: 0,
+      x: 1,
+      y: 1,
+      anyButtonPressed: false,
+    });
+    t.paste('x');
+    t.free();
+    t.free();
+    // The render state and the scrollback page's render state
+    expect(names.map((n) => calls[n])).toEqual([1, 1, 1, 1, 2]);
   });
 });

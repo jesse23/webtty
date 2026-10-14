@@ -1,10 +1,21 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import {
+  configSlots,
+  DEFAULT_SCROLLBACK_LINES,
+  EngineConfig,
+  FALLBACK_BACKGROUND,
+  FALLBACK_FOREGROUND,
+  SCROLLBACK_CEILING_BYTES,
+  writeRgb,
+} from '../../ghostty-web/engine/engine-config';
 import type { Ghostty, GhosttyTerminal, OfficialTerminal } from '../../ghostty-web/ghostty';
+import { bindingContext, freeContext } from '../support/engine-harness';
 import { bgRgb, FG, RED, rgb, THEME } from '../support/terminal-text';
 import { loadGhostty } from '../support/wasm';
 
 // The terminal config the engine applies (ADR 042, ADR 046, ADR 061): theme colours and
-// their fallbacks, and the scrollback limit in lines, tested through OfficialTerminal.
+// their fallbacks, the scrollback limit in lines, and the cursor blink kept in mode 12,
+// through OfficialTerminal and directly.
 
 let vt: Ghostty;
 
@@ -138,5 +149,59 @@ describe('official engine: scrollback in lines (ADR 046)', () => {
       expect(kept).toBeGreaterThan(9000);
       expect(kept).toBeLessThanOrEqual(10000 + 200);
     }
+  });
+});
+
+describe('EngineConfig', () => {
+  test('the limits and fallbacks are the documented values', () => {
+    expect(SCROLLBACK_CEILING_BYTES).toBe(32 * 1024 * 1024);
+    expect(DEFAULT_SCROLLBACK_LINES).toBe(10000);
+    expect([FALLBACK_FOREGROUND, FALLBACK_BACKGROUND]).toEqual([0xcccccc, 0]);
+  });
+
+  test.each([
+    [0x000000, [0, 0, 0]],
+    [0xffffff, [255, 255, 255]],
+    [0x123456, [0x12, 0x34, 0x56]],
+  ])('writeRgb(%i) writes r, g and b at their offsets', (value, bytes) => {
+    const ctx = bindingContext(vt, 4, 2, configSlots(vt.L));
+    const C = ctx.L.colors;
+    writeRgb(ctx, ctx.at.palette, value);
+    const u8 = ctx.u8();
+    const at = ctx.at.palette;
+    expect([u8[at + C.r], u8[at + C.g], u8[at + C.b]]).toEqual(bytes);
+    freeContext(ctx);
+  });
+
+  test('mode 12 follows the default cursor and DECSCUSR, never mode 12 itself', () => {
+    const ctx = bindingContext(vt, 10, 3, configSlots(vt.L));
+    const config = new EngineConfig(ctx);
+    config.apply({ cursorBlink: true });
+    expect(ctx.getMode(12)).toBe(true);
+    // Grapheme clustering is on by default
+    expect(ctx.getMode(2027)).toBe(true);
+    const write = (text: string) => {
+      const bytes = new TextEncoder().encode(text);
+      const ptr = ctx.ex.ghostty_wasm_alloc(bytes.length);
+      ctx.u8().set(bytes, ptr);
+      ctx.ex.ghostty_terminal_vt_write(ctx.term, ptr, bytes.length);
+      ctx.ex.ghostty_wasm_free(ptr, bytes.length);
+      config.afterWrite(text);
+    };
+    write('\x1b[?12l');
+    expect(ctx.getMode(12)).toBe(true);
+    write('\x1b[2 q');
+    expect(ctx.getMode(12)).toBe(false);
+    // A sequence split across writes is still seen
+    write('\x1b[1');
+    write(' q');
+    expect(ctx.getMode(12)).toBe(true);
+    write('\x1b[2 q\x1b[0 q');
+    expect(ctx.getMode(12)).toBe(true);
+    const gen = ctx.generation;
+    config.setDefaultCursor('bar', false);
+    expect(ctx.getMode(12)).toBe(false);
+    expect(ctx.generation).toBe(gen + 1);
+    freeContext(ctx);
   });
 });

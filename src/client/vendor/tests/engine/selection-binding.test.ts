@@ -1,10 +1,18 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import { GridRefs, gridRefSlots } from '../../ghostty-web/engine/grid-refs';
+import {
+  clearSelectionStruct,
+  SelectionBinding,
+  selectionRange,
+  selectionSlots,
+} from '../../ghostty-web/engine/selection-binding';
 import type { Ghostty, OfficialTerminal } from '../../ghostty-web/ghostty';
+import { bindingContext, freeContext, writeVt } from '../support/engine-harness';
 import { markedSession, THEME } from '../support/terminal-text';
 import { loadGhostty } from '../support/wasm';
 
 // Ghostty's selection rules (ADR 050, ADR 057, ADR 061): words, lines and command output
-// picked from a cell, and the selected text, tested through OfficialTerminal.
+// picked from a cell, and the selected text, through OfficialTerminal and directly.
 
 let vt: Ghostty;
 
@@ -103,5 +111,51 @@ describe('official engine: command output (ADR 057)', () => {
     plain.write('a\r\nb');
     expect(plain.selectOutput({ col: 0, row: 0 })).toBeNull();
     plain.free();
+  });
+});
+
+describe('SelectionBinding', () => {
+  function binding(cols = 10, rows = 3) {
+    const ctx = bindingContext(vt, cols, rows, { ...gridRefSlots(vt.L), ...selectionSlots(vt.L) });
+    const refs = new GridRefs(ctx);
+    return { ctx, refs, selection: new SelectionBinding(ctx, refs) };
+  }
+
+  test('selects and copies on a context of its own', () => {
+    const { ctx, selection } = binding();
+    writeVt(ctx, 'one two\r\nthree');
+    expect(selection.selectWord({ col: 5, row: 0 })).toEqual({
+      start: { col: 4, row: 0 },
+      end: { col: 6, row: 0 },
+    });
+    expect(selection.selectLine({ col: 1, row: 1 })).toEqual({
+      start: { col: 0, row: 1 },
+      end: { col: 4, row: 1 },
+    });
+    expect(selection.selectionText({ col: 0, row: 0 }, { col: 4, row: 1 })).toBe('one two\nthree');
+    // A cell off the grid selects nothing, and output needs OSC 133 marks
+    expect(selection.selectWord({ col: -1, row: 0 })).toBeNull();
+    expect(selection.selectOutput({ col: 10, row: 0 })).toBeNull();
+    expect(selection.selectionText({ col: -5, row: -5 }, { col: 99, row: 99 })).toBe(
+      'one two\nthree',
+    );
+    freeContext(ctx);
+  });
+
+  test('clearSelectionStruct zeroes a selection and sets its size; selectionRange reads it', () => {
+    const { ctx, refs } = binding();
+    const S = ctx.L.selection;
+    ctx.u8().fill(0xff, ctx.at.sel, ctx.at.sel + S.size);
+    clearSelectionStruct(ctx, ctx.at.sel);
+    expect(ctx.dv().getUint32(ctx.at.sel + S.sizeField, true)).toBe(S.size);
+    // Zeroed grid refs resolve to no cell
+    expect(selectionRange(refs, ctx.L, ctx.at.sel)).toBeNull();
+    expect(refs.screenRef({ col: 1, row: 0 }, ctx.at.sel + S.start)).toBe(true);
+    expect(refs.screenRef({ col: 3, row: 1 }, ctx.at.sel + S.end)).toBe(true);
+    expect(selectionRange(refs, ctx.L, ctx.at.sel)).toEqual({
+      start: { col: 1, row: 0 },
+      end: { col: 3, row: 1 },
+    });
+    freeContext(ctx);
   });
 });

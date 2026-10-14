@@ -1,10 +1,17 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
+import { EngineEffects, effectsSlots } from '../../ghostty-web/engine/engine-effects';
+import {
+  FOCUS_REPORT_MAX,
+  PasteFocusBinding,
+  pasteFocusSlots,
+} from '../../ghostty-web/engine/paste-focus-binding';
 import type { Ghostty, GhosttyTerminal, OfficialTerminal } from '../../ghostty-web/ghostty';
+import { bindingContext, freeContext, trackedHost } from '../support/engine-harness';
 import { THEME } from '../support/terminal-text';
 import { loadGhostty } from '../support/wasm';
 
 // The wasm paste and focus encoders (ADR 049, ADR 053, ADR 061): bracketed and plain
-// pastes made safe, and focus reports, tested through OfficialTerminal.
+// pastes made safe, and focus reports, through OfficialTerminal and directly.
 
 let vt: Ghostty;
 
@@ -75,5 +82,37 @@ describe('official engine: focus reports (ADR 053)', () => {
     expect(t.getMode(1004)).toBe(true);
     expect(t.readResponse()).toBeNull();
     t.free();
+  });
+});
+
+describe('PasteFocusBinding', () => {
+  test('installs its reader on the first paste only, and free() releases it once', () => {
+    const { host, installs } = trackedHost(vt);
+    const ctx = bindingContext(host, 10, 3, { ...pasteFocusSlots(), ...effectsSlots(host.L) });
+    // The replies come back through WRITE_PTY, which the effects install
+    const effects = new EngineEffects(ctx, { clipboardWrite: false, desktopNotifications: false });
+    const before = installs.length;
+    const binding = new PasteFocusBinding(ctx);
+    expect(binding.encodeFocus(true)).toEqual(new TextEncoder().encode('\x1b[I'));
+    expect(installs.length).toBe(before);
+    binding.paste('a');
+    binding.paste('b');
+    expect(effects.readResponse()).toBe('ab');
+    expect(installs.length).toBe(before + 1);
+    ctx.ex.ghostty_terminal_free(ctx.term);
+    ctx.term = 0;
+    binding.free();
+    binding.free();
+    expect(installs[before].releases).toBe(1);
+    effects.free();
+    ctx.scratch.free();
+  });
+
+  test('a focus report fits its buffer', () => {
+    const ctx = bindingContext(vt, 10, 3, pasteFocusSlots());
+    const binding = new PasteFocusBinding(ctx);
+    expect(binding.encodeFocus(false).length).toBeLessThanOrEqual(FOCUS_REPORT_MAX);
+    binding.free();
+    freeContext(ctx);
   });
 });
