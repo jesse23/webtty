@@ -1,7 +1,7 @@
 // SessionStore: the server's one registry of sessions, keyed by ID, plus the last-used
 // ID that `GET /` redirects to (ADR 062). An object created once in index.ts and passed
 // to the routes and the WebSocket server instead of a module-global Map.
-import { newSession, type Session } from './session';
+import { Session } from './session';
 
 /** What the store needs from its owner: who to tell once the last session has gone. */
 export interface SessionStoreOptions {
@@ -38,7 +38,7 @@ export class SessionStore {
    * @returns The new session.
    */
   create(id: string, baseDir?: string): Session {
-    const session = newSession(id, baseDir);
+    const session = new Session(id, baseDir);
     this.sessions.set(id, session);
     return session;
   }
@@ -104,6 +104,11 @@ export class SessionStore {
    */
   removeExited(id: string): void {
     this.sessions.delete(id);
+  }
+
+  /** Kills every shell and closes every socket with `code`, as the server stops. */
+  closeAll(code: number, reason: string): void {
+    for (const session of this.list()) session.close(code, reason);
   }
 
   /** Calls `onEmpty` if no session is left; the PTY exit path calls this after its flush. */

@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test';
+import { FakeSocket } from '../../test-support/fake-socket';
 import { SessionStore } from './session-store';
 
 describe('SessionStore.create and get', () => {
@@ -151,5 +152,19 @@ describe('SessionStore.findByPid', () => {
     const store = new SessionStore();
     store.create('idle');
     expect(store.findByPid(4242)).toBeUndefined();
+  });
+});
+
+describe('SessionStore.closeAll', () => {
+  test('closes every session with the code and keeps them registered', () => {
+    const store = new SessionStore();
+    const a = new FakeSocket([], 'a');
+    const b = new FakeSocket([], 'b');
+    store.create('a').clients.add(a);
+    store.create('b').subscribers.add(b);
+    store.closeAll(1001, 'server stopped');
+    expect(a.closed).toEqual({ code: 1001, reason: 'server stopped' });
+    expect(b.closed).toEqual({ code: 1001, reason: 'server stopped' });
+    expect(store.size).toBe(2);
   });
 });

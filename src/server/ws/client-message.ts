@@ -1,5 +1,5 @@
 // What a PTY client sends the server: the size in its ws URL and the messages on the
-// socket (ADR 048, ADR 062). Pure parsing only; websocket.ts applies the result.
+// socket (ADR 048, ADR 062). Pure parsing only; pty-socket.ts applies the result.
 
 /** Default terminal size when the client sends none, or a non-number. */
 const DEFAULT_COLS = 80;

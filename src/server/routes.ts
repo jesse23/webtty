@@ -9,7 +9,7 @@ import { GHOSTTY_WASM, serveFile } from './http/static-files';
 import { sessionToJson } from './sessions/session';
 import { generateId, isValidId } from './sessions/session-id';
 import type { SessionStore } from './sessions/session-store';
-import { broadcastToSubscribers, closeSession } from './websocket';
+import { WS_CLOSE } from './ws/close-codes';
 
 const MAX_BODY = 64 * 1024;
 
@@ -232,7 +232,7 @@ export async function handleRequest(
         res.end('Not Found');
         return;
       }
-      closeSession(session);
+      session.close(WS_CLOSE.SESSION_GONE, 'session deleted');
       res.writeHead(204, { 'X-Sessions-Remaining': String(store.size) });
       res.end();
       return;
@@ -298,7 +298,7 @@ export async function handleRequest(
         if (!trimmed) continue;
         try {
           JSON.parse(trimmed);
-          broadcastToSubscribers(session, trimmed);
+          session.broadcastEvent(trimmed);
         } catch {
           // skip invalid JSON lines
         }
@@ -309,7 +309,7 @@ export async function handleRequest(
       if (trimmed) {
         try {
           JSON.parse(trimmed);
-          broadcastToSubscribers(session, trimmed);
+          session.broadcastEvent(trimmed);
         } catch {
           // skip invalid JSON
         }

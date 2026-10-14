@@ -6,7 +6,8 @@ import { loadConfig } from '../config';
 import { findGhosttyWasm } from './http/static-files';
 import { handleRequest } from './routes';
 import { SessionStore } from './sessions/session-store';
-import { closeAllSessions, createWebSocketServer } from './websocket';
+import { WS_CLOSE } from './ws/close-codes';
+import { createWebSocketServer } from './ws/ws-upgrade';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -33,7 +34,7 @@ const clientDistPath = fs.existsSync(path.join(builtDistPath, 'client.html'))
 const store = new SessionStore({ onEmpty: shutdown });
 
 function shutdown() {
-  closeAllSessions(store);
+  store.closeAll(WS_CLOSE.SERVER_STOPPED, 'server stopped');
   wss.close();
   const exit = () => process.exit(0);
   const shutdownTimeout = setTimeout(exit, 1000);
