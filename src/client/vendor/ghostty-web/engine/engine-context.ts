@@ -1,7 +1,8 @@
 // webtty (ADR 042, ADR 061), not from upstream.
 // The state one terminal's bindings share (object): the wasm exports and layout, the
-// terminal handle, the scratch slots, the grid size, the content generation, and the
-// terminal info read once per generation. Memory views are built per call, never stored.
+// terminal handle, the scratch slots, the grid and cell pixel size, the content generation,
+// the terminal info read once per generation, and the mode reads. Memory views are built
+// per call, never stored.
 
 import type { EngineHost } from './engine-types';
 import type { OfficialLayout } from './official-layout';
@@ -13,7 +14,8 @@ export type SlotSpec<K extends string> = Record<K, readonly [number, number]>;
 
 /**
  * The slots the context itself uses: the terminal info multi-get, the viewport scroll
- * struct, and the one-word out-parameters every binding shares.
+ * struct, and the out-parameters and small structs every binding shares (one word, a
+ * GhosttyMode and a GhosttyString).
  */
 function contextSlots(L: OfficialLayout) {
   return {
@@ -26,6 +28,8 @@ function contextSlots(L: OfficialLayout) {
     scroll: [L.scroll.size, 8],
     u32: [8, 8],
     u8: [8, 8],
+    mode: [L.mode.size, 8],
+    str: [L.string.size, 8],
   } as const;
 }
 
@@ -48,6 +52,9 @@ export class EngineContext<K extends string = never> {
   term: number;
   cols: number;
   rows: number;
+  /** The cell size in pixels the SIZE reports give; 0 until the renderer sets it. */
+  cellWidthPx = 0;
+  cellHeightPx = 0;
   /**
    * Bumped by every content change (scrolling is not one): gates the render-state
    * refresh and the info read, and keys the scrollback page cache.
@@ -116,6 +123,18 @@ export class EngineContext<K extends string = never> {
   setOption(option: number, value: number, what: string): void {
     const rc = this.ex.ghostty_terminal_set(this.term, option, value);
     if (rc !== 0) throw new Error(`libghostty-vt terminal_set ${what} failed: ${rc}`);
+  }
+
+  /** Whether a DEC private (or, with `isAnsi`, an ANSI) mode is set. */
+  getMode(mode: number, isAnsi = false): boolean {
+    const at = this.at;
+    const M = this.L.mode;
+    const dv = this.dv();
+    // GhosttyMode (modes.h ghostty_mode_new): number in bits 0-14, bit 15 = ANSI.
+    dv.setUint16(at.mode + M.mode, (mode & 0x7fff) | (isAnsi ? 0x8000 : 0), true);
+    dv.setUint8(at.mode + M.value, 0);
+    const rc = this.ex.ghostty_terminal_get(this.term, this.L.tdata.MODE, at.mode);
+    return rc === 0 && this.u8()[at.mode + M.value] !== 0;
   }
 
   /**

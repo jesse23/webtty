@@ -5,7 +5,6 @@
 
 import type { Allowlist } from './ratchet';
 
-const ENGINE_SPLIT = 'vendor engine split, ghostty.ts into engine/ (ADR 061)';
 const VENDOR_TESTS = 'vendor tests split with their facades into vendor/tests/ (ADR 061, ADR 064)';
 const SERVER_HARNESS =
   'server track: src/utils.test.ts becomes src/test-support/server-harness.ts (ADR 064)';
@@ -17,11 +16,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
   sizes: {
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
-    // OfficialTerminal, moved out of ghostty.ts (2160 lines) and split into engine/ bindings.
-    'src/client/vendor/ghostty-web/engine/official-terminal.ts': {
-      lines: 1258,
-      step: ENGINE_SPLIT,
-    },
     'src/client/vendor/ghostty-web/input-handler.ts': {
       lines: 856,
       step: 'vendor input split into input/ (ADR 061)',
