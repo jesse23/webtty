@@ -3,7 +3,7 @@ import { Composer } from './compose';
 import { EdgeExtender } from './edge';
 import { computeInsets } from './fit';
 import { KittyGraphics } from './graphics';
-import { encodePaste } from './paste';
+import { nonTextPaste } from './paste';
 import { SmoothScroll } from './smooth-scroll';
 import { toTerminalTheme } from './theme';
 import { FitAddon, Ghostty, Terminal } from './vendor/ghostty-web';
@@ -373,13 +373,15 @@ function sendCtrlV(): void {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send('\x16');
 }
 
-// Bracket multiline text only when the terminal reports mode 2004. Otherwise
-// send it raw: newlines may act as Enter, but Ctrl+V is not a text fallback
-// (remote TUIs can interpret it as an image-paste shortcut). See ADR 037.
+// Text goes through the terminal, which encodes it as Ghostty does: bracketed
+// while mode 2004 is on, control bytes stripped, and without 2004 newlines sent
+// as CR (they may act as Enter). Ctrl+V is not a text fallback (remote TUIs can
+// interpret it as an image-paste shortcut). See ADR 037 and ADR 049.
 function sendPaste(text: string): void {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(encodePaste(text, term.getMode(2004)));
-  }
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const ctrlV = nonTextPaste(text);
+  if (ctrlV) ws.send(ctrlV);
+  else term.paste(text);
 }
 
 // Ctrl+V never reaches us as a 'paste' event on macOS (see above), so read

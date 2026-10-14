@@ -642,6 +642,19 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
+   * Pastes text as Ghostty does (`ghostty_terminal_paste`): bracketed while the app has
+   * mode 2004 on, unsafe control bytes replaced with spaces, and newlines sent as CR
+   * without 2004. The bytes go out through onData. (webtty: upstream bracketed the text
+   * as it was, and only with 2004 on; ADR 049)
+   */
+  paste(text: string): void {
+    this.assertOpen();
+    if (this.options.disableStdin) return;
+    this.wasmTerm!.paste(text);
+    this.processTerminalResponses();
+  }
+
+  /**
    * Write data to terminal
    */
   write(data: string | Uint8Array, callback?: () => void): void {

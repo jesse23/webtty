@@ -897,3 +897,51 @@ describe('official engine: mouse encoder (ADR 049)', () => {
     t.free();
   });
 });
+
+describe('official engine: paste (ADR 049)', () => {
+  const paste = (t: GhosttyTerminal, text: string) => {
+    t.paste(text);
+    return t.readResponse();
+  };
+
+  test('brackets every paste while mode 2004 is on, single lines too', () => {
+    const t = term();
+    t.write('\x1b[?2004h');
+    expect(paste(t, 'hello')).toBe('\x1b[200~hello\x1b[201~');
+    expect(paste(t, 'one\ntwo\r\n')).toBe('\x1b[200~one\ntwo\r\n\x1b[201~');
+    t.free();
+  });
+
+  test('without 2004, sends the text with newlines as CR', () => {
+    const t = term();
+    expect(paste(t, 'hello')).toBe('hello');
+    expect(paste(t, 'one\ntwo')).toBe('one\rtwo');
+    expect(paste(t, 'one\r\ntwo\n')).toBe('one\r\rtwo\r');
+    t.free();
+  });
+
+  test('replaces unsafe control bytes with spaces in both modes, keeping tabs', () => {
+    const t = term();
+    const unsafe = 'a\x00b\x08c\x1bd\x7fe\x03f\x15g\x1ah\x16i\x17j\tk';
+    expect(paste(t, unsafe)).toBe('a b c d e f g h i j\tk');
+    t.write('\x1b[?2004h');
+    // An end marker inside the text cannot end the paste early
+    expect(paste(t, 'x\x1b[201~rm -rf ~\n')).toBe('\x1b[200~x [201~rm -rf ~\n\x1b[201~');
+    t.free();
+  });
+
+  test('passes UTF-8 through, and an empty paste writes nothing', () => {
+    const t = term();
+    expect(paste(t, 'héllo 中 🙂')).toBe('héllo 中 🙂');
+    expect(paste(t, '')).toBeNull();
+    t.free();
+  });
+
+  test('a large paste arrives whole and in order', () => {
+    const t = term();
+    t.write('\x1b[?2004h');
+    const text = Array.from({ length: 5000 }, (_, i) => `line ${i}`).join('\n');
+    expect(paste(t, text)).toBe(`\x1b[200~${text}\x1b[201~`);
+    t.free();
+  });
+});

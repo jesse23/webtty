@@ -248,6 +248,38 @@ describe('Terminal cursor style', () => {
   });
 });
 
+describe('Terminal paste', () => {
+  // Pastes are encoded by ghostty_terminal_paste and leave through onData (ADR 049).
+  async function pasteTerm(options: object = {}) {
+    const ghostty = await Ghostty.load(WASM);
+    const wasmTerm = ghostty.createTerminal(40, 10);
+    const term = new Terminal({ ghostty: {} as never, ...options });
+    const internals = term as unknown as { isOpen: boolean; wasmTerm: unknown };
+    internals.wasmTerm = wasmTerm;
+    internals.isOpen = true;
+    const sent: string[] = [];
+    term.onData((data) => sent.push(data));
+    return { term, wasmTerm, sent };
+  }
+
+  test('sends the text as Ghostty encodes it for the mode', async () => {
+    const { term, wasmTerm, sent } = await pasteTerm();
+    term.paste('one\ntwo\x1b');
+    wasmTerm.write('\x1b[?2004h');
+    term.paste('three');
+    expect(sent).toEqual(['one\rtwo ', '\x1b[200~three\x1b[201~']);
+    wasmTerm.free();
+  });
+
+  test('sends nothing with stdin disabled', async () => {
+    const { term, wasmTerm, sent } = await pasteTerm({ disableStdin: true });
+    term.paste('hello');
+    expect(sent).toEqual([]);
+    expect(wasmTerm.hasResponse()).toBe(false);
+    wasmTerm.free();
+  });
+});
+
 describe('Terminal bell and title', () => {
   // Bell and title come from the engine's readEffects, not from scanning the output
   // (ADR 047).
