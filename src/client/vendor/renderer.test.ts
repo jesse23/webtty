@@ -636,14 +636,6 @@ describe('overscan and copied scrolls (ADR 043)', () => {
       clearDirtySelectionRows: () => {},
     } as unknown as Parameters<CanvasRenderer['setSelectionManager']>[0];
     let range: { startX: number; startY: number; endX: number; endY: number } | null = null;
-    // The OSC 8 link ids, and none
-    const ids = new Set([0]);
-    for (let o = 0; o < term.getScrollbackLength(); o++) {
-      for (const cell of term.getScrollbackLine(o) ?? []) ids.add(cell.hyperlink_id);
-    }
-    const links = [...ids];
-    expect(links.length).toBeGreaterThan(1);
-    let hovered = 0;
     for (const overscan of [1, 3]) {
       const options = { overscan };
       const live = renderer(2, options);
@@ -673,23 +665,19 @@ describe('overscan and copied scrolls (ADR 043)', () => {
                   endCol: Math.floor(random() * cols),
                   endLine: line + Math.floor(random() * 6),
                 };
-        } else if (op < 0.9) {
+        } else {
           const y = Math.floor(random() * rows);
           range = random() < 0.3 ? null : { startX: 2, startY: y, endX: 6, endY: y };
-        } else {
-          hovered = links[Math.floor(random() * links.length)];
         }
         position = Math.max(0, Math.min(term.getScrollbackLength(), position));
         const { line, offset } = split(position, h, 2);
         view = line;
         live.r.setHoveredLinkRange(range);
-        live.r.setHoveredHyperlinkId(hovered);
         live.r.setScrollOffset(offset);
         live.r.render(term, false, view, provider, opacity);
         const full = renderer(2, options);
         full.r.setSelectionManager(manager);
         full.r.setHoveredLinkRange(range);
-        full.r.setHoveredHyperlinkId(hovered);
         full.r.setScrollOffset(offset);
         full.r.render(term, true, view, provider, opacity);
         expect(live.shown()).toEqual(full.shown());
@@ -741,25 +729,28 @@ describe('overscan and copied scrolls (ADR 043)', () => {
     term.free();
   });
 
-  test(`a hovered link is repainted out of view too`, async () => {
-    const { term, provider } = await terminal();
-    const live = renderer(2, { overscan: 4 });
-    live.r.render(term, true, 0, provider, 0);
-    // Each line in turn is the last row, then just below the viewport while the hover
-    // changes, then the last row again.
-    let hovered = 0;
-    for (let y = 0; y < 24; y++) {
-      live.r.render(term, false, y, provider, 0);
-      live.r.render(term, false, y + 1, provider, 0);
-      hovered = 1 - hovered;
-      live.r.setHoveredHyperlinkId(hovered);
-      live.r.render(term, false, y + 1, provider, 0);
-      live.r.render(term, false, y, provider, 0);
-      const full = renderer(2, { overscan: 4 });
-      full.r.setHoveredHyperlinkId(hovered);
-      full.r.render(term, true, y, provider, 0);
-      expect(live.shown()).toEqual(full.shown());
-    }
+  test(`a hovered OSC 8 link underlines and repaints only its own range`, async () => {
+    const ghostty = await Ghostty.load(WASM);
+    const term = ghostty.createTerminal(cols, rows);
+    // Two links, on rows 1 and 4: the engine gives every link cell the same hyperlink_id
+    term.write('a\r\n\x1b]8;;https://a/\x1b\\first\x1b]8;;\x1b\\\r\nb\r\nc\r\n');
+    term.write('\x1b]8;;https://b/\x1b\\second\x1b]8;;\x1b\\');
+    expect(term.getLine(1)?.[0].hyperlink_id).toBe(term.getLine(4)?.[0].hyperlink_id);
+    const live = renderer(1, { overscan: 2 });
+    live.r.render(term, true, 0, undefined, 0);
+    live.drawn.length = 0;
+    live.r.setHoveredLinkRange({ startX: 0, startY: 4, endX: 5, endY: 4 });
+    live.r.render(term, false, 0, undefined, 0);
+    // The hovered row, the row above it, which may hold its overflow, and the row below,
+    // which overflows into it (overscan rows first)
+    expect([...new Set(live.drawn)].sort()).toEqual([3, 4, 5].map((y) => y + 2));
+    const width = cols * 8;
+    const underlined = (y: number) =>
+      live
+        .shown()
+        .slice(y * 15 * width, (y + 1) * 15 * width)
+        .some((p) => p.startsWith('line #4A90E2'));
+    expect([0, 1, 2, 3, 4, 5].map(underlined)).toEqual([false, false, false, false, true, false]);
     term.free();
   });
 

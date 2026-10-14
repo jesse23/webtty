@@ -299,11 +299,9 @@ export class CanvasRenderer {
   // The selection the canvas rows were drawn with, in canvas rows (webtty, ADR 043)
   private drawnSelection: CellRange | null = null;
 
-  // Link rendering state
-  private hoveredHyperlinkId: number = 0;
-  private previousHoveredHyperlinkId: number = 0;
-
-  // Regex link hover tracking (for links without hyperlink_id), in viewport rows
+  // The hovered link's range (OSC 8 or regex), in viewport rows. The engine's
+  // hyperlink_id is a 1-bit "has a link" flag, not an id, so the range is the only
+  // thing that tells one link from another. (webtty)
   private hoveredLinkRange: { startX: number; startY: number; endX: number; endY: number } | null =
     null;
   // The regex link range this frame draws and the one the canvas rows were drawn with,
@@ -635,27 +633,10 @@ export class CanvasRenderer {
     this.drawnSelection = this.currentSelectionCoords;
     this.selectionManager?.clearDirtySelectionRows();
 
-    // Rows with the old or new hovered hyperlink. Rows not drawn yet are drawn with it.
     const rowAt = (k: number) =>
       this.rowAt(k - this.overscan, band, rows, getLine, buffer, scrollbackProvider, scrollbackLength);
-    if (this.hoveredHyperlinkId !== this.previousHoveredHyperlinkId) {
-      for (let k = 0; k < total; k++) {
-        if (state[k] === ROW_INVALID) continue;
-        const line = rowAt(k).line;
-        if (
-          line?.some(
-            (cell) =>
-              cell.hyperlink_id === this.hoveredHyperlinkId ||
-              cell.hyperlink_id === this.previousHoveredHyperlinkId
-          )
-        ) {
-          changed(k);
-        }
-      }
-      this.previousHoveredHyperlinkId = this.hoveredHyperlinkId;
-    }
 
-    // A regex link underline is drawn at viewport rows, which are other canvas rows after a
+    // A link underline is drawn at viewport rows, which are other canvas rows after a
     // scroll: clear it where it was drawn and draw it where it is.
     this.currentLinkRange = moveRange(this.hoveredLinkRange, top);
     if (JSON.stringify(this.currentLinkRange) !== JSON.stringify(this.drawnLinkRange)) {
@@ -1123,23 +1104,8 @@ export class CanvasRenderer {
       this.ctx.stroke();
     }
 
-    // Draw hyperlink underline (for OSC8 hyperlinks)
-    if (cell.hyperlink_id > 0) {
-      const isHovered = cell.hyperlink_id === this.hoveredHyperlinkId;
-
-      // Only show underline when hovered (cleaner look)
-      if (isHovered) {
-        const underlineY = cellY + this.metrics.baseline + 2;
-        this.ctx.strokeStyle = '#4A90E2'; // Blue underline on hover
-        this.ctx.lineWidth = 1;
-        this.ctx.beginPath();
-        this.ctx.moveTo(cellX, underlineY);
-        this.ctx.lineTo(cellX + cellWidth, underlineY);
-        this.ctx.stroke();
-      }
-    }
-
-    // Draw regex link underline (for plain text URLs), in canvas rows (webtty, ADR 043)
+    // Draw the hovered link's underline (OSC 8 or plain text URL), in canvas rows
+    // (webtty, ADR 043)
     if (this.currentLinkRange) {
       const range = this.currentLinkRange;
       // Check if this cell is within the hovered link range
@@ -1446,14 +1412,7 @@ export class CanvasRenderer {
   }
 
   /**
-   * Set the currently hovered hyperlink ID for rendering underlines
-   */
-  public setHoveredHyperlinkId(hyperlinkId: number): void {
-    this.hoveredHyperlinkId = hyperlinkId;
-  }
-
-  /**
-   * Set the currently hovered link range for rendering underlines (for regex-detected URLs)
+   * Set the currently hovered link range for rendering underlines (OSC 8 or regex links)
    * Pass null to clear the hover state
    */
   public setHoveredLinkRange(

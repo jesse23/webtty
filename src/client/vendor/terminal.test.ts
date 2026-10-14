@@ -1,4 +1,9 @@
 import { describe, expect, test } from 'bun:test';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Ghostty } from './ghostty-web/ghostty';
+import { LinkDetector } from './ghostty-web/link-detector';
+import { OSC8LinkProvider } from './ghostty-web/providers/osc8-link-provider';
 import {
   cursorCellOffset,
   decscusrShape,
@@ -8,6 +13,11 @@ import {
   Terminal,
 } from './ghostty-web/terminal';
 import type { GhosttyTerminalConfig, ILink } from './ghostty-web/types';
+
+const WASM = path.join(
+  path.dirname(fileURLToPath(import.meta.url)),
+  'ghostty-vt/ghostty-vt-small.wasm',
+);
 
 describe('mouseCursorFor', () => {
   const link: ILink = {
@@ -208,5 +218,43 @@ describe('Terminal bell and title', () => {
     write('\x07\x1b]2;other\x07');
     expect(bells).toBe(1);
     expect(titles).toEqual(['vim']);
+  });
+});
+
+describe('Terminal link hover', () => {
+  // The engine's hyperlink_id is a 1-bit "has a link" flag, so every OSC 8 cell carries
+  // the same value: the hover is the hovered link's range, never an id.
+  test('hovering an OSC 8 link gives the renderer that link range only', async () => {
+    const ghostty = await Ghostty.load(WASM);
+    const wasmTerm = ghostty.createTerminal(30, 4);
+    wasmTerm.write('\x1b]8;;https://a/\x1b\\first\x1b]8;;\x1b\\\r\n');
+    wasmTerm.write('xx \x1b]8;;https://b/\x1b\\second\x1b]8;;\x1b\\');
+    const term = new Terminal({ ghostty: {} as never, cols: 30, rows: 4 });
+    const calls: [string, unknown][] = [];
+    const renderer = new Proxy(
+      { charWidth: 8, charHeight: 16, scrollOffset: 0 },
+      {
+        get: (t, k) =>
+          k in t ? t[k as keyof typeof t] : (arg: unknown) => calls.push([String(k), arg]),
+      },
+    );
+    const internals = term as unknown as {
+      wasmTerm: unknown;
+      renderer: unknown;
+      canvas: unknown;
+      linkDetector: LinkDetector;
+      processMouseMove(e: { clientX: number; clientY: number }): void;
+    };
+    internals.wasmTerm = wasmTerm;
+    internals.renderer = renderer;
+    internals.canvas = { getBoundingClientRect: () => ({ left: 0, top: 0 }), style: {} };
+    internals.linkDetector = new LinkDetector(term);
+    internals.linkDetector.registerProvider(new OSC8LinkProvider(term));
+
+    // Over "second", on row 1
+    internals.processMouseMove({ clientX: 5 * 8 + 1, clientY: 16 + 1 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([['setHoveredLinkRange', { startX: 3, startY: 1, endX: 8, endY: 1 }]]);
+    wasmTerm.free();
   });
 });
