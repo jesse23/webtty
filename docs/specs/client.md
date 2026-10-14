@@ -1,6 +1,6 @@
 # SPEC: Client
 
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -157,6 +157,8 @@ Controlled by two config keys from `GET /api/config`:
 
 Both can be active simultaneously. The canvas-based terminal has no DOM text selection — these are the only reliable copy paths.
 
+What a double or triple click selects, and the text either path copies, is Ghostty's (`ghostty_terminal_select_word`, `ghostty_terminal_select_line`, `ghostty_terminal_selection_format_alloc`): soft-wrapped rows are joined without a newline ([ADR 050](../adrs/050.client.selection-from-libghostty-vt.md)).
+
 ## Behavior Notes
 
 ### Tab close on session end
@@ -192,6 +194,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Official engine only | Every tab runs Ghostty's official libghostty-vt wasm; the Coder engine, its wasm, `/ghostty-vt.wasm` and `?engine` are removed without a release on an official default, after ADR 042's acceptance record and a manual check in Chrome, Firefox and Safari. The `kitty.ts` size replies, the stream-scanned bell and title, `colorsSet` and the `scrollback`-derived history go with it; history is always `scrollbackLines`. Cursor style, mouse and paste encoders moved to the official APIs in ADR 049; theme colours from render state remain a follow-up | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 042](../adrs/042.client.official-vt-engine.md), [ADR 047](../adrs/047.client.official-engine-only.md) | ✅ |
 | Scrollback in lines | Terminal history keeps the configured number of lines (`scrollbackLines`, default 10,000, a little under from page pruning) up to a 32 MiB ceiling, instead of a few hundred rows | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 046](../adrs/046.client.scrollback-lines.md) | ✅ |
 | Mouse, cursor style and paste from libghostty-vt | Mouse reports (clicks, motion, drags past the edge, wheel ticks) are encoded by Ghostty's mouse encoder in every tracking mode and format, with Alt and buttons 8/9, at a device-pixel geometry that includes the padding; the cursor shape and blink come from Ghostty's state, with the config as its default; pastes go through `ghostty_terminal_paste` (bracketed whenever mode 2004 is on, control bytes stripped). X10-format reports past column 95 are dropped: they cannot travel as text frames | [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) |✅ |
+| Selection from libghostty-vt | A double click selects Ghostty's word (URLs with queries, non-ASCII words, across a soft wrap), a triple click the whole logical line without its indent, and copied text is Ghostty's: soft-wrapped rows joined without a newline, trailing whitespace trimmed, wide characters whole. Drag, `copyOnSelect`, scrollback selection and the highlight are unchanged | [ADR 050](../adrs/050.client.selection-from-libghostty-vt.md) | ✅ |
 | Scroll copies rows | A whole-line scroll copies the rows still in view with one canvas self-copy and draws only the rows that came into view; a frame with nothing changed, including one parked in scrollback, draws nothing; every partial frame equals a full redraw | [ADR 043](../adrs/043.client.scroll-copy-and-overscan.md) | ✅ |
 | Smooth scroll via overscan | Pixel-smooth scrollback draws 16 extra rows above and below the viewport (from the scrollback provider), when they come into view, and translates the canvas across them before copying rows, replacing ADR 040's strip canvas | [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 043](../adrs/043.client.scroll-copy-and-overscan.md) | ✅ |
 | Smooth mouse wheel | A mouse wheel notch glides to its target over 125 ms (ease-out cubic), and notches during a glide add up; a sparse stream of pixel deltas (a TrackPoint) glides each delta linearly over the time it took to arrive, or follows a spring while the stream is fast, and in apps the scroll ticks of wheel notches and sparse deltas are paced over the same times instead of sent in a burst; a trackpad still scrolls immediately. VS Code's classifier tells the two apart by their recent deltas | [ADR 045](../adrs/045.client.smooth-mouse-wheel.md) | ✅ |
