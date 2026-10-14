@@ -219,7 +219,6 @@ export class InputHandler {
   private mousedownListener: ((e: MouseEvent) => void) | null = null;
   private mouseupListener: ((e: MouseEvent) => void) | null = null;
   private mousemoveListener: ((e: MouseEvent) => void) | null = null;
-  private wheelListener: ((e: WheelEvent) => void) | null = null;
   private isComposing = false;
   private isDisposed = false;
   private mouseButtonsPressed = 0; // Track which buttons are pressed for motion reporting
@@ -334,8 +333,9 @@ export class InputHandler {
     this.mousemoveListener = this.handleMouseMove.bind(this);
     this.container.addEventListener('mousemove', this.mousemoveListener);
 
-    this.wheelListener = this.handleWheel.bind(this);
-    this.container.addEventListener('wheel', this.wheelListener, { passive: false });
+    // Wheel input is the terminal's alone (Terminal.handleWheel, paced). A listener here
+    // also fired for a wheel over the padding, where the container itself is the target,
+    // and sent that tick a second time, unpaced. (webtty)
   }
 
   /**
@@ -914,25 +914,6 @@ export class InputHandler {
   }
 
   /**
-   * Handle wheel event (scroll)
-   */
-  private handleWheel(event: WheelEvent): void {
-    if (this.isDisposed) return;
-    if (!this.mouseConfig?.hasMouseTracking()) return;
-
-    const cell = this.pixelToCell(event);
-    if (!cell) return;
-
-    // Wheel events: button 64 = scroll up, button 65 = scroll down
-    const button = event.deltaY < 0 ? 64 : 65;
-
-    this.sendMouseEvent(button, cell.col, cell.row, false, event);
-
-    // Prevent default scrolling when mouse tracking is active
-    event.preventDefault();
-  }
-
-  /**
    * Emit paste data with bracketed paste support
    */
   private emitPasteData(text: string): void {
@@ -1113,11 +1094,6 @@ export class InputHandler {
     if (this.mousemoveListener) {
       this.container.removeEventListener('mousemove', this.mousemoveListener);
       this.mousemoveListener = null;
-    }
-
-    if (this.wheelListener) {
-      this.container.removeEventListener('wheel', this.wheelListener);
-      this.wheelListener = null;
     }
 
     this.isDisposed = true;
