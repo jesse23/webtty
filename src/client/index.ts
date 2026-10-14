@@ -1,4 +1,5 @@
 import { OutputAck } from './ack';
+import { ClipboardWriter } from './clipboard-write';
 import { Composer } from './compose';
 import { EdgeExtender } from './edge';
 import { computeInsets } from './fit';
@@ -52,6 +53,7 @@ interface ClientConfig {
   theme: Theme;
   copyOnSelect: boolean;
   rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none';
+  clipboardWrite: boolean;
   mouseScrollSpeed: number;
   padding: number;
   keyboardBindings: KeyboardBinding[];
@@ -89,6 +91,8 @@ const term = new Terminal({
   // What a right-click the app does not take does; the terminal handles every
   // contextmenu, and asks for a paste through onPasteRequest (ADR 051)
   rightClickBehavior: config.rightClickBehavior,
+  // Programs may write the clipboard with OSC 52; off, Ghostty ignores it (ADR 052)
+  clipboardWrite: config.clipboardWrite,
   theme: terminalTheme,
 });
 
@@ -205,12 +209,24 @@ const graphics = new KittyGraphics(term, container, (data: string) => {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
 });
 
+// A program's OSC 52 clipboard write, decoded by Ghostty, written to the browser
+// clipboard once the user has used this tab since connecting (ADR 052).
+const clipboardWriter = new ClipboardWriter(navigator.clipboard);
+term.onClipboardWrite((text) => {
+  void clipboardWriter.write(text);
+});
+for (const type of ['keydown', 'mousedown', 'paste', 'drop'] as const) {
+  window.addEventListener(type, () => clipboardWriter.userInput(), { capture: true });
+}
+
 function connect(): void {
   // flow=1: this client acknowledges output as it parses it, so the server paces it
   // (ADR 048).
   const wsUrl = `${protocol}//${window.location.host}/ws/${sessionId}/pty?cols=${term.cols}&rows=${term.rows}&flow=1`;
   const socket = new WebSocket(wsUrl);
   ws = socket;
+  // The output starts with the session's replay: hold OSC 52 writes until input (ADR 052)
+  clipboardWriter.connected();
   const ack = new OutputAck((message) => {
     if (socket.readyState === WebSocket.OPEN) socket.send(message);
   });
