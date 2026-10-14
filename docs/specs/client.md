@@ -157,7 +157,7 @@ Controlled by two config keys from `GET /api/config`:
 | `copyOnSelect` | `true` | Copies a mouse selection (drag, double or triple click) to the clipboard once, on mouseup, through the Terminal's `copyOnSelect` option; off, nothing is copied. |
 | `rightClickBehavior` | `"contextMenu"` | What a right-click the app does not take does: `"contextMenu"` the browser menu (over the textarea, so it offers Copy and Paste); `"copyPaste"` copy and clear a selection, else the menu; `"paste"` paste the clipboard (the Ctrl+V path, ADR 037); `"none"` nothing, no menu. `"default"` is read as `"contextMenu"`. |
 
-Both can be active simultaneously. The canvas-based terminal has no DOM text selection — these are the only reliable copy paths.
+Both can be active simultaneously. The canvas-based terminal has no DOM text selection — these and the copy keys (Cmd+C, Ctrl+Shift+C, Ctrl+Insert; see below) are the only reliable copy paths.
 
 **The app's mouse comes first** ([ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md)). While the app tracks the mouse (any DEC mouse tracking mode), a press is the app's unless Shift is held, as in Ghostty, kitty, WezTerm, xterm, Windows Terminal and VS Code. `mouse-route.ts` holds the rule (`pressToApp`, `rightClickAction`), and the input handler, the selection manager and the terminal all ask it:
 
@@ -170,6 +170,30 @@ Both can be active simultaneously. The canvas-based terminal has no DOM text sel
 The terminal has the one `contextmenu` listener (`handleContextMenu`). Keys, text and paste clear the selection; mouse reports do not, so a Shift selection survives the app's hover and clicks until Shift+right-click or the menu's Copy uses it. A menu not preceded by a right press (or macOS Ctrl+click) since the last key is a keyboard menu and follows `rightClickBehavior` even while the app tracks the mouse. While the terminal has focus, the Menu key and Shift+F10 are sent to the app as keys, so the browser opens no keyboard menu there. `"paste"` fires `Terminal.onPasteRequest`, which `index.ts` answers with the same clipboard read as Ctrl+V.
 
 What a double or triple click selects, and the text either path copies, is Ghostty's (`ghostty_terminal_select_word`, `ghostty_terminal_select_line`, `ghostty_terminal_selection_format_alloc`): soft-wrapped rows are joined without a newline ([ADR 050](../adrs/050.client.selection-from-libghostty-vt.md)).
+
+## Copy, Paste and Clear Keys
+
+Ghostty's default copy, paste and clear-screen keys, for the browser's platform (`navigator.userAgentData.platform`, else `navigator.platform`; macOS and iOS take Ghostty's macOS defaults) ([ADR 054](../adrs/054.client.copy-paste-clear-keys.md)):
+
+| Platform | Key | Action | When it cannot be done |
+|---|---|---|---|
+| macOS | Cmd+C | copy the selection (input handler) | browser default |
+| macOS | Cmd+V | paste (browser `paste` event) | |
+| macOS | Cmd+K | clear the screen and scrollback | the app gets the key (alternate screen) |
+| others | Ctrl+Shift+C | copy the selection | the app gets the key (`\x03`) |
+| others | Ctrl+Insert | copy the selection | consumed, nothing sent |
+| others | Shift+Insert | paste the clipboard (a page cannot read the primary selection) | |
+| all | Ctrl+V, also with Shift or Alt | paste (ADR 014) | |
+
+Ctrl+C is always the app's. Modifiers match exactly except for Ctrl+V. `shortcuts.ts` maps the `keydown` (`shortcutFor`); one capture listener on the container in `index.ts`, after the `keyboardBindings` listener, performs it and steps aside for any combo `keyboardBindings` has, so a binding (even `"chars": ""`) wins. A paste reads `navigator.clipboard.readText` (a failed read sends Ctrl+V); without the API the key is kept from the app and the browser's own paste may fire the `paste` event.
+
+**Cmd+K** is Ghostty's `clear_screen`, done by `Terminal.clearScreen()` with VT sequences written to the terminal, never the PTY:
+
+- on the alternate screen, nothing: the key goes to the app (the encoder sends `k`);
+- at a shell prompt (`cursorAtPrompt`, `GHOSTTY_TERMINAL_DATA_CURSOR_AT_PROMPT`, which needs OSC 133 marks, as fish 4 sends): `CSI 2 J` then `CSI 3 J`, and FF to the shell, which redraws its prompt at the top;
+- otherwise: the rows above the cursor scroll off (`CSI n S`, `CSI n A`), so the cursor's row is the top one, then `CSI 3 J`.
+
+The selection and kitty graphics placements are cleared too. The clear is the tab's own: a reload, reconnect or another tab gets the server's replay, scrollback included.
 
 ## Program Clipboard Writes
 
@@ -217,6 +241,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Welcome banner and status messages | `[ webtty ]`-styled banner on first connect; consistent status messages for disconnect, error, and server stop | [ADR 010](../adrs/010.client.ux-polish.md) | ✅ |
 | Copy behavior | `copyOnSelect` + `rightClickBehavior` — two independent configurable copy modes | [ADR 011](../adrs/011.cli.config-and-help.md) | ✅ |
 | Program clipboard writes (OSC 52) | OSC 52 (and OSC 1337 Copy, OSC 5522) writes from programs reach the browser clipboard: writes only, the standard clipboard only, UTF-8 text, held back after each connect until the user acts in the tab so the replay never writes; `clipboardWrite: false` turns it off | [ADR 052](../adrs/052.client.osc52-clipboard-write.md) | ✅ |
+| Copy, paste and clear keys | Ghostty's defaults for the browser's platform: Ctrl+Shift+C and Ctrl+Insert copy and Shift+Insert pastes outside macOS (Ctrl+C stays the interrupt; Ctrl+Shift+C with no selection goes to the app), Cmd+K clears the screen and scrollback on macOS (at an OSC 133 prompt with FF for the shell to redraw; the app's key on the alternate screen); `keyboardBindings` win | [ADR 054](../adrs/054.client.copy-paste-clear-keys.md) | ✅ |
 | Focus reports, title and bell | Mode 1004 focus reports encoded by Ghostty, sent on each change and when the mode is set; the tab title is the program's OSC 0/2 title (`<title> \| webtty`, the session id while it has none); a bell puts 🔔 in front of it until the terminal is focused or a key is pressed, and bells replayed on connect are ignored; `bellTitle: false` turns the mark off | [ADR 053](../adrs/053.client.focus-reports-title-and-bell.md) | ✅ |
 | Mouse follows app tracking | While the app tracks the mouse, drags, double/triple clicks and right-clicks go only to the app: webtty draws no highlight, copies nothing and cancels the browser menu. Shift selects in webtty (and applies `rightClickBehavior`) and sends nothing to the app. `rightClickBehavior` is `"contextMenu"` (default), `"copyPaste"`, `"paste"` or `"none"`, all handled in one function | [ADR 051](../adrs/051.client.mouse-tracking-selection-and-right-click.md) | ✅ |
 | Cursor style | `cursorStyle` / `cursorStyleBlink` are Ghostty's default cursor; Ghostty applies DECSCUSR from the PTY (Ps 0 and RIS restore the default); mode 12 is ignored, as in Ghostty with `cursor-style-blink` set; and the renderer draws the shape and blink from its state, repainting the cursor cell so the old shape does not linger | [ADR 013](../adrs/013.client.cursor-style.md), [ADR 015](../adrs/015.client.cursor-ghost-repaint.md), [ADR 041](../adrs/041.client.libghostty-vt.md), [ADR 049](../adrs/049.client.official-mouse-cursor-paste.md) | ✅ |
