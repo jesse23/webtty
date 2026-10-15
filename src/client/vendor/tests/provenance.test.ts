@@ -72,4 +72,16 @@ describe('vendored provenance', () => {
     expect(targets.length).toBeGreaterThan(0);
     expect(targets.filter((target) => !files.includes(target))).toEqual([]);
   });
+
+  // The commit column is how a reader finds the move in `git log`, so it must be a commit
+  // subject. Whether that subject exists is checked by hand: git history is not stable in a test.
+  test('every moves table row names a conventional commit subject', () => {
+    const table = PROVENANCE.slice(PROVENANCE.indexOf('## Moves and splits'));
+    const commits = table
+      .split('\n')
+      .filter((row) => row.startsWith('| `'))
+      .map((row) => (row.split('|')[3] ?? '').trim());
+    expect(commits.length).toBeGreaterThan(0);
+    expect(commits.filter((c) => !/^(refactor|fix)\(client\): \S/.test(c))).toEqual([]);
+  });
 });
