@@ -106,8 +106,8 @@ describe('applyAllowlist', () => {
 });
 
 describe('RATCHET_ALLOWLIST', () => {
-  test('tolerates missing entries until the branches merge', () => {
-    expect(RATCHET_ALLOWLIST.strict).toBe(false);
+  test('is empty and strict since the branches merged, so a stale entry fails', () => {
+    expect(RATCHET_ALLOWLIST).toEqual(EMPTY_ALLOWLIST);
   });
 
   test('every entry names the step that removes it', () => {
