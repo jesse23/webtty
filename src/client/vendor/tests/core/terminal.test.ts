@@ -589,6 +589,30 @@ describe('Terminal input', () => {
     expect(sent).toContain('a');
     expect(term.viewportY).toBe(0);
   });
+
+  test('Cmd+C copies through the terminal; with nothing selected the browser keeps the key', async () => {
+    const { sent, container } = await open();
+    let prevented = false;
+    const event = {
+      ...keydown('c'),
+      metaKey: true,
+      preventDefault: () => {
+        prevented = true;
+      },
+    };
+    container.dispatch(event);
+    expect([prevented, sent]).toEqual([false, []]);
+  });
+
+  test('a press is reported, encoded by Ghostty, only while the app tracks the mouse', async () => {
+    const { term, sent, container } = await open();
+    const press = { type: 'mousedown', button: 0, buttons: 1, clientX: 1, clientY: 1 };
+    container.dispatch(press);
+    expect(sent).toEqual([]);
+    term.write('\x1b[?1000h\x1b[?1006h');
+    container.dispatch(press);
+    expect(sent).toEqual(['\x1b[<0;1;1M']);
+  });
 });
 
 describe('Terminal scrolling', () => {

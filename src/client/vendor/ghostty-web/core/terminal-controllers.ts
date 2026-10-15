@@ -157,10 +157,13 @@ export class TerminalControllers {
 
 // Each controller's host, read when called: the parts are undefined before open() and
 // after dispose(), and the other controllers are reached through `core` once all exist.
+// Every member is one forwarding call, pinned by terminal-controllers.test.ts.
 
+/** Short for the internals host in the builders below. */
 type Inner = ControllersInternalsHost;
 
-function focusHost(term: ControllersHost, inner: Inner): FocusHost {
+/** The focus tracker's view of the container, the textarea and the engine. */
+export function focusHost(term: ControllersHost, inner: Inner): FocusHost {
   return {
     element: () => inner.parts()?.element,
     textarea: () => inner.parts()?.textarea,
@@ -170,7 +173,8 @@ function focusHost(term: ControllersHost, inner: Inner): FocusHost {
   };
 }
 
-function findHost(term: ControllersHost, inner: Inner): FindHost {
+/** The finder's view of the terminal and its renderer. */
+export function findHost(term: ControllersHost, inner: Inner): FindHost {
   return {
     engine: () => inner.parts()?.engine,
     highlight: (highlights) => inner.parts()?.renderer.setSearchHighlights(highlights),
@@ -182,7 +186,8 @@ function findHost(term: ControllersHost, inner: Inner): FindHost {
   };
 }
 
-function writeHost(term: ControllersHost, inner: Inner, core: TerminalControllers): WriteHost {
+/** The write pipeline's view: the engine, the emitters and the other controllers. */
+export function writeHost(term: ControllersHost, inner: Inner, core: TerminalControllers): WriteHost {
   return {
     engine: () => inner.parts()?.engine,
     disableStdin: () => term.options.disableStdin,
@@ -200,7 +205,8 @@ function writeHost(term: ControllersHost, inner: Inner, core: TerminalController
   };
 }
 
-function renderLoopHost(inner: Inner, core: TerminalControllers): RenderLoopHost {
+/** The render loop's view: the frame's steps in their order. */
+export function renderLoopHost(inner: Inner, core: TerminalControllers): RenderLoopHost {
   return {
     live: () => inner.live(),
     beforeRender: (now) => inner.beforeRender(now),
@@ -212,7 +218,8 @@ function renderLoopHost(inner: Inner, core: TerminalControllers): RenderLoopHost
   };
 }
 
-function scrollbarHost(term: ControllersHost, inner: Inner): ScrollbarHost {
+/** The scrollbar's view of the canvas, the view and the render. */
+export function scrollbarHost(term: ControllersHost, inner: Inner): ScrollbarHost {
   return {
     canvas: () => inner.parts()?.canvas,
     scrollOffset: () => inner.parts()?.renderer.scrollOffset,
@@ -224,7 +231,8 @@ function scrollbarHost(term: ControllersHost, inner: Inner): ScrollbarHost {
   };
 }
 
-function mouseHost(term: ControllersHost, inner: Inner, core: TerminalControllers): MouseHost {
+/** The mouse controller's view of the parts, the grid and the scrollbar drag. */
+export function mouseHost(term: ControllersHost, inner: Inner, core: TerminalControllers): MouseHost {
   return {
     element: () => inner.parts()?.element,
     canvas: () => inner.parts()?.canvas,
@@ -242,7 +250,8 @@ function mouseHost(term: ControllersHost, inner: Inner, core: TerminalController
   };
 }
 
-function wheelHost(term: ControllersHost, inner: Inner, core: TerminalControllers): WheelHost {
+/** The wheel controller's view: the engine, the cell height and the mouse encoder. */
+export function wheelHost(term: ControllersHost, inner: Inner, core: TerminalControllers): WheelHost {
   return {
     engine: () => inner.parts()?.engine,
     cellHeight: () => inner.parts()?.renderer.getMetrics()?.height,
