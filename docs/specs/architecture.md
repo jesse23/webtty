@@ -1,6 +1,6 @@
 # SPEC: Architecture
 
-**Last Updated:** 2026-10-14 (the refactor is done: the server branch merged, the ratchet allowlist empty, the coverage targets enforced)
+**Last Updated:** 2026-10-14 (the tree reconciled with the code after the refactor: the ratchet allowlist empty, the coverage targets enforced)
 
 ---
 
@@ -55,7 +55,7 @@ src/client:
 
 ## Folder tree
 
-The target tree. Files marked *(entry)* keep their path because `scripts/build.ts`, `package.json` and the tests name them; `dist/` names (`client-browser.js`, `client.css`, `client.html`, `server/index.js`, `cli/index.js`, `ghostty-vt-small.wasm`, `THIRD_PARTY_LICENSES`) never change.
+The tree as it is. Files marked *(entry)* keep their path because `scripts/build.ts`, `package.json` and the tests name them; `dist/` names (`client-browser.js`, `client.css`, `client.html`, `server/index.js`, `cli/index.js`, `ghostty-vt-small.wasm`, `THIRD_PARTY_LICENSES`) never change.
 
 ```
 src/
@@ -162,11 +162,12 @@ src/
     test-support.test.ts        the fakes' self-tests (a test-support/ folder holds no *.test.ts)
     vendor/
       ghostty-vt/               untouched: official wasm, sidecar, signature, LICENSE, PROVENANCE.md
-      tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/, addons/)
+      tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, lifecycle/, links/, addons/)
         support/                wasm.ts (the one WASM path, a cached loadGhostty(), countedGhostty()), fake-canvas.ts, fake-event-target.ts,
                                 engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours),
                                 selection-fixture.ts (a SelectionManager on a recording canvas and document),
                                 raster-canvas.ts and renderer-harness.ts (renderers on canvases that record or rasterise),
+                                recording-context.ts (a 2D context that logs the painters' calls, shared by the painter tests),
                                 terminal-harness.ts (a whole Terminal opened on the fakes, driven through its public API)
         fixtures/               PTY captures (was vendor/fixtures/)
       ghostty-web/              Biome-excluded; see "The vendored layer"
@@ -324,7 +325,7 @@ The checker carries a **ratchet allowlist** (`scripts/architecture/ratchet-allow
 - **Views and features:** `happy-dom` (pinned devDependency), used as an explicit `new Window()` whose `document` is injected; never registered globally, so tests that stub globals are not disturbed (ADR 064).
 - **Teardown:** every `dispose()` has a test that it removes each listener, timer and frame it added, and that a second `dispose()` does nothing.
 - **Order:** the client root has an install-order test; the per-message pipeline and the on-open sequence have call-order tests; the key dispatcher has a case-by-case equivalence test against the old two-listener behaviour.
-- **Server:** routes, WebSocket channels and sessions run in-process through `createServer()` on port 0 with a temporary `HOME`, so they count in coverage. A few subprocess tests remain as end-to-end checks of the entries. No test may fall back to the configured port.
+- **Server:** routes, WebSocket channels and sessions run in-process through `createServer()` on port 0 with a temporary `HOME`, so they count in coverage. These whole-server tests sit at `src/server/` beside `app.ts` (`routes.test.ts`, `websocket.test.ts`, the `routes-*golden.test.ts` files). A few subprocess tests remain as end-to-end checks of the entries (`server/entry.test.ts`, `cli/index.test.ts`, `version.test.ts`). No test may fall back to the configured port.
 - **Vendor:** one cached `loadGhostty()` (`vendor/tests/support/wasm.ts`) so new test files do not each compile the wasm. New tests do not reach private members through `as unknown as {…}` casts; they test the collaborator that now owns the state.
 - **Listener snapshots.** Before the vendored facades are split, a test (`vendor/tests/core/listener-snapshot.test.ts`) opens a `Terminal` on recording targets and snapshots every listener it adds (target, type, capture, order) and which of them `dispose()` removes. Every vendor split step leaves that snapshot unchanged; only the ADR 065 commit changes its "removed" column (and drops the empty `compositionupdate` listener). Until then a `DisposableStore` holds only the listeners that are removed today; the ones that leak stay as they are. Since that commit every row is removed, and `vendor/tests/core/dispose.test.ts` checks that `dispose()` also clears every timeout, interval and animation frame, including after a failed `open()`.
 - **Coverage targets** (`bun run test:coverage`): app, server, CLI, config, pty and the shared `src/*.ts` files ≥ 95% lines and ≥ 90% functions; vendored layer ≥ 85% lines and ≥ 80% functions; the pure modules listed in `PURE_MODULES` at 100% lines, each loaded by a test. Bun's `coverageThreshold` is one global setting, so `bunfig.toml` sets the common floor (85% lines, 80% functions) and `scripts/check-coverage.ts`, run by `test:coverage` after `bun test --coverage --coverage-reporter=lcov --coverage-reporter=text`, enforces the per-layer targets from `coverage/lcov.info`. Test code (`*.test.ts`, `test-support/`, `vendor/tests/`) and `scripts/` are not counted toward a layer. Bun writes an lcov record only for a file some test loads, so the check also fails on any `src/` source file with no record, except the type-only modules and thin entries listed in `NOT_LOADED`. A new pure module joins the list with its table-driven test.
