@@ -48,7 +48,10 @@ export function spawnBunPty(options: PtySpawnOptions): PtyProcess {
       proc.terminal?.resize(cols, rows);
     },
     kill() {
-      proc.kill();
+      // SIGHUP, as a terminal sends when it closes: an interactive shell ignores the
+      // default SIGTERM, which left it and the apps in it running after a session was
+      // deleted. node-pty sends SIGHUP too. The shell passes the hangup to its jobs.
+      proc.kill('SIGHUP');
     },
   };
 }

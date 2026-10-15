@@ -124,4 +124,21 @@ describe('spawnPty', () => {
     },
     20000,
   );
+
+  test.skipIf(process.platform === 'win32')(
+    'kill ends an interactive shell and the app running in it',
+    async () => {
+      // An interactive shell ignores SIGTERM; the app is a foreground job of the shell.
+      const pty = spawnPty({ ...options(), shell: '/bin/sh', env: { ENV: '/dev/null' } });
+      const received: string[] = [];
+      pty.onData((d) => received.push(d));
+      const exited = new Promise<void>((resolve) => pty.onExit(() => resolve()));
+      pty.write("exec sh -i -c 'echo APP-$((40+2)); sleep 30'\n");
+      await waitForData(received, 'APP-42');
+      pty.kill();
+      await exited;
+      expect(() => process.kill(pty.pid, 0)).toThrow();
+    },
+    10000,
+  );
 });
