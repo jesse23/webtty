@@ -10,7 +10,7 @@ import type {
   MouseInput,
   OfficialTerminal,
 } from '../../ghostty-web/ghostty';
-import { Mods } from '../../ghostty-web/types';
+import { Mods } from '../../ghostty-web/input/key-types';
 import { bindingContext, freeContext, writeVt } from '../support/engine-harness';
 import { THEME } from '../support/terminal-text';
 import { countedGhostty, loadGhostty } from '../support/wasm';

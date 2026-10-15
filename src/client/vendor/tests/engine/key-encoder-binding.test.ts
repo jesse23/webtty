@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import type { Ghostty } from '../../ghostty-web/ghostty';
-import { Key, KeyAction, KeyEncoderOption, Mods } from '../../ghostty-web/types';
+import { Key, KeyAction, KeyEncoderOption, Mods } from '../../ghostty-web/input/key-types';
 import { loadGhostty } from '../support/wasm';
 
 // The wasm key encoder (ADR 042, ADR 061), made by the Ghostty factory.

@@ -79,7 +79,6 @@ Not from upstream; each starts with, or will start with when it is next touched,
 - `ghostty.ts`: the engine's facade: `Ghostty`, which loads the wasm and creates terminals and key encoders, and the re-exports of `engine/` its importers use.
 - `core/`: `Terminal`'s parts: the narrow interfaces they see of it (`host-types.ts`), its named values (`terminal-constants.ts`), its pixel and row maths (`terminal-geometry.ts`), the options store and engine config (`options-proxy.ts`), the view's place in the scrollback (`viewport.ts`), focus and its mode 1004 reports (`focus-tracker.ts`), find (`find-controller.ts`), the write pipeline (`write-pipeline.ts`), the render loop (`render-loop.ts`), link hover and clicks, the mouse report encoder and the right-click route (`mouse-controller.ts`), wheel routing (`wheel-controller.ts`), the scrollbar's press, drag and fade (`scrollbar-controller.ts`), those controllers made and wired together with the input route (`terminal-controllers.ts`), the emitters behind the `onX` events (`terminal-emitters.ts`), what an option set after `open()` changes (`option-changes.ts`), the DOM `open()` builds (`dom-setup.ts`) and the parts it holds (`opened-parts.ts`). `terminal.ts` is the facade over them and re-exports what moved.
 - `link-types.ts`: the link detection contract, beside `link-detector.ts` and `providers/`.
-- `types.ts`: a re-export shim for the files above until its importers move (ADR 061).
 
 ## Moves and splits
 
@@ -169,3 +168,4 @@ Each commit that moves code out of an upstream-derived file appends its rows her
 | `terminal.ts`: the body of `jumpToPrompt` (webtty, ADR 057) | `core/viewport.ts` (`Viewport.jumpToPrompt`) | refactor(client): terminal split, part 4: scrollbar, DOM setup, OpenedParts; Terminal a facade |
 | `terminal.ts`: what the scrollbar reaches of `Terminal` | `core/host-types.ts` (`ScrollbarClock`, `ScrollbarHost`) | refactor(client): terminal split, part 4: scrollbar, DOM setup, OpenedParts; Terminal a facade |
 | `terminal.ts`: the second, deferred `element.focus()` of `focus()` | `core/focus-tracker.ts` (`FocusTracker.focusContainer`) | fix(client): release every listener on dispose (ADR 065) |
+| `types.ts`: the re-export shim left by the split above; its last importers (`index.ts`, `link-detector.ts`) import `input/key-types.ts`, `engine/cell-types.ts` and `link-types.ts`, and the file is deleted | `input/key-types.ts`, `engine/cell-types.ts`, `link-types.ts` | refactor(client): the vendor types.ts shim removed |

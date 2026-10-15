@@ -7,7 +7,7 @@
  */
 
 import { cellInRange } from './render/cell-range';
-import type { ILink, ILinkProvider } from './types';
+import type { ILink, ILinkProvider } from './link-types';
 
 /**
  * Manages link detection across multiple providers with intelligent caching

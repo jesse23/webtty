@@ -29,8 +29,9 @@ export type {
   KeyEncoder,
   TerminalEffects,
 } from './ghostty';
-export { Key, KeyAction, Mods } from './types';
-export type { KeyEvent, GhosttyCell } from './types';
+export { Key, KeyAction, Mods } from './input/key-types';
+export type { KeyEvent } from './input/key-types';
+export type { GhosttyCell } from './engine/cell-types';
 
 // Low-level components (for custom integrations)
 export { CanvasRenderer } from './renderer';
@@ -50,7 +51,7 @@ export type { ITerminalDimensions } from './addons/fit';
 export { OSC8LinkProvider } from './providers/osc8-link-provider';
 export { UrlRegexProvider } from './providers/url-regex-provider';
 export { LinkDetector } from './link-detector';
-export type { ILink, ILinkProvider, IBufferCellPosition } from './types';
+export type { ILink, ILinkProvider, IBufferCellPosition } from './link-types';
 
 // webtty's scrolling motion (ADR 045), DPR tracking (ADR 039) and teardown (ADR 065)
 export { AT_ONCE, easeOutCubic, FRAME_MS, Glide, linear } from './glide';

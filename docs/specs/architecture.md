@@ -192,7 +192,7 @@ ghostty-web/
   renderer.ts           facade: CanvasRenderer orchestration                                (≤ 500)
   input-handler.ts      facade: InputHandler (options object)                               (≤ 300)
   selection-manager.ts  facade: SelectionManager state + API (SelectionHost)                (≤ 300)
-  interfaces.ts  buffer.ts (IBufferSource)  event-emitter.ts  types.ts (re-export shim until removed)
+  interfaces.ts  buffer.ts (IBufferSource)  event-emitter.ts
   search.ts  glide.ts  wheel.ts  mouse-route.ts       webtty-original, kept in place
   link-detector.ts  link-types.ts  addons/fit.ts  fn-table.ts
   providers/            osc8-link-provider.ts  url-regex-provider.ts  open-link.ts (openLinkOnModifier, the one activation rule)
@@ -301,7 +301,7 @@ While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/a
 - **Feature installers** are `<name>-feature.ts` exporting `install<Name>`.
 - **Narrow collaborator interfaces** are `<Thing>Host` (what an object needs from its owner) or `<Thing>Source` (what it reads).
 - **Constants** sit at the top of the one module that uses them; a `*-constants.ts` file exists only when several modules share them.
-- **Banned:** `utils.ts`, `helpers.ts`, `misc.ts`, `common/`, and a bare `types.ts` at a folder root (the vendor `types.ts` is a temporary re-export shim). `index.ts` is only an entry or the vendor barrel.
+- **Banned:** `utils.ts`, `helpers.ts`, `misc.ts`, `common/`, and a bare `types.ts` at a folder root (type files are named for their domain: `key-types.ts`, `link-types.ts`). `index.ts` is only an entry or the vendor barrel.
 - **Basenames are unique** within `src/client` and within `src/server` where practical, so editor tabs and stack traces read without the path.
 
 ## Comments

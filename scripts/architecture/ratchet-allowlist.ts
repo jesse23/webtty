@@ -25,7 +25,5 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'test-import src/version.test.ts -> src/utils.test.ts': SERVER_HARNESS,
     'banned-name src/utils.test.ts': SERVER_HARNESS,
     'banned-name src/pty/types.ts': 'server track: pty/pty-process.ts (ADR 062)',
-    'banned-name src/client/vendor/ghostty-web/types.ts':
-      'V15: the vendor types.ts shim is removed (ADR 061)',
   },
 };
