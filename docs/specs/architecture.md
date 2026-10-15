@@ -1,6 +1,6 @@
 # SPEC: Architecture
 
-**Last Updated:** 2026-10-15 (`core/sync-hold.ts` and `core/sync-scan.ts`, ADR 067)
+**Last Updated:** 2026-10-15 (`core/sync-hold.ts` and `core/sync-scan.ts`, ADR 067; `scripts/scroll-bench/`, ADR 068)
 
 ---
 
@@ -180,6 +180,10 @@ scripts/
   check-coverage.ts             entry: per-layer coverage targets and the pure-module list over bun's lcov report
                                 (run by test:coverage) (+ test)
   check-pkg-manager.ts  clean-pkg-scripts.ts   package-manager guard and publish-time script cleanup (headers; pure parts tested)
+  scroll-bench/                 the scroll benchmark (SPEC scroll-benchmark, ADR 068): bench.ts entry (bench:scroll);
+                                bench-args.ts, cdp.ts (a running Chrome's DevTools), screencast.ts, inputs.ts (trackpad,
+                                wheel, TrackPoint), scenarios.ts, measure.ts, page.ts, metrics.ts (pure), summary.ts,
+                                session-api.ts, dump.ts; stream.sh and scenarios.example.json; pure parts tested
   update-ghostty-vt.ts          CLI only (--commit, --verify)
   ghostty-vt/                   minisign.ts, sidecar.ts, inspect-wasm.ts, release-fetch.ts (fetch injected), each with its test
     test-support/               minisign-signer.ts (a throwaway key), tiny-wasm.ts (the required exports), fake-release.ts (fake fetch)
