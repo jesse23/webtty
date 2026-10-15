@@ -30,7 +30,8 @@ export async function startRecording(cdp: Cdp, options: CastOptions): Promise<Re
   const frames: CastFrame[] = [];
   const off = cdp.on('Page.screencastFrame', (params) => {
     frames.push({ time: Date.now(), jpeg: String(params.data) });
-    void cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId });
+    // A frame that comes as the screencast stops may have its ack refused; that is fine.
+    cdp.send('Page.screencastFrameAck', { sessionId: params.sessionId }).catch(() => {});
   });
   await cdp.send('Page.startScreencast', { format: 'jpeg', everyNthFrame: 1, ...options });
   await sleep(WARM_UP_MS);

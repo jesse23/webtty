@@ -3,6 +3,8 @@
 // creates a fresh session, opens it in an already running Chrome, starts the scenario's
 // app, scrolls with the input while recording the screencast, prints one JSON line of
 // numbers and deletes the session; then a markdown table of the medians over the runs.
+// A run that fails prints an error line and the benchmark goes on with the next; the
+// servers take turns going first, so none is always measured after the others.
 //
 // Start Chrome or Chromium yourself; the benchmark never launches or closes a browser:
 //
@@ -20,7 +22,7 @@
 // theme is assumed: the stream test finds the bottom by stream.sh's bright inverse bar.
 
 import path from 'node:path';
-import { parseBenchArgs, USAGE } from './bench-args';
+import { type BenchArgs, basesForRun, parseBenchArgs, USAGE } from './bench-args';
 import { type Cdp, connectCdp, sleep } from './cdp';
 import { INPUT_PROFILES, type InputName } from './inputs';
 import { measureScroll, measureStream, startScenario } from './measure';
@@ -54,7 +56,9 @@ async function runOne(
     }
     return { kind: 'scroll', ...key, ...(await measureScroll(cdp, profile, key.direction)) };
   } finally {
-    await cdp.navigate('about:blank');
+    // Leave the page first so the session's socket closes, but delete the session even
+    // when the browser fails, so its app does not keep running.
+    await cdp.navigate('about:blank').catch(() => {});
     await deleteSession(session);
   }
 }
@@ -64,21 +68,36 @@ async function main(argv: readonly string[]): Promise<number> {
     console.log(USAGE);
     return 0;
   }
-  const args = parseBenchArgs(argv);
+  let args: BenchArgs;
+  try {
+    args = parseBenchArgs(argv);
+  } catch (error) {
+    console.error(`${error instanceof Error ? error.message : error}\n\n${USAGE}`);
+    return 2;
+  }
   const scenarios = loadScenarios(args.scenariosFile, {
     repo: path.resolve(import.meta.dir, '../..'),
     bench: import.meta.dir,
   });
   const cdp = await connectCdp(args.cdpPort);
   const results: Result[] = [];
+  let failed = 0;
   try {
     for (const scenario of scenarios) {
       for (const input of args.inputs) {
         for (let run = 1; run <= args.runs; run++) {
-          for (const base of args.bases) {
-            const result = await runOne(cdp, base, scenario, input, run);
-            results.push(result);
-            console.log(resultLine(result));
+          for (const base of basesForRun(args.bases, run)) {
+            try {
+              const result = await runOne(cdp, base, scenario, input, run);
+              results.push(result);
+              console.log(resultLine(result));
+            } catch (error) {
+              failed++;
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(
+                `# failed ${base.label} ${scenario.name} ${input} run ${run}: ${message}`,
+              );
+            }
             await sleep(500);
           }
         }
@@ -88,7 +107,8 @@ async function main(argv: readonly string[]): Promise<number> {
     cdp.close();
   }
   console.log(`\n${summaryTable(results)}`);
-  return 0;
+  if (failed) console.error(`# ${failed} run(s) failed; the table leaves them out`);
+  return failed ? 1 : 0;
 }
 
 if (import.meta.main) {
@@ -96,7 +116,6 @@ if (import.meta.main) {
     (code) => process.exit(code),
     (error: unknown) => {
       console.error(error instanceof Error ? error.message : error);
-      console.error(USAGE);
       process.exit(1);
     },
   );

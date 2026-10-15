@@ -1,7 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
   type Clock,
-  durationMs,
   INPUT_NAMES,
   INPUT_PROFILES,
   isInputName,
@@ -39,12 +38,17 @@ describe('input profiles', () => {
     expect(hard.slice(1).every((e) => e.gapMs >= 29 && e.gapMs <= 45)).toBe(true);
   });
 
-  test('every profile is a fixed table: positive deltas and gaps, the same each read', () => {
+  test('every profile has positive deltas and gaps, and a frame step window', () => {
     for (const name of INPUT_NAMES) {
-      const { events } = INPUT_PROFILES[name];
+      const { events, maxFramePx } = INPUT_PROFILES[name];
       expect(events.every((e) => e.deltaPx > 0 && e.gapMs > 0)).toBe(true);
-      expect(INPUT_PROFILES[name].events).toEqual(events);
+      expect(maxFramePx).toBeGreaterThan(0);
     }
+  });
+
+  test("the TrackPoint's window covers ADR 045's smoothed 156-166 px frames", () => {
+    expect(trackpoint.maxFramePx).toBeGreaterThan(166);
+    expect(wheel.maxFramePx).toBeGreaterThan(100);
   });
 });
 
@@ -58,10 +62,6 @@ describe('profile helpers', () => {
   test('signedEvents makes up negative and keeps down positive', () => {
     expect(signedEvents(wheel, 'up').every((e) => e.deltaPx === -100)).toBe(true);
     expect(signedEvents(wheel, 'down')).toEqual([...wheel.events]);
-  });
-
-  test('durationMs sums the gaps', () => {
-    expect(durationMs(trackpad)).toBe(2400);
   });
 });
 

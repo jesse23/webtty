@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test';
-import { DEFAULT_CDP_PORT, DEFAULT_RUNS, parseBase, parseBenchArgs } from './bench-args';
+import {
+  basesForRun,
+  DEFAULT_CDP_PORT,
+  DEFAULT_RUNS,
+  parseBase,
+  parseBenchArgs,
+  USAGE,
+} from './bench-args';
 import { INPUT_NAMES } from './inputs';
 
 describe('parseBase', () => {
@@ -18,6 +25,27 @@ describe('parseBase', () => {
   test('rejects what is not an http URL', () => {
     expect(() => parseBase('localhost')).toThrow('not a URL');
     expect(() => parseBase('a=ws://localhost:1')).toThrow('http or https');
+  });
+  test('rejects a label that would break the summary table', () => {
+    expect(() => parseBase('a|b=http://localhost:1')).toThrow('a label is');
+    expect(() => parseBase('a b=http://localhost:1')).toThrow('a label is');
+  });
+});
+
+describe('basesForRun', () => {
+  test('each run starts one server later, so none always goes last', () => {
+    expect([1, 2, 3, 4].map((run) => basesForRun(['a', 'b', 'c'], run).join(''))).toEqual([
+      'abc',
+      'bca',
+      'cab',
+      'abc',
+    ]);
+  });
+});
+
+describe('USAGE', () => {
+  test('describes every input profile', () => {
+    for (const name of INPUT_NAMES) expect(USAGE).toContain(`  ${name} `);
   });
 });
 
@@ -59,6 +87,7 @@ describe('parseBenchArgs', () => {
     ['a flag without a value', ['--base'], 'needs a value'],
     ['an unknown flag', ['--fast', '1'], 'unknown flag --fast'],
     ['an unknown input', ['--inputs', 'touch'], 'unknown input touch'],
+    ['a repeated input', ['--inputs', 'wheel,wheel'], 'repeated'],
     ['zero runs', ['--runs', '0'], 'whole number'],
     [
       'a repeated label',

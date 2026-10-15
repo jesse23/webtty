@@ -1,7 +1,7 @@
 // The benchmark's command line: the servers to compare, the scenarios file, the input
 // profiles, the runs and the CDP port, parsed and checked without side effects (util).
 
-import { INPUT_NAMES, type InputName, isInputName } from './inputs';
+import { INPUT_NAMES, INPUT_PROFILES, type InputName, isInputName } from './inputs';
 
 /** A server under test: the label results carry and its base URL. */
 export interface BaseTarget {
@@ -25,11 +25,18 @@ export const DEFAULT_RUNS = 2;
 export const USAGE = `usage: bun scripts/scroll-bench/bench.ts --base [label=]http://localhost:PORT ...
          --scenarios FILE [--inputs trackpad,wheel,trackpoint] [--runs N] [--cdp-port PORT]
 
-  --base       a server to measure; repeat it to compare builds (label defaults to host:port)
+  --base       a server to measure; repeat it to compare builds (label defaults to host:port;
+               letters, digits and . _ : - only)
   --scenarios  a JSON array of scenarios (see scripts/scroll-bench/scenarios.example.json)
   --inputs     the input profiles to play, comma separated (default: all)
   --runs       runs of each scenario and input per server (default ${DEFAULT_RUNS})
-  --cdp-port   the --remote-debugging-port of an already running Chrome (default ${DEFAULT_CDP_PORT})`;
+  --cdp-port   the --remote-debugging-port of an already running Chrome (default ${DEFAULT_CDP_PORT})
+
+inputs:
+${INPUT_NAMES.map((name) => `  ${name.padEnd(12)} ${INPUT_PROFILES[name].description}`).join('\n')}`;
+
+/** What a label may hold, so it reads plainly in the JSON lines and the markdown table. */
+const LABEL_RE = /^[A-Za-z0-9._:-]+$/;
 
 /** Parses `label=url` or a bare URL, whose label is its host and port. */
 export function parseBase(value: string): BaseTarget {
@@ -45,7 +52,10 @@ export function parseBase(value: string): BaseTarget {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`--base: must be http or https: ${raw}`);
   }
-  return { label: label || url.host, url: url.origin };
+  const name = label || url.host;
+  if (!LABEL_RE.test(name))
+    throw new Error(`--base: a label is letters, digits and . _ : -: ${name}`);
+  return { label: name, url: url.origin };
 }
 
 function positiveInt(flag: string, value: string): number {
@@ -61,7 +71,14 @@ function parseInputs(value: string): InputName[] {
       throw new Error(`--inputs: unknown input ${name}; one of ${INPUT_NAMES.join(', ')}`);
     }
   }
+  if (new Set(names).size !== names.length) throw new Error('--inputs: an input is repeated');
   return names as InputName[];
+}
+
+/** The servers in the order run `run` (from 1) measures them, rotated by one each run. */
+export function basesForRun<T>(bases: readonly T[], run: number): T[] {
+  const start = (run - 1) % bases.length;
+  return [...bases.slice(start), ...bases.slice(0, start)];
 }
 
 /** Parses the flags after the script name; throws with the problem on a bad one. */

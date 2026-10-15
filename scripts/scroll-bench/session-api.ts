@@ -38,10 +38,9 @@ export async function createSession(base: string, id: string): Promise<BenchSess
 
 /** Deletes the session, ending its shell and whatever runs in it; a missing one is fine. */
 export async function deleteSession(session: BenchSession): Promise<void> {
-  const res = await fetch(`${session.base}/api/sessions/${encodeURIComponent(session.id)}`, {
-    method: 'DELETE',
-  });
+  const api = `${session.base}/api/sessions/${encodeURIComponent(session.id)}`;
+  const res = await fetch(api, { method: 'DELETE' });
   if (res.status !== 204 && res.status !== 404) {
-    throw new Error(`DELETE ${session.url}: ${res.status}`);
+    throw new Error(`DELETE ${api}: ${res.status}`);
   }
 }

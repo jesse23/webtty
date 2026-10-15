@@ -11,8 +11,8 @@ import {
   matchPairs,
   type PaintStats,
   paintStats,
-  SCROLL_WINDOW,
   type StreamStats,
+  scrollWindow,
   streamStats,
 } from './metrics';
 import { decodeProfiles, readPaintCounter, resetPaintCounter, viewportCentre } from './page';
@@ -82,11 +82,12 @@ export async function measureScroll(
     cast.map((f) => f.jpeg),
     { x: 8, width: 600, channels: 'rg' },
   );
-  const pairs = matchPairs(profiles, SCROLL_WINDOW);
+  const window = scrollWindow(input.maxFramePx);
+  const pairs = matchPairs(profiles, window);
   return {
     frames: profiles.length,
-    blinks: blinkFrames(profiles, pairs, SCROLL_WINDOW).length,
-    avgStepPx: averageStepPx(pairs),
+    blinks: blinkFrames(profiles, pairs, window).length,
+    avgStepPx: averageStepPx(pairs, window),
     ...paintStats(log.frames, log.wheels, TAIL_MS),
   };
 }

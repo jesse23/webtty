@@ -18,19 +18,30 @@ export interface ShiftMatch {
   shift: number;
 }
 
-/** The scroll test's window: any shift a frame of smooth scrolling makes (blink.js). */
-export const SCROLL_WINDOW: ShiftWindow = { maxShift: 60, margin: 70 };
-/** The streaming test's window (t66.js). */
+/**
+ * The scroll test's window for an input whose view moves at most `maxShift` px between two
+ * recorded frames; the margin keeps every shifted row inside the frame.
+ */
+export function scrollWindow(maxShift: number): ShiftWindow {
+  return { maxShift, margin: maxShift + 10 };
+}
+/**
+ * The streaming test's window: it compares frames at rest, where any move is a fault, so
+ * a few rows' worth of shift is enough to tell a move from a redraw.
+ */
 export const STREAM_WINDOW: ShiftWindow = { maxShift: 40, margin: 60 };
 /** A mean row error above this is a different picture, not JPEG noise. */
 export const DIFFERENT = 3;
 
 /**
  * The shift of `b` against `a` with the least mean error over the rows inside the margin;
- * ties keep the first shift tried, from `-maxShift` up.
+ * ties keep the first shift tried, from `-maxShift` up. Throws when the margin is narrower
+ * than the largest shift or leaves no rows to compare.
  */
 export function bestShift(a: Profile, b: Profile, window: ShiftWindow): ShiftMatch {
   const { maxShift, margin } = window;
+  if (margin < maxShift) throw new Error(`shift window: margin ${margin} < maxShift ${maxShift}`);
+  if (a.length <= 2 * margin) throw new Error(`shift window: a ${a.length} px frame is too short`);
   let best: ShiftMatch = { error: Number.POSITIVE_INFINITY, shift: 0 };
   for (let s = -maxShift; s <= maxShift; s++) {
     let sum = 0;
@@ -39,7 +50,7 @@ export function bestShift(a: Profile, b: Profile, window: ShiftWindow): ShiftMat
       sum += Math.abs(b[y] - a[y - s]);
       rows++;
     }
-    const error = rows ? sum / rows : 0;
+    const error = sum / rows;
     if (error < best.error) best = { error, shift: s };
   }
   return best;
@@ -51,9 +62,10 @@ export function matchPairs(profiles: readonly Profile[], window: ShiftWindow): S
 }
 
 /**
- * The frames that blink: unlike both neighbours while the neighbours match each other,
- * at any shift, so smooth motion never counts but a flashed or half-drawn frame does.
- * `pairs` is `matchPairs(profiles, window)`.
+ * The frames that blink: a different picture from both neighbours at any shift, while the
+ * neighbours match each other (an error within DIFFERENT, and under half the smaller of the
+ * two). Smooth motion never counts, nor do three frames that all differ (an app redrawing),
+ * but a flashed or half-drawn frame does. `pairs` is `matchPairs(profiles, window)`.
  */
 export function blinkFrames(
   profiles: readonly Profile[],
@@ -66,14 +78,20 @@ export function blinkFrames(
     const after = pairs[k].error;
     if (before <= DIFFERENT || after <= DIFFERENT) continue;
     const across = bestShift(profiles[k - 1], profiles[k + 1], window).error;
-    if (across < Math.min(before, after) / 2) blinks.push(k);
+    if (across <= DIFFERENT && across < Math.min(before, after) / 2) blinks.push(k);
   }
   return blinks;
 }
 
-/** The mean distance of the frames that moved, in px (0 when none did). */
-export function averageStepPx(pairs: readonly ShiftMatch[]): number {
-  const moved = pairs.filter((p) => p.shift !== 0);
+/**
+ * The mean distance of the frames that moved, in px (0 when none did). A pair counts only
+ * when it is the same picture moved: not a different one (a redraw or a cut), and not at
+ * the window's edge, where the real step may have been larger than the window.
+ */
+export function averageStepPx(pairs: readonly ShiftMatch[], window: ShiftWindow): number {
+  const moved = pairs.filter(
+    (p) => p.shift !== 0 && p.error <= DIFFERENT && Math.abs(p.shift) < window.maxShift,
+  );
   if (moved.length === 0) return 0;
   return round(moved.reduce((sum, p) => sum + Math.abs(p.shift), 0) / moved.length, 1);
 }

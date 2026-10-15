@@ -1,7 +1,9 @@
 // The scroll input profiles as data, and playing one through CDP mouse wheel events.
 // Each profile is a fixed table, so every run sends the same events at the same times:
 // a trackpad's per-frame pixel deltas, a mouse wheel's notches and a TrackPoint's sparse
-// fractional deltas, as ADR 045 measured them in Chrome on macOS (constants + service).
+// fractional deltas. Only the TrackPoint's light step and the hard push's peak and gaps
+// come from ADR 045's capture in Chrome on macOS; the rest are synthetic tables shaped
+// after the devices' usual rates (constants + service).
 
 import type { Cdp } from './cdp';
 
@@ -17,11 +19,16 @@ export type InputName = 'trackpad' | 'wheel' | 'trackpoint';
 /** Which way to scroll: up into the scrollback or the file's start, or down. */
 export type Direction = 'up' | 'down';
 
-/** A device's wheel events and what they stand for. */
+/** A device's wheel events, what they stand for, and how far they can move one frame. */
 export interface InputProfile {
   name: InputName;
   description: string;
   events: readonly WheelEvent[];
+  /**
+   * The largest step between two recorded frames the scroll test looks for, in px: an
+   * event's whole delta applied at once, plus room for a dropped screencast frame.
+   */
+  maxFramePx: number;
 }
 
 const repeat = (count: number, gapMs: number, deltaPx: number): WheelEvent[] =>
@@ -29,9 +36,12 @@ const repeat = (count: number, gapMs: number, deltaPx: number): WheelEvent[] =>
 
 /** Gaps between a mouse wheel's notches, spun by hand at about 9 notches a second. */
 const WHEEL_GAPS = [110, 100, 120, 105, 115, 100, 110, 120, 105, 115, 100, 110, 120, 105];
-/** A light TrackPoint push: 4.000244 px about every 150 ms (ADR 045's capture). */
+/** A light TrackPoint push: ADR 045's 4.000244 px steps, about every 150 ms. */
 const TRACKPOINT_LIGHT_GAPS = [150, 145, 155, 150, 148, 152, 150, 150];
-/** A hard TrackPoint push, ramping up to about 335 px and back, every 29-45 ms (ADR 045). */
+/**
+ * A hard TrackPoint push: a synthetic ramp up to ADR 045's peak of about 335 px and back,
+ * with gaps within its 29-45 ms. The capture's own deltas are not in the repo.
+ */
 const TRACKPOINT_HARD: readonly [number, number][] = [
   [300, 18.5],
   [38, 46.25],
@@ -56,11 +66,13 @@ export const INPUT_PROFILES: Record<InputName, InputProfile> = {
     name: 'trackpad',
     description: 'a slow trackpad scroll: 2.5 px every 16 ms, 150 events',
     events: repeat(150, 16, 2.5),
+    maxFramePx: 60,
   },
   wheel: {
     name: 'wheel',
     description: 'a mouse wheel: 14 notches of 100 px, 100-120 ms apart',
     events: WHEEL_GAPS.map((gapMs) => ({ gapMs, deltaPx: 100 })),
+    maxFramePx: 150,
   },
   trackpoint: {
     name: 'trackpoint',
@@ -69,6 +81,9 @@ export const INPUT_PROFILES: Record<InputName, InputProfile> = {
       ...TRACKPOINT_LIGHT_GAPS.map((gapMs) => ({ gapMs, deltaPx: 4.000244 })),
       ...TRACKPOINT_HARD.map(([gapMs, deltaPx]) => ({ gapMs, deltaPx })),
     ],
+    // ADR 045's smoothed push moves 156-166 px a frame; a build that applies each delta at
+    // once jumps up to 335 px, more than a frame's rows can match, and reads as a new picture.
+    maxFramePx: 240,
   },
 };
 
@@ -84,11 +99,6 @@ export function isInputName(name: string): name is InputName {
 export function signedEvents(profile: InputProfile, direction: Direction): WheelEvent[] {
   const sign = direction === 'up' ? -1 : 1;
   return profile.events.map((e) => ({ gapMs: e.gapMs, deltaPx: sign * e.deltaPx }));
-}
-
-/** How long the profile takes to send, in ms. */
-export function durationMs(profile: InputProfile): number {
-  return profile.events.reduce((sum, e) => sum + e.gapMs, 0);
 }
 
 /** The clock playInput waits on; tests pass a fake one. */
