@@ -163,7 +163,8 @@ src/
       tests/                    vendor tests, Biome-linted, mirroring ghostty-web/ (engine/, core/, render/, input/, selection/, links/, addons/)
         support/                wasm.ts (the one WASM path, a cached loadGhostty(), countedGhostty()), fake-canvas.ts, fake-event-target.ts,
                                 engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours),
-                                selection-fixture.ts (a SelectionManager on a recording canvas and document)
+                                selection-fixture.ts (a SelectionManager on a recording canvas and document),
+                                terminal-harness.ts (a whole Terminal opened on the fakes, driven through its public API)
         fixtures/               PTY captures (was vendor/fixtures/)
       ghostty-web/              Biome-excluded; see "The vendored layer"
 scripts/
@@ -203,9 +204,11 @@ ghostty-web/
     engine-effects.ts (FnTable callbacks, clipboard write, readTitle)  grid-refs.ts (grid and screen refs, row wrap, hyperlinkAt)
     engine-config.ts (applyConfig, colour writes, the DECSCUSR blink)  cursor-blink.ts  text-mime.ts  kitty-keyboard-reply.ts
   core/                 Terminal's collaborators; import core/host-types.ts, never terminal.ts
-    host-types.ts  terminal-constants.ts  terminal-geometry.ts  options-proxy.ts  dom-setup.ts
+    host-types.ts  terminal-constants.ts  terminal-geometry.ts  options-proxy.ts  option-changes.ts
+    dom-setup.ts  opened-parts.ts (OpenedParts, disposeParts)  terminal-emitters.ts
     viewport.ts  focus-tracker.ts  find-controller.ts  write-pipeline.ts  render-loop.ts
     mouse-controller.ts  wheel-controller.ts  scrollbar-controller.ts
+    terminal-controllers.ts (the controllers above made and wired in one place, the input route)
   render/               renderable.ts  default-theme.ts  device-pixel-ratio.ts  frame-lines.ts  cell-range.ts  row-band.ts
                         font-metrics.ts  cell-painter.ts  row-repainter.ts  cursor-painter.ts  scrollbar-geometry.ts  scrollbar-painter.ts
                         scroll-tracker.ts  decoration-tracker.ts  viewport-clip.ts
