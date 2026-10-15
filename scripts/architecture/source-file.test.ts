@@ -19,7 +19,7 @@ describe('layerOf', () => {
     ['src/cli/main.ts', 'cli'],
     ['src/pty/index.ts', 'pty'],
     ['src/pty', 'pty'],
-    ['src/config.ts', 'config'],
+    ['src/config/index.ts', 'config'],
     ['src/config', 'config'],
     ['src/config/defaults.ts', 'config'],
     ['scripts/build.ts', 'scripts'],

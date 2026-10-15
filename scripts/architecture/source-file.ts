@@ -71,7 +71,6 @@ const LAYER_PREFIXES: [string, Layer][] = [
 
 /** Which layer a file (or an unresolved import target) belongs to. */
 export function layerOf(file: string): Layer {
-  if (file === 'src/config' || file === 'src/config.ts') return 'config';
   for (const [prefix, layer] of LAYER_PREFIXES) {
     if (file.startsWith(prefix) || `${file}/` === prefix) return layer;
   }

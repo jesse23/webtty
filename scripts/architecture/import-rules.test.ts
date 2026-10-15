@@ -12,7 +12,7 @@ const TREE = [
   file('src/server/flow.ts'),
   file('src/cli/http.ts'),
   file('src/pty/index.ts'),
-  file('src/config.ts'),
+  file('src/config/index.ts'),
   file('src/client/ack.ts'),
   file('src/client/vendor/ghostty-web/index.ts'),
   file('src/client/vendor/ghostty-web/glide.ts'),
