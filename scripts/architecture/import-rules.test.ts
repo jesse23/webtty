@@ -17,6 +17,7 @@ const TREE = [
   file('src/client/vendor/ghostty-web/index.ts'),
   file('src/client/vendor/ghostty-web/glide.ts'),
   file('src/client/vendor/ghostty-web/terminal.ts'),
+  file('src/client/vendor/ghostty-web/renderer.ts'),
   file('src/client/vendor/ghostty-web/core/host-types.ts'),
   file('src/client/features/find/find-bar.ts'),
   file('src/helpers.test.ts'),
@@ -163,12 +164,24 @@ describe('checkImports', () => {
       'split part imports a facade',
       'src/client/vendor/ghostty-web/core/a.ts',
       "import { Terminal } from '../terminal';",
-      ['facade-value-import'],
+      ['facade-import'],
     ],
     [
       'split part imports a facade type',
       'src/client/vendor/ghostty-web/core/a.ts',
       "import type { Terminal } from '../terminal';",
+      ['facade-import'],
+    ],
+    [
+      'render part imports the renderer facade type',
+      'src/client/vendor/ghostty-web/render/a.ts',
+      "import type { CanvasRenderer } from '../renderer';",
+      ['facade-import'],
+    ],
+    [
+      'a facade imports another facade',
+      'src/client/vendor/ghostty-web/a.ts',
+      "import { CanvasRenderer } from './renderer';",
       [],
     ],
     [

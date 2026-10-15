@@ -22,7 +22,7 @@ export type RuleId =
   | 'vendor-deep'
   | 'feature-feature'
   | 'below-feature'
-  | 'facade-value-import'
+  | 'facade-import'
   | 'cycle'
   | 'kebab-case'
   | 'banned-name'

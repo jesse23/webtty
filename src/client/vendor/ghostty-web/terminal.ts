@@ -58,6 +58,9 @@ export {
 } from './core/terminal-geometry';
 export { mouseReportText } from './input/mouse-report';
 
+/** The parts with their classes, for the facade's own calls and its public getters. */
+type TerminalParts = OpenedParts<CanvasRenderer, InputHandler, SelectionManager, LinkDetector>;
+
 /** The xterm.js-compatible terminal: webtty's one terminal per page. */
 export class Terminal implements ITerminalCore {
   // Public properties (xterm.js compatibility)
@@ -68,7 +71,7 @@ export class Terminal implements ITerminalCore {
   public readonly options: TerminalOptionValues;
 
   private ghostty?: Ghostty;
-  private parts?: OpenedParts;
+  private parts?: TerminalParts;
   private isOpen = false;
   private isDisposed = false;
   private addons: ITerminalAddon[] = [];
@@ -192,7 +195,7 @@ export class Terminal implements ITerminalCore {
     if (this.isOpen) throw new Error('Terminal is already open');
     if (this.isDisposed) throw new Error('Terminal has been disposed');
     this.isOpen = true;
-    const made: PartsMade = { element: parent };
+    const made: PartsMade<TerminalParts> = { element: parent };
     try {
       const parts = this.createParts(parent, made);
       this.parts = parts;
@@ -212,7 +215,7 @@ export class Terminal implements ITerminalCore {
    * open() has always made them (their listeners' order depends on it). Each part is noted
    * in `made` as it exists, so a failure part way cleans up what was made.
    */
-  private createParts(parent: HTMLElement, made: PartsMade): OpenedParts {
+  private createParts(parent: HTMLElement, made: PartsMade<TerminalParts>): TerminalParts {
     makeContainerEditable(parent);
     // Focus is followed, and kept on the textarea, by the focus tracker (webtty, ADR 053)
     this.core.focus.attach(parent);
@@ -560,7 +563,7 @@ export class Terminal implements ITerminalCore {
   }
 
   /** The parts of an open terminal; throws before open() and after dispose(). */
-  private openParts(): OpenedParts {
+  private openParts(): TerminalParts {
     if (this.isDisposed) throw new Error('Terminal has been disposed');
     if (!this.isOpen || !this.parts) {
       throw new Error('Terminal must be opened before use. Call terminal.open(parent) first.');

@@ -36,7 +36,10 @@ interface ImportRule {
   broken(site: ImportSite): string | null;
 }
 
-/** The facades a split vendor part must not import as a value (ADR 061: no runtime cycle). */
+/**
+ * The facades a split vendor part must not import, even as a type: a part sees the narrow
+ * interfaces, so it never depends on a facade class and no runtime cycle can form (ADR 061).
+ */
 export const VENDOR_FACADES = new Set(
   ['ghostty.ts', 'terminal.ts', 'renderer.ts', 'input-handler.ts', 'selection-manager.ts'].map(
     (name) => `${VENDOR_ROOT}${name}`,
@@ -140,11 +143,11 @@ export const IMPORT_RULES: ImportRule[] = [
         : null,
   },
   {
-    id: 'facade-value-import',
+    id: 'facade-import',
     appliesToTests: false,
-    broken: ({ from, ref, target }) =>
-      VENDOR_PART_RE.test(from) && !ref.typeOnly && VENDOR_FACADES.has(target)
-        ? `imports the facade ${target} as a value; split parts import the narrow interfaces`
+    broken: ({ from, target }) =>
+      VENDOR_PART_RE.test(from) && VENDOR_FACADES.has(target)
+        ? `imports the facade ${target}; split parts import the narrow interfaces`
         : null,
   },
   {
