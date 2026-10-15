@@ -41,6 +41,17 @@ describe('WheelClassifier', () => {
     ).toBe(false);
   });
 
+  test('notches that are multiples of each other count, though floating point leaves a remainder', () => {
+    // 100 and 200 px notches at a 110% page zoom
+    expect(
+      feed([
+        [0, 100 / 1.1],
+        [0, 200 / 1.1],
+        [0, 100 / 1.1],
+      ]),
+    ).toBe(true);
+  });
+
   test('no events is not a wheel', () => {
     expect(new WheelClassifier().isPhysicalMouseWheel()).toBe(false);
   });

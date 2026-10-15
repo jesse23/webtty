@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test';
+import { easeOutCubic, linear } from '../../vendor/ghostty-web';
 import { STREAM_OMEGA, WHEEL_GLIDE_MS, WheelStream } from './wheel-stream';
 
 describe('WheelStream.forApp', () => {
@@ -126,5 +127,20 @@ describe('WheelStream classifies each event once', () => {
     const pace = s.forApp(second);
     expect(s.forScrollback(second)).toEqual(pace);
     expect(s.forApp(second)).toEqual(pace);
+  });
+});
+
+describe('WheelStream at a page zoom', () => {
+  const at = (deltaY: number, timeStamp: number) =>
+    ({ deltaX: 0, deltaY, deltaMode: 0, timeStamp }) as WheelEvent;
+  /** Accelerating notches of 100, 200 and 300 px as Chromium reports them at `zoom`. */
+  const lastPace = (s: WheelStream, zoom: number) =>
+    [1, 2, 3, 2].map((n, i) => s.forScrollback(at((-100 * n) / zoom, 1000 + i * 300))).at(-1);
+
+  test('a wheel at 110% eases out as a wheel, once the deltas are taken back to 100%', () => {
+    const zoomed = new WheelStream({ outerWidth: 1400, innerWidth: 1273 });
+    expect(lastPace(zoomed, 1.1)).toEqual({ duration: WHEEL_GLIDE_MS, ease: easeOutCubic });
+    // Without the zoom, the same deltas glide linearly, as a TrackPoint's sparse stream
+    expect(lastPace(new WheelStream({}), 1.1)?.ease).toBe(linear);
   });
 });

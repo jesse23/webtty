@@ -18,6 +18,7 @@
  * - Trackpad deltas, a frame apart, move at once.
  */
 import { AT_ONCE, easeOutCubic, FRAME_MS, linear, type Pace } from '../../vendor/ghostty-web';
+import { pageZoom, type ZoomWindow } from './page-zoom';
 import { WheelClassifier } from './wheel-classifier';
 
 /** How long a mouse wheel notch glides to its target: VS Code's `smoothScrollDuration`. */
@@ -47,8 +48,8 @@ export const FAST_STREAM_MS = 60;
 /** The spring's stiffness, rad/s: about 70 ms to settle, smoothing over a few deltas. */
 export const STREAM_OMEGA = 28;
 
-/** The browser object the stream asks whether the OS wants less motion. */
-export interface WheelStreamDeps {
+/** The browser object the stream asks whether the OS wants less motion, and the page zoom. */
+export interface WheelStreamDeps extends ZoomWindow {
   /** `window.matchMedia`; without one, motion is full. */
   matchMedia?(query: string): { matches: boolean };
 }
@@ -114,7 +115,11 @@ export class WheelStream {
     const dir = Math.sign(e.deltaY);
     const sameDir = dir === this.lastDir;
     this.lastDir = dir;
-    if (e.deltaMode === 0) this.classifier.accept(e.deltaX || 0, e.deltaY);
+    // In the deltas' size before the page zoom divided them, as VS Code classifies them
+    if (e.deltaMode === 0) {
+      const zoom = pageZoom(this.deps);
+      this.classifier.accept((e.deltaX || 0) * zoom, e.deltaY * zoom);
+    }
     const wheel = e.deltaMode !== 0 || this.classifier.isPhysicalMouseWheel();
     // A stream turns sparse on its second long gap in a row, as it stops being sparse on
     // its second short one: the first long gap is the pause before any gesture, and

@@ -61,6 +61,7 @@ export const PURE_MODULES: readonly string[] = [
   'src/client/features/kitty/protocol/kitty-reply.ts',
   'src/client/features/kitty/protocol/png-size.ts',
   'src/client/features/paste/non-text-paste.ts',
+  'src/client/features/scroll/page-zoom.ts',
   'src/client/features/scroll/scroll-split.ts',
   'src/client/layout/edge-rects.ts',
   'src/client/layout/fit-insets.ts',

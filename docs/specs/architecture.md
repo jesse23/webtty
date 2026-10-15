@@ -150,7 +150,7 @@ src/
       find/                     find-bar.ts (view), find-format.ts (util), find-keys.ts (util; takes the shortcut lookup, never imports keyboard/), find-feature.ts
       keyboard/                 key-bindings.ts, shortcut-map.ts (was shortcuts.ts), shortcut-commands.ts, screen-clear.ts (Cmd+K), font-zoom.ts, key-dispatcher.ts (feature), font-zoom-feature.ts
       compose/                  composer.ts (view + dispose), composer-geometry.ts (util)
-      scroll/                   smooth-scroll.ts, scroll-split.ts, wheel-classifier.ts (VS Code MIT notice), wheel-stream.ts, scroll-feature.ts
+      scroll/                   smooth-scroll.ts, scroll-split.ts, wheel-classifier.ts (VS Code MIT notice), wheel-stream.ts, page-zoom.ts, scroll-feature.ts
       kitty/
         protocol/               apc-splitter.ts, apc-command.ts, chunk-assembler.ts, kitty-reply.ts, png-size.ts, cell-geometry.ts, control-scanner.ts
         graphics/               image-store.ts, image-decoder.ts, placements.ts, placement-geometry.ts, kitty-limits.ts,
