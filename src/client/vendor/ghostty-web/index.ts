@@ -1,6 +1,7 @@
 // Derived from coder/ghostty-web lib/index.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // The vendored layer's public barrel: the only path webtty's app code imports vendor code
-// through (ADR 060, ADR 061). It follows xterm.js' naming.
+// through (ADR 060, ADR 061). It follows xterm.js' naming, and its runtime names are
+// pinned by vendor/tests/barrel.test.ts.
 
 // Main Terminal class
 export { Terminal } from './terminal';

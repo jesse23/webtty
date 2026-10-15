@@ -1,8 +1,7 @@
-/**
- * Who a mouse press and a right-click belong to: the app, while it tracks the mouse, or
- * webtty (selection, menu, copy, paste). Shift is the bypass, as in Ghostty, kitty,
- * WezTerm, xterm, Windows Terminal and VS Code. (webtty, ADR 051)
- */
+// webtty (ADR 051), not from upstream.
+// Who a mouse press and a right-click belong to (util): the app, while it tracks the mouse,
+// or webtty (selection, menu, copy, paste). Shift is the bypass, as in Ghostty, kitty,
+// WezTerm, xterm, Windows Terminal and VS Code.
 
 /** What a right-click does when the app does not take it (the config's `rightClickBehavior`). */
 export type RightClickBehavior = 'contextMenu' | 'copyPaste' | 'paste' | 'none';
@@ -22,6 +21,7 @@ export function pressToApp(tracking: boolean, shiftKey: boolean): boolean {
   return tracking && !shiftKey;
 }
 
+/** What `rightClickAction` decides from: the app's tracking, the event and the config. */
 export interface RightClick {
   /** The app tracks the mouse (any DEC mouse tracking mode is on). */
   tracking: boolean;

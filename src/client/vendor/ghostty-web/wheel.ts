@@ -1,10 +1,9 @@
-/**
- * Wheel input for apps that scroll themselves: what a wheel event sends when the
- * app tracks the mouse (scroll ticks, each encoded by Ghostty's mouse encoder as a
- * press of button 4 or 5, ADR 049) or is on the alternate screen without mouse
- * tracking (arrow keys), and the pacing that spreads it over time. The
- * terminal's `WheelController` routes events here. (webtty, ADR 017, ADR 040, ADR 045)
- */
+// webtty (ADR 017, ADR 040, ADR 045), not from upstream.
+// Wheel input for apps that scroll themselves (util and object): what a wheel event sends
+// when the app tracks the mouse (scroll ticks, each encoded by Ghostty's mouse encoder as a
+// press of button 4 or 5, ADR 049) or is on the alternate screen without mouse tracking
+// (arrow keys), and the `TickPacer` that spreads it over time. The terminal's
+// `WheelController` routes events here.
 import { Glide, linear, type Pace } from './glide';
 
 /** Wheel travel not yet sent to an app, and its direction. */

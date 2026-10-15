@@ -1,10 +1,12 @@
-/**
- * xterm.js-compatible interfaces
- */
+// Derived from coder/ghostty-web lib/interfaces.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// The xterm.js-compatible public types (types): the terminal's options and theme, the
+// addon and disposable contracts, the event signature the emitters implement, and the
+// read-only buffer API the link providers and webtty's kitty graphics read.
 
 import type { Ghostty } from './ghostty';
 import type { RightClickBehavior } from './mouse-route';
 
+/** What `new Terminal(options)` takes; unset values get `TERMINAL_DEFAULTS`. */
 export interface ITerminalOptions {
   cols?: number; // Default: 80
   rows?: number; // Default: 24
@@ -38,6 +40,7 @@ export interface ITerminalOptions {
   ghostty: Ghostty;
 }
 
+/** The terminal's colours as CSS colour strings; unset ones keep the default theme's. */
 export interface ITheme {
   foreground?: string;
   background?: string;
@@ -70,26 +73,26 @@ export interface ITheme {
   brightWhite?: string;
 }
 
+/** Anything that releases what it holds; returned by every event subscription. */
 export interface IDisposable {
   dispose(): void;
 }
 
+/** An xterm-style `onX` event: subscribe a listener, dispose the result to unsubscribe. */
 export type IEvent<T> = (listener: (arg: T) => void) => IDisposable;
 
+/** An addon `loadAddon` activates on the terminal and disposes with it. */
 export interface ITerminalAddon {
   activate(terminal: ITerminalCore): void;
   dispose(): void;
 }
 
+/** What an addon sees of the terminal it is activated on. */
 export interface ITerminalCore {
   element?: HTMLElement;
   /** The cell size, for FitAddon; set while the terminal is open (webtty, ADR 061) */
   readonly renderer?: { getMetrics(): { width: number; height: number } };
 }
-
-// ============================================================================
-// Buffer API Interfaces (xterm.js compatibility)
-// ============================================================================
 
 /**
  * Top-level buffer API namespace

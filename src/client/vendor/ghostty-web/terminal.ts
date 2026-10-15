@@ -1,7 +1,8 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
-// Terminal (facade): the xterm.js-compatible terminal over Ghostty's libghostty-vt engine,
-// its emitters and the parts it composes in open(); webtty creates it with
-// `new Terminal({ ghostty: await Ghostty.load(url), ... })` and `open(container)` (ADR 061).
+// Terminal (facade): the xterm.js-compatible terminal over Ghostty's libghostty-vt engine.
+// It holds the options and the emitters, composes the parts open() makes and the controllers
+// in core/, and dispose() releases all of it (ADR 061, ADR 065). webtty creates it with
+// `new Terminal({ ghostty: await Ghostty.load(url), ... })` and `open(container)`.
 
 import { BufferNamespace } from './buffer';
 import {

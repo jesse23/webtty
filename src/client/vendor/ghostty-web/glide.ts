@@ -1,8 +1,7 @@
-/**
- * A value that moves toward a target a frame at a time: the one motion behind
- * scrolling's glides, for the scrollback position (smooth-scroll.ts) and for the
- * scroll ticks paced to apps (wheel.ts). (webtty, ADR 045)
- */
+// webtty (ADR 045), not from upstream.
+// A value that moves toward a target a frame at a time (object): the one motion behind
+// scrolling's glides, for the scrollback position (the app's smooth-scroll.ts) and for
+// the scroll ticks paced to apps (wheel.ts).
 
 /** One frame at 60 Hz. */
 export const FRAME_MS = 1000 / 60;
@@ -14,10 +13,13 @@ export const FRAME_MS = 1000 / 60;
  */
 export const SPRING_RELEASE_MS = 60;
 
+/** Maps a glide's elapsed fraction (0 to 1) to the fraction of the distance covered. */
 export type Ease = (t: number) => number;
 
+/** Even speed: the ticks paced to apps and a running wheel stream's glides. */
 export const linear: Ease = (t) => t;
 
+/** Fast start, soft landing: the scrollback glide of one discrete wheel step. */
 export const easeOutCubic: Ease = (t) => 1 - (1 - t) ** 3;
 
 /**

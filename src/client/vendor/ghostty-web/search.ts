@@ -1,12 +1,11 @@
-/**
- * Find (webtty, ADR 055): which cells of which rows the renderer paints in the search
- * colours, and where the view goes for the selected match.
- *
- * Matches come from libghostty-vt newest to oldest (`GhosttyTerminal.searchMatches`), so
- * their rows never increase along the list, and the matches over a range of rows are a
- * run of it, found by binary search: a frame costs the same with ten matches or a
- * hundred thousand.
- */
+// webtty (ADR 055), not from upstream.
+// Find highlights and view arithmetic (util): which cells of which rows the renderer
+// paints in the search colours, and where the view goes for the selected match.
+//
+// Matches come from libghostty-vt newest to oldest (`GhosttyTerminal.searchMatches`), so
+// their rows never increase along the list, and the matches over a range of rows are a
+// run of it, found by binary search: a frame costs the same with ten matches or a
+// hundred thousand.
 import type { ScreenRange } from './ghostty';
 
 /** Matches as libghostty-vt's search found them, and the selected one. */

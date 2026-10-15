@@ -1,10 +1,7 @@
-/**
- * Link detection and caching system
- *
- * The LinkDetector coordinates between multiple link providers and caches
- * results for performance. Links are cached by position range, and earlier
- * providers (e.g. OSC8) take precedence over later ones (e.g. regex).
- */
+// Derived from coder/ghostty-web lib/link-detector.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// Link detection and caching (object): `LinkDetector` asks its providers for the links on a
+// row and caches them by position range; earlier providers (OSC 8) take precedence over
+// later ones (the URL regex). The terminal's mouse controller reads it on hover and click.
 
 import { cellInRange } from './render/cell-range';
 import type { ILink, ILinkProvider } from './link-types';
