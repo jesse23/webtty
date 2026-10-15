@@ -18,7 +18,7 @@ function row(record: ListenerRecord, targets: readonly RecordingTarget[]): strin
   ].filter(Boolean);
   const target = targets.find((t) => t.name === record.target);
   const removed = target?.removed.includes(record) ?? false;
-  return [record.target, record.type, ...flags, removed ? '-> removed' : '-> removed'].join(' ');
+  return [record.target, record.type, ...flags, removed ? '-> removed' : '-> LEAKS'].join(' ');
 }
 
 /** The listeners, in the order open() adds them; dispose() removes every one (ADR 065). */
