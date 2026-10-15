@@ -10,6 +10,7 @@ const config: ClientConfig = {
   fontFamily: 'Menlo',
   cursorStyle: 'bar',
   cursorStyleBlink: true,
+  scrollback: 256 * 1024,
   scrollbackLines: 5000,
   theme: { background: '#000000', padding: '#111111' },
   copyOnSelect: false,

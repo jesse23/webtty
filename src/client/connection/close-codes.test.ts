@@ -1,16 +1,18 @@
+// Contract test: the close codes the client acts on are the server's own (ADR 060, ADR 062).
+// Tests may cross the client/server line; the client source never imports the server.
 import { describe, expect, test } from 'bun:test';
-import { FELL_BEHIND } from '../../server/flow';
+import { WS_CLOSE } from '../../server/ws/close-codes';
 import { CLOSE_CODE } from './close-codes';
 
 describe('CLOSE_CODE', () => {
-  test("fell-behind is the server's code (ADR 048)", () => {
-    expect(CLOSE_CODE.FELL_BEHIND).toBe(FELL_BEHIND);
-  });
+  test.each(Object.keys(CLOSE_CODE) as (keyof typeof CLOSE_CODE)[])(
+    "%s is the server's WS_CLOSE code",
+    (name) => {
+      expect(CLOSE_CODE[name]).toBe(WS_CLOSE[name]);
+    },
+  );
 
-  // The server's other codes are module-private on this branch; once its close-codes
-  // module is exported (step C-F) these are pinned to it too.
   test('the codes the tab closes on', () => {
-    expect(CLOSE_CODE.SERVER_STOPPED).toBe(1001);
-    expect(CLOSE_CODE.SESSION_GONE).toBe(4001);
+    expect(CLOSE_CODE).toEqual({ SERVER_STOPPED: 1001, SESSION_GONE: 4001, FELL_BEHIND: 4003 });
   });
 });

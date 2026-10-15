@@ -30,6 +30,7 @@ export const FAKE_CONFIG: ClientConfig = {
   fontFamily: 'monospace',
   cursorStyle: 'block',
   cursorStyleBlink: false,
+  scrollback: 256 * 1024,
   scrollbackLines: 1000,
   theme: {},
   copyOnSelect: false,
