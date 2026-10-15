@@ -81,7 +81,7 @@ Commands that resume a personal pi or Claude Code session belong in your own sce
 |-------|--------|--------------------|
 | `trackpad` | 150 deltas of 2.5 px, 16 ms apart | A slow two-finger scroll: a small delta every frame |
 | `wheel` | 14 notches of 100 px, 100–120 ms apart | A mouse wheel spun by hand, as Chromium on macOS reports a notch |
-| `trackpoint` | 8 light 4.000244 px steps ~150 ms apart, then a hard push of 15 fractional deltas up to 334.75 px, 29–45 ms apart | ADR 045's TrackPoint capture: its light step, its peak and its gaps (the push's ramp is synthetic) |
+| `trackpoint` | 8 light 4.000244 px steps ~150 ms apart, then, after a 300 ms pause, a hard push of 15 fractional deltas up to 334.75 px, 29–45 ms apart | ADR 045's TrackPoint capture: its light step, its peak and its gaps (the push's ramp is synthetic) |
 
 ### Scenarios measured
 
@@ -99,11 +99,11 @@ Commands that resume a personal pi or Claude Code session belong in your own sce
 
 ## Measures
 
-- **Frames** come from `Page.startScreencast` at the page's own size, each reduced to a profile: the mean brightness of each pixel row over the left 600 px. Two frames *match* at the vertical shift with the least mean row error; an error above 3 is a different picture.
-- **Blink**: a frame that is a different picture from both neighbours at any shift, while the neighbours match each other (error ≤ 3 and under half the smaller of the two). Smooth motion never counts, nor do three frames that all differ (an app redrawing); a half-drawn or flashed frame does. Calibrated at 0 on `seq`, and every reference blink was checked in its saved frames.
+- **Frames** come from `Page.startScreencast` at the page's own size, each reduced to a profile: the mean of the red and green channels of each pixel row, over 600 px from x = 8. Two frames *match* at the vertical shift with the least mean row error, searched within ±60, ±150 or ±240 px for the trackpad, the wheel and the TrackPoint; an error above 3 is a different picture.
+- **Blink**: a frame that is a different picture from both neighbours at any shift, while the neighbours match each other (error ≤ 3 and under half the smaller of the two). Smooth motion never counts, nor do three frames that all differ (an app redrawing); a half-drawn or flashed frame does. Calibrated at 0 on `seq`; while building the harness, blinks were checked in their saved frames (`--dump`), which showed real torn frames in pi and Claude Code fullscreen and the false hits the pitfalls below now guard against.
 - **Paints/s, gap p50/p90**: from a counter in the page that flags each animation frame in which the canvas was drawn, between the first wheel event and 400 ms after the last.
 - **Step px**: the mean shift of the frames that moved and still matched. In a fullscreen app it is the app's own step (a line is 14 px).
-- **Stream test**: frames showing `stream.sh`'s bar are at the bottom. It counts them while scrolling back and at rest after, and counts at-rest frames that moved.
+- **Stream test**: frames showing `stream.sh`'s bar are at the bottom, read from the red channel over 400 px from x = 8. It counts them while scrolling back and at rest after, and counts at-rest frames that moved or changed.
 
 ### Pitfalls the harness guards against
 
@@ -111,14 +111,14 @@ Commands that resume a personal pi or Claude Code session belong in your own sce
 |---------|--------|-------|
 | Recording smaller than the page | A smooth step becomes a fractional shift; the resampling blur on high-contrast text reads as blinks | Record at `innerWidth × devicePixelRatio` |
 | Lines that look alike | A frame moved by a line matches the one before; motion reads as 0 | Test files and `stream.sh` vary their line lengths |
-| A brightness test over the whole row | `stream.sh`'s 80-column bar is too dim averaged over 1400 px | The stream test reads the left 400 px |
+| A brightness test over the whole row | `stream.sh` sizes its bar with `tput cols`, which can be narrower than the page (80 columns in the reference sessions): averaged over 1400 px it is too dim | The stream test reads the left 400 px, under the bar in any terminal 50 columns wide |
 | The wheel over the wrong pane | yazi scrolls the pane under the pointer (its preview, at the centre) | A scenario's `pointer` field |
 | Typing before the shell's prompt | The command is lost; nothing moves | A 1.5 s wait, and a scroll in which nothing moved runs again (`# retried` on stderr) |
 | Apps left running after a session is deleted | Hundreds of leaked processes load the machine | Fixed in the server: deleting a session hangs up its shell (SIGHUP) |
 
 ## Reference results
 
-Run on 2026-10-15 in headless Chrome 151 (1400×657, DPR 1) on macOS, two runs each, medians shown. Four builds of this branch: **none** (before ADR 066 and 067, `58ea652`), **066** and **067** (one fix each), and **both** (`2886492`). The machine was loaded by background indexing during part of the run; paints per second of apps that scroll by lines vary by about ±20% between runs, the blink and stream counts do not.
+Run on 2026-10-15 in headless Chrome 151 (1400×657, DPR 1) on macOS, two runs each, medians shown. Four builds of this branch: **none** (`58ea652`, before ADR 066 and 067, with the server's SIGHUP fix of `ede827a` applied so sessions do not leak), **066** and **067** (`2886492` with the other fix switched off), and **both** (`2886492`). Spotlight indexing loaded the machine during part of the run. Paints per second of apps that scroll by lines moved noticeably between this and two earlier runs of the day, so compare builds within one run; the blink and stream counts held steady.
 
 **Blinks per run** (trackpad / wheel / TrackPoint):
 
@@ -135,10 +135,10 @@ Run on 2026-10-15 in headless Chrome 151 (1400×657, DPR 1) on macOS, two runs e
 | pi classic, Claude Code classic, seq | 111 / 67 / 61 | 1.5 / 13 / 31 px: webtty's pixel-smooth scrollback |
 | pi fullscreen | 11 / 45 / 18 | 14 / 17 / 72 px: pi's lines |
 | Claude Code fullscreen | 11 / 43 / 9.5 | 14 / 78 / 65 px: Claude Code's lines |
-| vim, nvim | 11 / 51 / 19 and 9 / 45 / 17 | 3 lines a tick |
+| vim, nvim | 11 / 51 / 19 and 9 / 45 / 17 | 3 lines a tick (42 px with a trackpad) |
 | yazi, less | 17 / 53 / 21 and 10 / 51 / 24 | — |
 
-Classic modes scroll about ten times as often as fullscreen ones with a trackpad, by pixels instead of lines. Within a mode the four builds paint alike, except that 067 removes the blinked frames: Claude Code fullscreen with the wheel paints 43/s with both fixes against 56/s before, all of them complete.
+Classic modes scroll about ten times as often as fullscreen ones with a trackpad, by pixels instead of lines. Within a mode the four builds paint alike, except where ADR 067 holds frames during an app's updates: Claude Code fullscreen with the wheel paints 43/s with both fixes against 56/s before, every paint now a complete update: the paints it drops are the torn frames (6 a run before) and other in-between states.
 
 **Stream test** (frames at the bottom while scrolling back / frames at the bottom at rest / at-rest frames that moved):
 
@@ -150,7 +150,7 @@ Classic modes scroll about ten times as often as fullscreen ones with a trackpad
 
 Without ADR 066 the view is pulled back to the bottom on almost every frame; with it, only the frames before the scroll leaves the bottom show it.
 
-**Back-to-back updates.** Claude Code fullscreen, scrolled hard with a TrackPoint, sends synchronized updates of 5 ms on the wire (median; 36 ms at most) 1 ms apart. Painting only on frames that find the mode off dropped it to 7 paints/s with 380 ms between paints at p90; painting an update as it ends after a held frame (ADR 067) brought it back to 9–11 paints/s, against 11–13 without the hold (this input varies most between runs), with no blinks.
+**Back-to-back updates.** Claude Code fullscreen, scrolled hard with a TrackPoint, sends synchronized updates of 5 ms on the wire (median; 36 ms at most) 1 ms apart, traced over CDP. In a run before the reference run, painting only on frames that find the mode off dropped it to 7 paints/s with 380 ms between paints at p90. With an update painted as it ends after a held frame (ADR 067), the reference run gives 9.1 (067) and 9.5 (both) paints/s with 417 and 267 ms at p90, against 12.1–12.7 and 188–204 ms without the hold, and no torn frames: better than before, still a cost of the hold for this input.
 
 ## Features
 

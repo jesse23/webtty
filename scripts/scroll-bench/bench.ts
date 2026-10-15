@@ -9,13 +9,13 @@
 //
 // Start Chrome or Chromium yourself; the benchmark never launches or closes a browser:
 //
-//   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+//   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
 //     --remote-debugging-port=9333 --user-data-dir=/tmp/scroll-bench-chrome \
-//     --window-size=1280,800 --no-first-run about:blank
+//     --window-size=1400,800 --no-first-run about:blank
 //
 // Start each webtty build to compare on its own port, then:
 //
-//   bun run bench:scroll --base before=http://localhost:3001 --base after=http://localhost:3002 \
+//   bun run bench:scroll --base before=http://localhost:2401 --base after=http://localhost:2400 \
 //     --scenarios my-scenarios.json --inputs trackpad,wheel,trackpoint --runs 2
 //
 // Scenarios live in a JSON file of your own (scenarios.example.json shows the fields), so
