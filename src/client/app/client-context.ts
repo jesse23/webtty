@@ -25,7 +25,10 @@ export interface ClientContext {
 /** An installed feature: its `dispose()` removes everything it added and is idempotent. */
 export type Feature = Disposable;
 
-/** A feature installer, `install<Name>(ctx, deps)`, returning its feature and any API others need. */
+/**
+ * A feature installer, `install<Name>(ctx, deps)`, returning its feature and any API others
+ * need. client-context.test.ts holds every installer to it at compile time.
+ */
 export type FeatureInstaller<Deps, F extends Feature = Feature> = (
   ctx: ClientContext,
   deps: Deps,
