@@ -11,10 +11,11 @@ import type { LinkSource, MenuSelection, MouseRenderer } from './host-types';
 
 /**
  * What the controllers reach of the CanvasRenderer: the mouse's reads, the find
- * highlights and its teardown.
+ * highlights, the sub-line offset the view keeps across output (ADR 066) and its teardown.
  */
 export interface RendererPart extends MouseRenderer {
   setSearchHighlights(highlights: SearchHighlights | null): void;
+  readonly requestedOffset: number;
   dispose(): void;
 }
 

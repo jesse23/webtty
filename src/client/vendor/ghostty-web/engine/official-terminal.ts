@@ -1,8 +1,10 @@
-// webtty (ADR 042, ADR 047, ADR 061), not from upstream.
+// webtty (ADR 042, ADR 047, ADR 061, ADR 066), not from upstream.
 // The terminal on the official libghostty-vt wasm (facade): `OfficialTerminal` implements
 // the `GhosttyTerminal` interface the rest of the vendored layer uses, on the wasm instance
-// (`EngineHost`) that `Ghostty.createTerminal` passes it. It owns the writes, the size and
-// the view offset, and delegates every other area to a binding on one `EngineContext`.
+// (`EngineHost`) that `Ghostty.createTerminal` passes it. It owns the writes, the size,
+// the view offset and Ghostty's own viewport (moved for a prompt jump or pinned across a
+// write, then put back at the bottom), and delegates every other area to a binding on one
+// `EngineContext`.
 
 import { DirtyState, type GhosttyCell, type RenderStateCursor } from './cell-types';
 import { type ConfigSlot, configSlots, EngineConfig } from './engine-config';
@@ -154,8 +156,8 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   /** vt_write, or vt_write_until_ground: the bytes consumed, null if ground was not reached. */
   private feed(bytes: Uint8Array, text: string | undefined, untilGround: boolean): number | null {
-    // Writes never leave the view scrolled (terminal.ts scrolls to the bottom after
-    // writing); the first frame at the bottom repaints every row.
+    // A write puts the view offset back to the bottom; the next render sets it again
+    // (renderer.ts, from viewportY) and repaints every row.
     if (this.offset !== 0) {
       this.offset = 0;
       this.render.markAllDirty();
@@ -305,20 +307,37 @@ export class OfficialTerminal implements GhosttyTerminal {
   }
 
   promptJumpRow(top: number, delta: number): number {
-    const { ex, at, L } = this.ctx;
-    const S = L.scroll;
+    const S = this.ctx.L.scroll;
     this.ctx.info();
     // Ghostty moves its viewport from its top row, so it is put on webtty's for the move
     this.ctx.scrollViewport(S.ROW, top);
     try {
       this.ctx.scrollViewport(S.DELTA_PROMPT, delta);
-      const rc = ex.ghostty_terminal_get(this.ctx.term, L.tdata.SCROLLBAR, at.scrollbar);
-      if (rc !== 0) return top;
-      // The offset is a u64; a screen row fits in the low 32 bits
-      return this.ctx.dv().getUint32(at.scrollbar + L.scrollbar.offset, true);
+      return this.viewportRow() ?? top;
     } finally {
       this.ctx.scrollViewport(S.BOTTOM, 0);
     }
+  }
+
+  pinViewport(row: number): void {
+    this.ctx.info();
+    this.ctx.scrollViewport(this.ctx.L.scroll.ROW, row);
+  }
+
+  unpinViewport(): number {
+    // An erased scrollback leaves Ghostty's viewport on the screen, row 0 if it is all gone
+    const row = this.viewportRow() ?? 0;
+    this.ctx.scrollViewport(this.ctx.L.scroll.BOTTOM, 0);
+    return row;
+  }
+
+  /** The screen row at the top of Ghostty's viewport, or null if Ghostty refuses the read. */
+  private viewportRow(): number | null {
+    const { ex, at, L } = this.ctx;
+    const rc = ex.ghostty_terminal_get(this.ctx.term, L.tdata.SCROLLBAR, at.scrollbar);
+    if (rc !== 0) return null;
+    // The offset is a u64; a screen row fits in the low 32 bits
+    return this.ctx.dv().getUint32(at.scrollbar + L.scrollbar.offset, true);
   }
 
   getMode(mode: number, isAnsi: boolean = false): boolean {

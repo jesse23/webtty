@@ -454,14 +454,16 @@ describe('Terminal find', () => {
     expect(term.findPrevious()).toBe(true);
   });
 
-  test('without a selected match, output scrolls to the bottom as before', async () => {
+  test('without a selected match, output keeps a scrolled view on its text (ADR 066)', async () => {
     const { term, frames } = await findTerm();
     for (let i = 0; i < 20; i++) term.write(`line ${i}\r\n`);
     term.find('line');
     frames(2);
     term.scrollToLine(5);
+    const scrollback = term.getScrollbackLength();
     term.write('x\r\n');
-    expect(term.viewportY).toBe(0);
+    expect(term.viewportY).toBe(5 + term.getScrollbackLength() - scrollback);
+    expect(term.viewportY).toBeGreaterThan(5);
   });
 
   test('a key or a paste scrolls a view on a selected match to the bottom', async () => {

@@ -1,4 +1,4 @@
-// webtty (ADR 045), not from upstream.
+// webtty (ADR 045, ADR 066), not from upstream.
 // A value that moves toward a target a frame at a time (object): the one motion behind
 // scrolling's glides, for the scrollback position (the app's smooth-scroll.ts) and for
 // the scroll ticks paced to apps (wheel.ts).
@@ -148,6 +148,26 @@ export class Glide {
     this.value = value;
     this.target = value;
     this.stop();
+  }
+
+  /**
+   * Moves the value by `delta`, keeping the motion: the scale it moves on shifted under it
+   * (output kept the view on its text, ADR 066). The target and a timed glide's start move
+   * with it, so the glide covers the distance it had left. With `keepTarget`, a moving
+   * glide still ends on its target: a spring heads there at its velocity, and a timed
+   * glide's remaining curve is stretched to start from the moved value, so it lands on time.
+   */
+  shift(delta: number, keepTarget = false): void {
+    if (!keepTarget) {
+      this.target += delta;
+      this.from += delta;
+    } else if (this.moving && !this.omega) {
+      // A timed glide is at target + (from - target) * (1 - ease(t)): scaling from - target
+      // moves where it is now by delta and keeps its end and its timing
+      const left = this.value - this.target;
+      if (left !== 0) this.from = this.target + ((this.from - this.target) * (left + delta)) / left;
+    }
+    this.value += delta;
   }
 
   /** Stops where the value is. */

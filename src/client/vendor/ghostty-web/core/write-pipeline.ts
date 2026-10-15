@@ -1,9 +1,10 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
-// The write pipeline (controller): a write in its fixed order, a waiting clear at ground,
-// the engine write, the synchronized update's timing, the replies, the focus-mode edge, the
-// effects, the link cache, the auto-scroll and the echo render, plus clear screen and the
-// reply drain (ADR 042, ADR 053, ADR 054, ADR 055, ADR 061, ADR 067); dispose() cancels the
-// write callbacks still waiting (ADR 065).
+// The write pipeline (controller): a write in its fixed order, the view kept on its text
+// across it, a waiting clear at ground, the engine write, the synchronized update's timing,
+// the replies, the focus-mode edge, the effects, the link cache, the alternate screen's
+// scroll to the bottom and the echo render, plus clear screen and the reply drain (ADR 042,
+// ADR 053, ADR 054, ADR 055, ADR 061, ADR 066, ADR 067); dispose() cancels the write
+// callbacks still waiting (ADR 065).
 
 import type { FrameScheduler, WriteHost } from './host-types';
 import { browserFrames } from './render-loop';
@@ -30,7 +31,18 @@ export class WritePipeline {
   write(data: string | Uint8Array, callback?: () => void): void {
     const host = this.host;
     const engine = host.engine()!;
-    this.feed(data);
+    // A view scrolled back stays on its text, as in Ghostty (`scroll-to-bottom =
+    // no-output`): an app that redraws while working (a spinner, a status line) would
+    // otherwise pull it down on every redraw. coder/ghostty-web scrolled to the bottom on
+    // any output, calling it xterm.js' behaviour, though xterm.js keeps a scrolled view
+    // too (webtty, ADR 066). A key or a paste still scrolls to the bottom. A view on a
+    // selected find match is kept by the find step instead (ADR 055).
+    const pinned = !host.findAnchored() && !engine.isAlternateScreen() && host.pinView();
+    try {
+      this.feed(data);
+    } finally {
+      if (pinned) host.unpinView();
+    }
 
     // A begin of the app's synchronized update restarts its time (webtty, ADR 067)
     host.wroteOutput(data);
@@ -52,12 +64,10 @@ export class WritePipeline {
     // The content changed, so cached links are stale
     host.outputChanged();
 
-    // Auto-scroll to bottom on new output (xterm.js behavior), except while the
-    // view is on a selected match: the find step keeps it on its rows. The alternate
-    // screen has no scrollback to keep a view in, and its matches are its own (webtty, ADR 055)
-    if (host.viewportY() !== 0 && (!host.findAnchored() || engine.isAlternateScreen())) {
-      host.scrollToBottom();
-    }
+    // The alternate screen has no scrollback to keep a view in, and its matches are its
+    // own: output that is on it, or turned it on, shows its bottom, without a smooth
+    // scroll's sub-line offset either (webtty, ADR 055, ADR 066)
+    if (engine.isAlternateScreen()) host.scrollToBottom();
 
     // The callback runs on the next frame, after the render
     if (callback) this.runNextFrame(callback);

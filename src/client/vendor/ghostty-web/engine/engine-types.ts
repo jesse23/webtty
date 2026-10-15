@@ -187,6 +187,15 @@ export interface GhosttyTerminal {
    * is up). Ghostty's own viewport is left at the bottom. (ADR 057)
    */
   promptJumpRow(top: number, delta: number): number;
+  /**
+   * Puts Ghostty's viewport on screen row `row` (0 = oldest scrollback row), where output
+   * moves it with its text, as Ghostty keeps a scrolled view: on new lines, on rows pruned
+   * at the scrollback limit, to the oldest row left when its own row is pruned. A row on
+   * the active screen follows the output instead. Until `unpinViewport`. (ADR 066)
+   */
+  pinViewport(row: number): void;
+  /** Where the pinned row is now; Ghostty's viewport goes back to the bottom. (ADR 066) */
+  unpinViewport(): number;
 
   // Scrollback, graphemes, hyperlinks
   getScrollbackLength(): number;

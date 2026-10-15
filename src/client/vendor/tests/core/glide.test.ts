@@ -56,6 +56,57 @@ describe('Glide', () => {
     expect([g.value, g.active]).toEqual([4, false]);
   });
 
+  test('a shift moves a running glide by as much, and it goes on the same way (ADR 066)', () => {
+    const plain = new Glide();
+    const shifted = new Glide();
+    for (const g of [plain, shifted]) {
+      g.retarget(4, { duration: 100 }, 0);
+      g.step(50, 1e-3);
+    }
+    shifted.shift(10);
+    expect([shifted.value, shifted.target]).toEqual([plain.value + 10, 14]);
+    for (const g of [plain, shifted]) g.step(75, 1e-3);
+    expect(shifted.value).toBeCloseTo(plain.value + 10);
+    for (const g of [plain, shifted]) g.step(200, 1e-3);
+    expect([shifted.value, shifted.active]).toEqual([14, false]);
+  });
+
+  test.each([
+    ['an eased glide', { duration: 125, ease: easeOutCubic }],
+    ['a spring', { duration: 125, omega: 28 }],
+  ])('%s shifted with its target kept moves at once and still ends there (ADR 066)', (_, pace) => {
+    const g = new Glide();
+    g.jump(10);
+    g.retarget(0, pace, 0);
+    g.step(FRAME_MS, 1e-3);
+    g.step(2 * FRAME_MS, 1e-3);
+    const before = g.value;
+    g.shift(3, true);
+    expect([g.value, g.target]).toEqual([before + 3, 0]);
+    // It keeps heading down from there, and arrives
+    g.step(3 * FRAME_MS, 1e-3);
+    expect(g.value).toBeLessThan(before + 3);
+    for (let t = 4; t < 60; t++) g.step(t * FRAME_MS, 1e-3);
+    expect([g.value, g.active]).toEqual([0, false]);
+  });
+
+  test('a timed glide shifted with its target kept lands on time', () => {
+    const plain = new Glide();
+    const shifted = new Glide();
+    for (const g of [plain, shifted]) {
+      g.jump(10);
+      g.retarget(0, { duration: 100 }, 0);
+      g.step(50, 1e-3);
+    }
+    shifted.shift(4, true);
+    // Part of the way there, part of the shift is left
+    for (const g of [plain, shifted]) g.step(70, 1e-3);
+    expect(shifted.value).toBeGreaterThan(plain.value);
+    expect(shifted.value).toBeLessThan(plain.value + 4);
+    for (const g of [plain, shifted]) g.step(100, 1e-3);
+    expect([shifted.value, shifted.active]).toEqual([plain.value, plain.active]);
+  });
+
   test('a retarget during a glide continues from its latest frame', () => {
     const g = new Glide();
     g.retarget(4, { duration: 100 }, 0);

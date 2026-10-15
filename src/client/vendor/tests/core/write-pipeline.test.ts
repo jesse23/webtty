@@ -6,8 +6,9 @@ import type { TerminalEffects } from '../../ghostty-web/ghostty';
 import { loadGhostty } from '../support/wasm';
 
 // The write pipeline: one write's fixed order against a recording engine and host
-// (ADR 061), the effects, the auto-scroll, the echo render, the write callback, the
-// reply drain and clear screen at ground (ADR 054) on a real engine.
+// (ADR 061), the view kept on its text (ADR 066), the effects, the alternate screen's
+// scroll to the bottom, the echo render, the write callback, the sync hold's output (ADR
+// 067), the reply drain and clear screen at ground (ADR 054) on a real engine.
 
 const NO_EFFECTS: TerminalEffects = {
   bell: false,
@@ -24,6 +25,8 @@ interface Options {
   anchored?: boolean;
   alternate?: boolean;
   disableStdin?: boolean;
+  /** The engine write throws, as on a wasm trap. */
+  throws?: boolean;
 }
 
 /** A pipeline on a recording engine and host: `calls` logs both, in order. */
@@ -33,6 +36,7 @@ function recorded(options: Options = {}) {
   let effects = options.effects ?? NO_EFFECTS;
   const engine: WriteEngine = {
     write: (data) => {
+      if (options.throws) throw new Error('parse');
       calls.push(`engine.write ${JSON.stringify(typeof data === 'string' ? data : [...data])}`);
     },
     writeUntilGround: () => null,
@@ -80,16 +84,20 @@ function recordingHost(
     clipboardWrite: (text) => calls.push(`clipboard ${text}`),
     notify: (n) => calls.push(`notify ${n.title}/${n.body}`),
     outputChanged: () => calls.push('outputChanged'),
-    viewportY: () => options.viewportY ?? 0,
     findAnchored: () => options.anchored ?? false,
     scrollToBottom: () => calls.push('scrollToBottom'),
+    pinView: () => {
+      calls.push('pinView');
+      return (options.viewportY ?? 0) > 0;
+    },
+    unpinView: () => calls.push('unpinView'),
     wroteOutput: (data) => calls.push(`wroteOutput ${JSON.stringify(data)}`),
     renderEcho: () => calls.push('renderEcho'),
   };
 }
 
 describe('WritePipeline order', () => {
-  test('write, sync timing, replies, focus edge, effects, link cache, auto-scroll, callback, echo', () => {
+  test('view pinned, write, sync timing, replies, focus edge, effects, link cache, callback, echo', () => {
     const { calls, clock, pipeline } = recorded({
       effects: {
         bell: true,
@@ -107,7 +115,9 @@ describe('WritePipeline order', () => {
     pipeline.awaitEcho();
     pipeline.write('x', () => called++);
     expect(calls).toEqual([
+      'pinView',
       'engine.write "x"',
+      'unpinView',
       'wroteOutput "x"',
       'reply \x1b[1;1R',
       'send "\\u001b[1;1R"',
@@ -121,7 +131,6 @@ describe('WritePipeline order', () => {
       'notify a/1',
       'notify b/2',
       'outputChanged',
-      'scrollToBottom',
       'renderEcho',
     ]);
     // The callback waits for the next frame
@@ -134,6 +143,7 @@ describe('WritePipeline order', () => {
     const { calls, clock, pipeline } = recorded();
     pipeline.write('x');
     expect(calls).toEqual([
+      'pinView',
       'engine.write "x"',
       'wroteOutput "x"',
       'followFocusMode',
@@ -152,18 +162,22 @@ describe('WritePipeline order', () => {
   });
 
   test.each([
-    // [anchored on a find match, alternate screen, scrolls to the bottom]
-    [false, false, true],
-    [true, false, false],
-    [true, true, true],
-  ])(
-    'a scrolled view, anchored %p, alternate %p: scrolls to the bottom %p',
-    (anchored, alternate, scrolls) => {
-      const { calls, pipeline } = recorded({ viewportY: 3, anchored, alternate });
-      pipeline.write('x');
-      expect(calls.includes('scrollToBottom')).toBe(scrolls);
-    },
-  );
+    // [anchored on a find match, alternate screen, what the view does]
+    [false, false, ['pinView', 'unpinView']],
+    [true, false, []],
+    [false, true, ['scrollToBottom']],
+    [true, true, ['scrollToBottom']],
+  ])('a scrolled view, anchored %p, alternate %p: %p', (anchored, alternate, moves) => {
+    const { calls, pipeline } = recorded({ viewportY: 3, anchored, alternate });
+    pipeline.write('x');
+    expect(calls.filter((c) => /^(pinView|unpinView|scrollToBottom)$/.test(c))).toEqual(moves);
+  });
+
+  test('a write that throws still unpins the view', () => {
+    const { calls, pipeline } = recorded({ viewportY: 3, throws: true });
+    expect(() => pipeline.write('x')).toThrow('parse');
+    expect(calls).toEqual(['pinView', 'unpinView']);
+  });
 
   test('the sync hold sees all the output, the part a waiting clear came after too (ADR 067)', async () => {
     const term = (await loadGhostty()).createTerminal(20, 5);

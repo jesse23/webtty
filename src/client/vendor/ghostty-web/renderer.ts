@@ -411,6 +411,11 @@ export class CanvasRenderer {
     this.requestedScrollOffset = offset;
   }
 
+  /** The offset setScrollOffset last asked for, which the next frame shows. (webtty, ADR 066) */
+  public get requestedOffset(): number {
+    return this.requestedScrollOffset;
+  }
+
   /**
    * The offset the viewport is shown at, in CSS pixels: viewport row 0 starts
    * this far below the element's top. Hit testing adds it. (webtty, ADR 043)

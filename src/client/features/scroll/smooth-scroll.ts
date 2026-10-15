@@ -1,5 +1,6 @@
 /**
- * Pixel-smooth scrollback scrolling (object over the terminal, ADR 040, ADR 043, ADR 045).
+ * Pixel-smooth scrollback scrolling (object over the terminal, ADR 040, ADR 043, ADR 045,
+ * ADR 066).
  *
  * ghostty-web draws whole rows only: its viewport is a line count, and a fractional
  * viewportY is floored when rows are picked. A trackpad reports pixel deltas, so
@@ -15,6 +16,10 @@
  * The position moves as a `Glide`, at the pace `WheelStream` picks for each event:
  * a mouse wheel notch or a TrackPoint's sparse deltas glide, trackpad deltas, which
  * arrive every frame, apply at once.
+ *
+ * Output keeps a scrolled view on its text: ghostty-web moves its viewport with the text
+ * on each write, announcing nothing, and the glide moves by as much, keeping its fraction
+ * and its motion (ADR 066).
  *
  * Only the normal screen's scrollback scrolls this way. On the alternate screen, or
  * when the app tracks the mouse, the app moves its own view in whole lines.
@@ -36,17 +41,20 @@ export class SmoothScroll implements Disposable {
   private readonly store = new DisposableStore();
   /** Set while `apply` moves ghostty-web's viewport, whose onScroll is then our own. */
   private applying = false;
+  /** ghostty-web's viewport line as the last `apply` left it. */
+  private line = 0;
 
   constructor(
     private readonly term: Terminal,
     private readonly stream: WheelStream,
     private readonly deps: SmoothScrollDeps = { window, performance },
   ) {
-    // ghostty-web moves the viewport itself on new output (to the bottom), keyboard
-    // scrolling and scrollbar drags. Follow it whenever it lands on a different line.
+    // ghostty-web moves the viewport itself on a key or a paste (to the bottom, which also
+    // drops a sub-line offset), keyboard scrolling, scrollbar drags and find. Follow it
+    // whenever it lands anywhere but where the glide is.
     this.store.add(
       term.onScroll((y: number) => {
-        if (!this.applying && y !== Math.floor(this.glide.value)) this.jump(y);
+        if (!this.applying && y !== this.glide.value) this.jump(y);
       }),
     );
     this.store.add(term.onResize(() => this.jump(term.viewportY)));
@@ -62,6 +70,7 @@ export class SmoothScroll implements Disposable {
     if (this.term.wasmTerm?.isAlternateScreen()) return false;
     const metrics = this.term.renderer?.getMetrics();
     if (!metrics) return false;
+    this.follow();
     const lines = wheelLines(e, metrics.height, this.term.rows);
     // A delta during a glide adds to where the glide is heading.
     const to = this.clamp(this.glide.target - lines);
@@ -75,6 +84,7 @@ export class SmoothScroll implements Disposable {
    * so the frame shows the glide's position for that frame, not the one before.
    */
   frame(now: number): void {
+    this.follow();
     if (!this.glide.active) return;
     // A spring has arrived once within half a device pixel.
     const height = this.term.renderer?.getMetrics()?.height ?? 15;
@@ -83,9 +93,9 @@ export class SmoothScroll implements Disposable {
     this.apply();
   }
 
-  /** New output arrived. ghostty-web only snaps to the bottom when viewportY > 0, so clear a sub-line offset here. */
+  /** New output was written: the glide follows where it kept the view. */
   onOutput(): void {
-    if (this.term.viewportY === 0 && this.glide.value !== 0) this.jump(0);
+    this.follow();
   }
 
   /**
@@ -94,6 +104,30 @@ export class SmoothScroll implements Disposable {
    */
   update(): void {
     this.apply();
+  }
+
+  /**
+   * Catches up with ghostty-web's view after writes, which move it with its text without
+   * an onScroll (Viewport.unpin, ADR 066): from any write, so `onOutput`, the next frame and
+   * the next wheel event all call this. The glide moves by as many lines, keeping its
+   * fraction and its motion; one heading for the bottom still ends there, so a scroll down
+   * reaches output that keeps coming. A view back at the bottom (the scrollback was cleared,
+   * or the alternate screen came up) drops the glide, as does a scrollback that shrank under
+   * a sub-line offset.
+   */
+  private follow(): void {
+    const y = this.term.viewportY;
+    if (y !== this.line) {
+      if (y === 0) {
+        this.jump(0);
+      } else {
+        this.glide.shift(y - this.line, this.glide.active && this.glide.target === 0);
+        this.glide.value = this.clamp(this.glide.value);
+        this.apply();
+      }
+    } else if (this.glide.value > this.term.getScrollbackLength()) {
+      this.jump(this.clamp(this.glide.value));
+    }
   }
 
   private jump(line: number): void {
@@ -127,5 +161,6 @@ export class SmoothScroll implements Disposable {
       }
     }
     renderer.setScrollOffset(offset);
+    this.line = this.term.viewportY;
   }
 }

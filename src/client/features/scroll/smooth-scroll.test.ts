@@ -18,6 +18,7 @@ describe('SmoothScroll', () => {
     const unsubscribed: string[] = [];
     const term = {
       viewportY: 0,
+      scrollback: 100,
       rows: 40,
       wasmTerm: { isAlternateScreen: () => false },
       renderer: {
@@ -32,7 +33,7 @@ describe('SmoothScroll', () => {
         resized = cb;
         return { dispose: () => unsubscribed.push('onResize') };
       },
-      getScrollbackLength: () => 100,
+      getScrollbackLength: () => term.scrollback,
       scrollToLine(line: number) {
         term.viewportY = line;
       },
@@ -108,24 +109,74 @@ describe('SmoothScroll', () => {
     expect(offsets.at(-1)).toBe(10);
   });
 
-  test('new output at the bottom clears a sub-line offset', () => {
+  test('less than a line up, output keeps the text in view (ADR 066)', () => {
     const { term, offsets, scroll } = fake(10);
-    // 0.55 lines: line 0 with a 5.5 px offset, rounded to 6.
-    scroll.handleWheel(wheel(-5.5));
+    // 0.625 lines (a trackpad delta): line 0 with a 6.25 px offset, rounded to 6.
+    scroll.handleWheel(wheel(-6.25));
     expect([term.viewportY, offsets.at(-1)]).toEqual([0, 6]);
+    // A redraw in place moves nothing
     scroll.onOutput();
-    expect([term.viewportY, offsets.at(-1)]).toEqual([0, 0]);
-    // At rest on the bottom, output changes nothing.
+    expect(offsets).toEqual([6]);
+    // Three new lines: ghostty-web pinned the part row in view and moved the view up by three
+    term.scrollback += 3;
+    term.viewportY = 3;
     scroll.onOutput();
-    expect(offsets).toEqual([6, 0]);
+    expect([term.viewportY, offsets.at(-1)]).toEqual([3, 6]);
   });
 
-  test('new output above the bottom is left to ghostty-web', () => {
+  test('a view ghostty-web kept on its text moves the glide by as much, keeping its offset (ADR 066)', () => {
     const { term, offsets, scroll } = fake(10);
     scroll.handleWheel(wheel(-25.75));
     expect([term.viewportY, offsets.at(-1)]).toEqual([2, 6]);
+    // A redraw in place: the view stays.
     scroll.onOutput();
     expect([term.viewportY, offsets.at(-1)]).toEqual([2, 6]);
+    // Four new lines, or four after rows pruned at the limit: ghostty-web moved its view up by four.
+    term.viewportY = 6;
+    scroll.onOutput();
+    expect([term.viewportY, offsets.at(-1)]).toEqual([6, 6]);
+    // The next wheel step goes on from there, not from where the glide was.
+    scroll.handleWheel(wheel(-10));
+    expect([term.viewportY, offsets.at(-1)]).toEqual([7, 6]);
+  });
+
+  test('a write without onOutput (a status line) is caught up with on the next frame or wheel event', () => {
+    const { term, offsets, scroll } = fake(10);
+    scroll.handleWheel(wheel(-25.75));
+    term.viewportY = 5;
+    scroll.frame(16);
+    expect([term.viewportY, offsets.at(-1)]).toEqual([5, 6]);
+    term.viewportY = 8;
+    scroll.handleWheel(wheel(-10));
+    expect([term.viewportY, offsets.at(-1)]).toEqual([9, 6]);
+  });
+
+  test('a cleared scrollback, or one that shrank under a sub-line offset, brings the glide to the bottom', () => {
+    const { term, offsets, scroll } = fake(10);
+    scroll.handleWheel(wheel(-25.75));
+    term.scrollback = 0;
+    term.viewportY = 0;
+    scroll.onOutput();
+    expect([term.viewportY, offsets.at(-1)]).toEqual([0, 0]);
+    term.scrollback = 100;
+    scroll.handleWheel(wheel(-6.25));
+    term.scrollback = 0;
+    scroll.onOutput();
+    expect([term.viewportY, offsets.at(-1)]).toEqual([0, 0]);
+  });
+
+  test('a key at a sub-line offset (scrollToBottom announced from line 0) drops the offset', () => {
+    const { term, offsets, scroll, scrolled } = fake(10);
+    scroll.handleWheel(wheel(-6.25));
+    scrolled(0);
+    expect([term.viewportY, offsets.at(-1)]).toEqual([0, 0]);
+  });
+
+  test('at rest on the bottom, output changes nothing', () => {
+    const { term, offsets, scroll } = fake(10);
+    term.scrollback += 3;
+    scroll.onOutput();
+    expect([term.viewportY, offsets]).toEqual([0, []]);
   });
 
   test("follows ghostty-web's own moves of the viewport, and resizes", () => {

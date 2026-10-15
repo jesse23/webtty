@@ -202,6 +202,13 @@ function world() {
   spyOn(core.focus, 'followMode').mockImplementation(() => void log.push('follow focus mode'));
   spyOn(core.finder, 'step').mockImplementation((now) => void log.push(`find step ${now}`));
   spyOn(core.writes, 'drainReplies').mockImplementation(() => void log.push('drain'));
+  spyOn(core.viewport, 'pin').mockImplementation((e) => {
+    log.push(`pin ${(e as unknown) === parts.engine}`);
+    return true;
+  });
+  spyOn(core.viewport, 'unpin').mockImplementation(
+    (e) => void log.push(`unpin ${(e as unknown) === parts.engine}`),
+  );
   spyOn(core.sync, 'wrote').mockImplementation((data) => void log.push(`wrote ${data}`));
   spyOn(core.scrollbar, 'drag').mockImplementation(() => true);
   spyOn(core.mouse, 'encode').mockImplementation(() => 'report');
@@ -242,12 +249,11 @@ describe('TerminalControllers hosts', () => {
   test('write: the engine, the emitters, the link cache, the view and the controllers', () => {
     const { log, parts, term, inner, core, sync } = world();
     const host = writeHost(term, inner, core);
-    expect<unknown[]>([
-      host.engine(),
-      host.disableStdin(),
-      host.viewportY(),
-      host.findAnchored(),
-    ]).toEqual([parts.engine, true, 2, core.finder.anchored]);
+    expect<unknown[]>([host.engine(), host.disableStdin(), host.findAnchored()]).toEqual([
+      parts.engine,
+      true,
+      core.finder.anchored,
+    ]);
     host.send('r');
     host.followFocusMode();
     host.bell();
@@ -256,6 +262,8 @@ describe('TerminalControllers hosts', () => {
     host.notify({ title: 'n', body: '' });
     host.outputChanged();
     host.scrollToBottom();
+    expect(host.pinView()).toBe(true);
+    host.unpinView();
     host.wroteOutput('o');
     host.renderEcho();
     // Inside the app's synchronized update the echo waits for the frame after it (ADR 067)
@@ -270,6 +278,8 @@ describe('TerminalControllers hosts', () => {
       'notify n',
       'links stale',
       'scroll to bottom',
+      'pin true',
+      'unpin true',
       'wrote o',
       'render false undefined',
     ]);

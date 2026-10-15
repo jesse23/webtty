@@ -58,6 +58,12 @@ export type SelectionEngineSource = Pick<
  */
 export interface ViewportHost {
   getScrollbackLength(): number;
+  /**
+   * Whether the renderer shows part of the row above the view, from the next frame on: a
+   * smooth scroll's sub-line offset (CanvasRenderer.requestedOffset), which the embedder
+   * sets, not the Viewport.
+   */
+  partRowShown(): boolean;
   /** The view moved to `viewportY`. */
   scrolled(viewportY: number): void;
   showScrollbar(): void;
@@ -143,10 +149,16 @@ export interface WriteHost {
   notify(notification: DesktopNotification): void;
   /** The content changed: the link cache is stale. */
   outputChanged(): void;
-  viewportY(): number;
   /** Whether the view is kept on a selected find match (FindController.anchored). */
   findAnchored(): boolean;
   scrollToBottom(): void;
+  /**
+   * Pins Ghostty's viewport on the view's text for the write that follows; false, pinning
+   * nothing, when the view is at the bottom (Viewport.pin).
+   */
+  pinView(): boolean;
+  /** After the write, moves the view to where the pin went with its text (Viewport.unpin). */
+  unpinView(): void;
   /** The output just written, which may begin a synchronized update (SyncHold.wrote). */
   wroteOutput(data: string | Uint8Array): void;
   /**

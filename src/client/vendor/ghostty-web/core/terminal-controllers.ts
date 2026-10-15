@@ -104,6 +104,7 @@ export class TerminalControllers {
     this.renderLoop = new RenderLoop(renderLoopHost(inner, this), clock, clock?.now);
     this.viewport = new Viewport({
       getScrollbackLength: () => term.getScrollbackLength(),
+      partRowShown: () => (inner.parts()?.renderer.requestedOffset ?? 0) > 0,
       scrolled: (viewportY) => inner.emit.scroll.fire(viewportY),
       showScrollbar: () => this.scrollbar.show(),
     });
@@ -216,9 +217,16 @@ export function writeHost(term: ControllersHost, inner: Inner, core: TerminalCon
     clipboardWrite: (text) => inner.emit.clipboardWrite.fire(text),
     notify: (notification) => inner.emit.desktopNotification.fire(notification),
     outputChanged: () => inner.parts()?.links.invalidateCache(),
-    viewportY: () => term.viewportY,
     findAnchored: () => core.finder.anchored,
     scrollToBottom: () => term.scrollToBottom(),
+    pinView: () => {
+      const engine = inner.parts()?.engine;
+      return !!engine && core.viewport.pin(engine);
+    },
+    unpinView: () => {
+      const engine = inner.parts()?.engine;
+      if (engine) core.viewport.unpin(engine);
+    },
     wroteOutput: (data) => core.sync.wrote(data),
     // Not inside a synchronized update: the frame after it ends paints (ADR 067)
     renderEcho: () => {

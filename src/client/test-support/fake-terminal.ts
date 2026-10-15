@@ -40,6 +40,8 @@ export class FakeTerminal {
   cols = 80;
   rows = 24;
   viewportY = 0;
+  /** What `getScrollbackLength` returns. */
+  scrollbackLength = 0;
   options: Record<string, unknown> = {};
   /** Undefined until {@link attachRenderer}, as before `open()`. */
   renderer: FakeRenderer | undefined;
@@ -157,6 +159,10 @@ export class FakeTerminal {
 
   dispose(): void {
     this.calls.push('dispose');
+  }
+
+  getScrollbackLength(): number {
+    return this.scrollbackLength;
   }
 
   /** Records the clear; returns {@link clearable}. */
