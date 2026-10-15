@@ -4,15 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   coverageFailures,
+  coverageLayerOf,
   type FileCoverage,
   formatLayer,
-  isTestCode,
   LAYER_TARGETS,
-  layerOf,
+  NOT_LOADED,
   PURE_MODULES,
   parseLcov,
   ratio,
   runCoverageCheck,
+  sourceFiles,
   totalsByLayer,
 } from './check-coverage';
 
@@ -90,7 +91,7 @@ describe('parseLcov', () => {
   });
 });
 
-describe('isTestCode and layerOf', () => {
+describe('coverageLayerOf', () => {
   const cases: [string, string | undefined][] = [
     ['src/client/vendor/ghostty-web/terminal.ts', 'vendor'],
     ['src/client/vendor/tests/support/wasm.ts', undefined],
@@ -108,8 +109,7 @@ describe('isTestCode and layerOf', () => {
   ];
   for (const [file, layer] of cases) {
     test(`${file} → ${layer}`, () => {
-      expect(layerOf(file)?.name).toBe(layer);
-      if (layer) expect(isTestCode(file)).toBe(false);
+      expect(coverageLayerOf(file)?.name).toBe(layer);
     });
   }
 });
@@ -125,7 +125,7 @@ describe('the targets (architecture SPEC "Testing")', () => {
   test('every pure module exists and belongs to a layer', () => {
     for (const file of PURE_MODULES) {
       expect(fs.existsSync(path.join(REPO_ROOT, file))).toBe(true);
-      expect(layerOf(file)).toBeDefined();
+      expect(coverageLayerOf(file)).toBeDefined();
     }
   });
 });
@@ -189,6 +189,61 @@ describe('coverageFailures', () => {
       `${partial}: pure module at 9/10 lines, not 100%`,
       `${missing}: pure module not loaded by any test`,
     ]);
+  });
+});
+
+describe('source files no test loads', () => {
+  const cases: [string, string[], string[]][] = [
+    // name, sources, failures
+    ['a loaded source passes', ['src/server/a.ts'], []],
+    [
+      'a source with no record fails',
+      ['src/server/new.ts'],
+      ['src/server/new.ts: not loaded by any test (add a test, or list it in NOT_LOADED)'],
+    ],
+    ['a listed type-only module or entry passes', [...NOT_LOADED], []],
+  ];
+  for (const [name, sources, failures] of cases) {
+    test(name, () => {
+      expect(coverageFailures([...allPure(), covered('src/server/a.ts')], sources)).toEqual(
+        failures,
+      );
+    });
+  }
+
+  test('every NOT_LOADED entry exists and counts toward a layer', () => {
+    for (const file of NOT_LOADED) {
+      expect(fs.existsSync(path.join(REPO_ROOT, file))).toBe(true);
+      expect(coverageLayerOf(file)).toBeDefined();
+    }
+  });
+
+  test('sourceFiles lists src/ .ts sources, skipping test code and .d.ts', () => {
+    const root = tmpRepo();
+    for (const file of [
+      'src/a.ts',
+      'src/server/b.ts',
+      'src/server/b.test.ts',
+      'src/server/test-support/fake.ts',
+      'src/client/types.d.ts',
+      'src/client/c.css',
+    ]) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), '');
+    }
+    expect(sourceFiles(root)).toEqual(['src/a.ts', 'src/server/b.ts']);
+    expect(sourceFiles(tmpRepo())).toEqual([]);
+  });
+
+  test('runCoverageCheck fails on a source file missing from the report', () => {
+    const root = tmpRepo(lcov(...allPure()));
+    fs.mkdirSync(path.join(root, 'src', 'pty'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'src', 'pty', 'x.ts'), '');
+    const lines: string[] = [];
+    expect(runCoverageCheck(root, (line) => lines.push(line))).toBe(1);
+    expect(lines).toContain(
+      'coverage: src/pty/x.ts: not loaded by any test (add a test, or list it in NOT_LOADED)',
+    );
   });
 });
 

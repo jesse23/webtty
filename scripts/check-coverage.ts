@@ -6,6 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { isTestCode } from './architecture/source-file';
 
 /** One source file's counts from an lcov record. */
 export interface FileCoverage {
@@ -80,6 +81,25 @@ export const PURE_MODULES: readonly string[] = [
   'src/server/ws/client-message.ts',
 ];
 
+/**
+ * Source files no test loads, so bun writes no lcov record for them: type-only modules
+ * (nothing runs) and the thin entries (they only call the tested root). Any other source
+ * file missing from the report fails, so a new untested module cannot hide from its layer.
+ */
+export const NOT_LOADED: readonly string[] = [
+  'src/cli/index.ts',
+  'src/client/app/client-context.ts',
+  'src/client/index.ts',
+  'src/client/vendor/ghostty-web/core/host-types.ts',
+  'src/client/vendor/ghostty-web/engine/engine-types.ts',
+  'src/client/vendor/ghostty-web/engine/wasm-exports.ts',
+  'src/client/vendor/ghostty-web/interfaces.ts',
+  'src/client/vendor/ghostty-web/link-types.ts',
+  'src/client/vendor/ghostty-web/render/renderable.ts',
+  'src/pty/pty-process.ts',
+  'src/server/index.ts',
+];
+
 const ZERO = { linesFound: 0, linesHit: 0, functionsFound: 0, functionsHit: 0 };
 
 /** The lcov tags this check reads, by the field each one fills. */
@@ -107,17 +127,8 @@ export function parseLcov(text: string, root: string): FileCoverage[] {
   return out;
 }
 
-/** Test helpers are not source under test: test files, test-support/ and the vendor tests. */
-export function isTestCode(file: string): boolean {
-  return (
-    file.endsWith('.test.ts') ||
-    file.split('/').includes('test-support') ||
-    file.startsWith('src/client/vendor/tests/')
-  );
-}
-
-/** The layer a source file counts toward, or undefined for test code and scripts. */
-export function layerOf(file: string): LayerTarget | undefined {
+/** The coverage target a source file counts toward, or undefined for test code and scripts. */
+export function coverageLayerOf(file: string): LayerTarget | undefined {
   if (isTestCode(file)) return undefined;
   return LAYER_TARGETS.find((layer) => layer.pattern.test(file));
 }
@@ -136,7 +147,7 @@ export interface LayerTotals extends LayerTarget {
 export function totalsByLayer(files: readonly FileCoverage[]): LayerTotals[] {
   const layers = LAYER_TARGETS.map((target) => ({ ...target, totals: { ...ZERO } }));
   for (const file of files) {
-    const name = layerOf(file.file)?.name;
+    const name = coverageLayerOf(file.file)?.name;
     const layer = layers.find((candidate) => candidate.name === name);
     if (!layer) continue;
     layer.totals.linesFound += file.linesFound;
@@ -155,8 +166,14 @@ export function formatLayer(layer: LayerTotals): string {
   return `${layer.name.padEnd(8)} lines ${percent(ratio(linesHit, linesFound)).padStart(7)} (≥ ${percent(layer.lines)})  functions ${percent(ratio(functionsHit, functionsFound)).padStart(7)} (≥ ${percent(layer.functions)})`;
 }
 
-/** Every target the report misses: a layer under its shares, or a pure module not at 100%. */
-export function coverageFailures(files: readonly FileCoverage[]): string[] {
+/**
+ * Every target the report misses: a layer under its shares, a pure module not at 100%,
+ * or one of `sources` (the tree's source files) with no record and not in NOT_LOADED.
+ */
+export function coverageFailures(
+  files: readonly FileCoverage[],
+  sources: readonly string[] = [],
+): string[] {
   const failures: string[] = [];
   for (const layer of totalsByLayer(files)) {
     const { linesHit, linesFound, functionsHit, functionsFound } = layer.totals;
@@ -179,7 +196,24 @@ export function coverageFailures(files: readonly FileCoverage[]): string[] {
       failures.push(`${pure}: pure module at ${file.linesHit}/${file.linesFound} lines, not 100%`);
     }
   }
+  for (const source of sources) {
+    if (!byFile.has(source) && !NOT_LOADED.includes(source)) {
+      failures.push(`${source}: not loaded by any test (add a test, or list it in NOT_LOADED)`);
+    }
+  }
   return failures;
+}
+
+/** The source files under `root`/src that count toward a layer, repo-relative and sorted. */
+export function sourceFiles(root: string): string[] {
+  const src = path.join(root, 'src');
+  if (!fs.existsSync(src)) return [];
+  return fs
+    .readdirSync(src, { recursive: true, encoding: 'utf8' })
+    .map((entry) => `src/${entry.split(path.sep).join('/')}`)
+    .filter((file) => file.endsWith('.ts') && !file.endsWith('.d.ts'))
+    .filter((file) => coverageLayerOf(file) !== undefined)
+    .sort();
 }
 
 /** Reads the lcov report under `root`, prints the layers and failures, returns the exit code. */
@@ -194,7 +228,7 @@ export function runCoverageCheck(
   }
   const files = parseLcov(fs.readFileSync(report, 'utf8'), root);
   for (const layer of totalsByLayer(files)) print(formatLayer(layer));
-  const failures = coverageFailures(files);
+  const failures = coverageFailures(files, sourceFiles(root));
   for (const failure of failures) print(`coverage: ${failure}`);
   print(
     failures.length === 0
