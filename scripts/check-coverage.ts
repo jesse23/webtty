@@ -51,6 +51,7 @@ export const PURE_MODULES: readonly string[] = [
   'src/client/features/find/find-keys.ts',
   'src/client/features/keyboard/font-zoom.ts',
   'src/client/features/keyboard/key-bindings.ts',
+  'src/client/features/keyboard/screen-clear.ts',
   'src/client/features/kitty/graphics/placement-geometry.ts',
   'src/client/features/kitty/protocol/apc-command.ts',
   'src/client/features/kitty/protocol/apc-splitter.ts',

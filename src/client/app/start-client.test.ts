@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { type FakeClientEnv, fakeClientEnv } from '../test-support/fake-client-env';
 import type { ListenerRecord } from '../test-support/recording-target';
 import type { Disposable } from '../vendor/ghostty-web';
-import { screenClearer, startClient } from './start-client';
+import { startClient } from './start-client';
 
 let fake: FakeClientEnv;
 let client: Disposable | undefined;
@@ -254,34 +254,5 @@ describe('startClient', () => {
     expect([...body.children].map((el) => el.id)).toEqual(['terminal']);
     expect(fake.container.children).toHaveLength(0);
     expect(fake.clock.pending).toEqual({ timers: 0, frames: 0 });
-  });
-});
-
-describe('screenClearer', () => {
-  function parts(clears: boolean) {
-    const log: string[] = [];
-    const clear = screenClearer(
-      {
-        clearScreen: () => {
-          log.push('term.clearScreen');
-          return clears;
-        },
-      },
-      { clear: () => log.push('graphics.clear') },
-      { onOutput: () => log.push('smoothScroll.onOutput') },
-    );
-    return { log, clear };
-  }
-
-  test('clears the screen, then the placements, then the sub-line offset', () => {
-    const { log, clear } = parts(true);
-    expect(clear()).toBe(true);
-    expect(log).toEqual(['term.clearScreen', 'graphics.clear', 'smoothScroll.onOutput']);
-  });
-
-  test('does nothing more when the terminal does not clear (the alternate screen)', () => {
-    const { log, clear } = parts(false);
-    expect(clear()).toBe(false);
-    expect(log).toEqual(['term.clearScreen']);
   });
 });

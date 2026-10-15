@@ -11,6 +11,7 @@ import { Composer } from '../features/compose/composer';
 import { installFind } from '../features/find/find-feature';
 import { installFontZoom } from '../features/keyboard/font-zoom-feature';
 import { installKeyDispatcher } from '../features/keyboard/key-dispatcher';
+import { screenClearer } from '../features/keyboard/screen-clear';
 import { shortcutFor } from '../features/keyboard/shortcut-map';
 import { installKitty } from '../features/kitty/kitty-feature';
 import { browserNotifications } from '../features/notifications/browser-notifications';
@@ -106,24 +107,6 @@ export async function startClient(env: ClientEnv): Promise<Disposable> {
   // 9-13. Find, the key dispatcher, font zoom, input to the PTY and paste
   installInput(ctx, env, store, { pty, graphics, smoothScroll, layout });
   return store;
-}
-
-/**
- * Cmd+K (ADR 054): clears the screen, then the placements on it and any sub-line scroll
- * offset. Nothing on the alternate screen; the clear is this tab's own, and a reload
- * replays the session's output again.
- */
-export function screenClearer(
-  term: { clearScreen(): boolean },
-  graphics: { clear(): void },
-  smoothScroll: { onOutput(): void },
-): () => boolean {
-  return () => {
-    if (!term.clearScreen()) return false;
-    graphics.clear();
-    smoothScroll.onOutput();
-    return true;
-  };
 }
 
 /** Step 1: the session, the config, the tab title, the engine and the opened terminal. */
