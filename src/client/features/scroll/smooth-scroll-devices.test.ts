@@ -7,7 +7,10 @@ import { WheelStream } from './wheel-stream';
 // sequences WheelStream really classifies as a trackpad, a mouse wheel notch, a spinning
 // wheel and a TrackPoint, slow and fast. Output arriving mid-glide must leave the text in
 // view where it is, and the glide must go on covering the distance it had left, frame by
-// frame as if no output had come; one heading for the bottom still ends there.
+// frame as if no output had come; one heading for the bottom still ends there. The output
+// comes during the events (a trackpad's run, while its view moves) or after the last one
+// (mid-glide). The terminal here stands in for the pin; smooth-scroll-kept-view.test.ts
+// drives the real one.
 
 /** A wheel event `gap` ms after the one before it. */
 interface Step {
@@ -87,8 +90,9 @@ function terminal() {
 
 /**
  * Plays `steps` from a view `from` lines back, with a frame every 16 ms, writing `lines`
- * new lines `at` ms after the last event (through onOutput, or caught up with on the next
- * frame when `quiet`), and returns where the view's top is in the text after each frame.
+ * new lines `at` ms after the last event, or before it when negative (through onOutput, or
+ * caught up with on the next frame when `quiet`), and returns where the view's top is in
+ * the text after each frame.
  */
 function play(
   steps: Step[],
@@ -139,12 +143,17 @@ describe.each(DEVICES)('%s', (_, steps, motion) => {
     expect(pace && kind(pace)).toBe(motion);
   });
 
+  /** Halfway through the events, ms after the last one: 0 for a single event. */
+  const during = -Math.floor(steps.slice(1).reduce((sum, s) => sum + s.gap, 0) / 2);
+
   test.each([
-    ['through onOutput', false],
-    ['caught up with on the next frame', true],
-  ])('output mid-glide, %s, keeps the text in view and the glide on its way', (_, quiet) => {
+    ['after the events, through onOutput', 20, false],
+    ['after the events, caught up with on the next frame', 20, true],
+    ['during the events, through onOutput', during, false],
+    ['during the events, caught up with on the next frame', during, true],
+  ])('output %s keeps the text in view and the motion on its way', (_, at, quiet) => {
     const still = play(steps, 200);
-    const fed = play(steps, 200, { lines: 7, at: 20, quiet });
+    const fed = play(steps, 200, { lines: 7, at, quiet });
     // Frame by frame the view shows the same text, with or without the output
     expect(fed.tops.map((top) => +top.toFixed(6))).toEqual(
       still.tops.map((top) => +top.toFixed(6)),
@@ -152,15 +161,22 @@ describe.each(DEVICES)('%s', (_, steps, motion) => {
     expect(fed.term.viewportY).toBe(still.term.viewportY + 7);
   });
 
-  test('a scroll down to the bottom ends there, output mid-glide or not', () => {
-    const down = steps.map((step) => ({ ...step, deltaY: -step.deltaY }));
-    // From a little less far back than the scroll goes: its last event heads for the bottom
-    const lines = down.reduce(
-      (sum, s) => sum + (s.deltaMode === 1 ? s.deltaY : s.deltaY / CELL),
-      0,
-    );
-    const fed = play(down, Math.floor(lines) - 1, { lines: 7, at: 20 });
-    expect(fed.term.viewportY).toBe(0);
-    expect(fed.tops.at(-1)).toBe(fed.term.scrollback);
-  });
+  // Output during the events keeps the text, so the rest of the scroll ends short of the
+  // bottom, as in Ghostty; output after the last event, which heads for the bottom, does not
+  test(
+    motion === 'at once'
+      ? 'a scroll down applied at once to the bottom follows output after it'
+      : 'a glide down to the bottom ends there through output mid-glide',
+    () => {
+      const down = steps.map((step) => ({ ...step, deltaY: -step.deltaY }));
+      // From a little less far back than the scroll goes: its last event heads for the bottom
+      const lines = down.reduce(
+        (sum, s) => sum + (s.deltaMode === 1 ? s.deltaY : s.deltaY / CELL),
+        0,
+      );
+      const fed = play(down, Math.floor(lines) - 1, { lines: 7, at: 20 });
+      expect(fed.term.viewportY).toBe(0);
+      expect(fed.tops.at(-1)).toBe(fed.term.scrollback);
+    },
+  );
 });

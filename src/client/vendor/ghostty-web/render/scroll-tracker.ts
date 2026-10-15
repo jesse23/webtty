@@ -23,9 +23,10 @@ export class ScrollTracker {
   /**
    * Compares this frame, at `viewportY` (whole line `view`), with the last one. A
    * fractional viewportY (ghostty-web's own eased scroll) repaints every row, and so do
-   * lines that moved while scrolled or on a move. At the bottom, the screen's rows are
-   * repainted as dirty and the rows out of view when they come into view. `forceAll`
-   * skips the dirty-row scan.
+   * lines that moved on a move, or under a view scrolled back: new scrollback, or every
+   * screen row changed. Otherwise the screen's dirty rows are repainted as dirty, at the
+   * bottom or scrolled back (a redraw in place, which keeps the view on its text, ADR 066),
+   * and the rows out of view when they come into view. `forceAll` skips the dirty-row scan.
    */
   track(source: RowSource, viewportY: number, view: number, forceAll: boolean): FrameMoves {
     const dirtyRows: number[] = [];
@@ -39,9 +40,10 @@ export class ScrollTracker {
       forceAll = true;
     }
     this.lastViewportY = viewportY;
-    const linesMoved =
-      source.scrollbackLength !== this.lastScrollbackLength || dirtyRows.length > 0;
-    if (linesMoved && (view > 0 || moved)) forceAll = true;
+    const grew = source.scrollbackLength !== this.lastScrollbackLength;
+    const linesMoved = grew || dirtyRows.length > 0;
+    const shifted = grew || dirtyRows.length >= source.rows;
+    if (linesMoved && (moved || (view > 0 && shifted))) forceAll = true;
     this.lastScrollbackLength = source.scrollbackLength;
     return { dirtyRows, linesMoved, repaintAll: forceAll };
   }

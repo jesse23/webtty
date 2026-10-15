@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { scanSyncBegin } from '../../ghostty-web/core/sync-scan';
+import { scanSyncBegin, scanSyncBeginBytes } from '../../ghostty-web/core/sync-scan';
 
-// The synchronized-update scanner (ADR 067): which mode sets begin an update, and a
-// begin split across output chunks.
+// The synchronized-update scanner (ADR 067): which mode sets begin an update, a begin
+// split across output chunks, and the byte scan agreeing with the string scan.
 
 describe('scanSyncBegin', () => {
   test.each([
@@ -38,5 +38,32 @@ describe('scanSyncBegin', () => {
     expect(scanSyncBegin('x\x1b[?2026h').carry).toBe('');
     expect(scanSyncBegin('x\x1b[31m').carry).toBe('');
     expect(scanSyncBegin(`\x1b[?${'1;'.repeat(20)}`).carry).toBe('');
+  });
+});
+
+describe('scanSyncBeginBytes', () => {
+  const encode = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0));
+
+  test('finds what scanSyncBegin finds, and carries the same, over any chunking', () => {
+    const output =
+      'a\x1b[?25l\x1b[?2026hrow\x1b[2K\x1b[?2026l\x1b[?1;2;2026;1049hx\x1b[?12026h' +
+      `\x1b[?${'2;'.repeat(20)}2026h\x1b[?2026h\x1b[31m\x1b[?2026`;
+    let seed = 7;
+    const rng = () => {
+      seed = (seed * 1103515245 + 12345) % 2 ** 31;
+      return seed / 2 ** 31;
+    };
+    for (let run = 0; run < 200; run++) {
+      let text = { begun: false, carry: '' };
+      let bytes = { begun: false, carry: '' };
+      for (let at = 0; at < output.length; ) {
+        const end = at + 1 + Math.floor(rng() * 12);
+        const chunk = output.slice(at, end);
+        at = end;
+        text = scanSyncBegin(chunk, text.carry);
+        bytes = scanSyncBeginBytes(encode(chunk), bytes.carry);
+        expect(bytes).toEqual(text);
+      }
+    }
   });
 });

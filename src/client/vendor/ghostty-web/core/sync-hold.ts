@@ -9,7 +9,7 @@
 // cannot freeze the view, and DECRQM, the echo and the next update all see it off.
 
 import type { SyncHoldHost } from './host-types';
-import { scanSyncBegin } from './sync-scan';
+import { scanSyncBegin, scanSyncBeginBytes } from './sync-scan';
 
 /** Synchronized output: the app brackets an update with `CSI ? 2026 h` and `CSI ? 2026 l`. */
 export const SYNCHRONIZED_OUTPUT_MODE = 2026;
@@ -24,7 +24,7 @@ export class SyncHold {
   /** The unfinished mode sequence the last write ended in. */
   private carry = '';
 
-  /** `now` is the clock a write is timed on; a frame passes its own timestamp to held(). */
+  /** `now` is the clock a write is timed on; a frame passes its own timestamp. */
   constructor(
     private readonly host: SyncHoldHost,
     private readonly now: () => number = () => performance.now(),
@@ -35,28 +35,38 @@ export class SyncHold {
    * running, restarts the update's time, as each `CSI ? 2026 h` restarts Ghostty's timer.
    */
   wrote(data: string | Uint8Array): void {
-    const text = typeof data === 'string' ? data : LATIN1.decode(data);
-    const scan = scanSyncBegin(text, this.carry);
+    const carry = this.carry;
+    const scan =
+      typeof data === 'string' ? scanSyncBegin(data, carry) : scanSyncBeginBytes(data, carry);
     this.carry = scan.carry;
     if (scan.begun) this.since = this.now();
     else if (!this.host.active()) this.since = null;
   }
 
   /**
-   * Whether painting at `now` holds: inside an update that began under SYNC_HOLD_MAX_MS
-   * ago. Past that, the mode is turned off and painting goes on.
+   * The render loop's step, once a frame at `now`: an update past SYNC_HOLD_MAX_MS since
+   * its last begin is ended, turning the mode off in the engine. Only the loop calls this, so
+   * asking `held` never changes the engine.
    */
-  held(now: number = this.now()): boolean {
+  expire(now: number): void {
     if (!this.host.active()) {
       this.since = null;
-      return false;
+      return;
     }
     // An update begun in a form the scan does not read (a C1 CSI) is timed from its first frame
     this.since ??= now;
-    if (now - this.since < SYNC_HOLD_MAX_MS) return true;
+    if (now - this.since < SYNC_HOLD_MAX_MS) return;
     this.host.end();
     this.since = null;
-    return false;
+  }
+
+  /**
+   * Whether painting at `now` holds: inside an update that began under SYNC_HOLD_MAX_MS
+   * ago, or one the render loop has not timed yet. A read: an update past its time is
+   * ended by the loop's `expire`.
+   */
+  held(now: number = this.now()): boolean {
+    return this.host.active() && (this.since === null || now - this.since < SYNC_HOLD_MAX_MS);
   }
 
   /** Forgets the update and any unfinished sequence: the engine was replaced. */
@@ -65,5 +75,3 @@ export class SyncHold {
     this.carry = '';
   }
 }
-
-const LATIN1 = new TextDecoder('latin1');

@@ -156,12 +156,8 @@ export class OfficialTerminal implements GhosttyTerminal {
 
   /** vt_write, or vt_write_until_ground: the bytes consumed, null if ground was not reached. */
   private feed(bytes: Uint8Array, text: string | undefined, untilGround: boolean): number | null {
-    // A write puts the view offset back to the bottom; the next render sets it again
-    // (renderer.ts, from viewportY) and repaints every row.
-    if (this.offset !== 0) {
-      this.offset = 0;
-      this.render.markAllDirty();
-    }
+    // The view's offset is kept: a write leaves Ghostty's viewport at the bottom (a pin is
+    // released after it, ADR 066), and the renderer repaints what the write changed.
     const { ex, at, L } = this.ctx;
     let consumed: number | null = bytes.length;
     // until_ground takes NULL for no bytes, and then only says whether it is at ground

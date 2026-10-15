@@ -172,11 +172,13 @@ function simulate(seed: number, frames: number) {
     else if (r < 0.6) view = Math.floor(rng() * (scrollback + 1));
     view = Math.max(0, Math.min(scrollback, view));
     const above = view < scrollback && rng() < 0.3 ? 1 : 0;
-    const dirty = view === 0 && rng() < 0.3 ? [Math.floor(rng() * rows)] : [];
+    // Output redraws a screen row in place, at the bottom or under a view kept scrolled back
+    // (ADR 066); a move with output repaints every row
+    const moved = view !== lastView;
+    const dirty = rng() < (moved ? 0.1 : 0.3) ? [Math.floor(rng() * rows)] : [];
     for (const y of dirty) version[scrollback + y]++;
 
     let force = frame === 0;
-    const moved = view !== lastView;
     if (dirty.length > 0 && moved) force = true;
     lastView = view;
 
@@ -202,7 +204,7 @@ function simulate(seed: number, frames: number) {
     const top = overscan + band - view;
     if (force) state.fill(ROW_INVALID);
     else {
-      for (const y of dirty) changeRow(state, top + y);
+      for (const y of dirty) changeRow(state, top + view + y);
       if (dirty.length > 0) invalidateOutOfView(state, top, rows);
     }
 

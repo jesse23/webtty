@@ -1,7 +1,8 @@
 // A whole vendored Terminal opened on fakes (test support, ADR 064): the fake document,
 // window and container of the listener snapshot, the real wasm engine and a manual clock
-// for frames, timeouts and performance.now(), so a test drives the terminal through its public API only. The
-// vendored code reads globals; they are swapped in by openTerminal and put back by close().
+// for frames, timeouts and performance.now(), so a test drives the terminal through its
+// public API only. The vendored code reads globals; they are swapped in by openTerminal and
+// put back by close().
 
 import { ManualClock } from '../../../test-support/manual-clock';
 import type { ListenerRecord } from '../../../test-support/recording-target';

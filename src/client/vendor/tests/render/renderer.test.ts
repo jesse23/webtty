@@ -120,6 +120,25 @@ describe('CanvasRenderer', () => {
     term.free();
   });
 
+  // Output keeps a scrolled-back view on its text (ADR 066): a redraw in place repaints the
+  // rows it changed (the erased row, and the rows the cursor left and entered) and the rows
+  // their run draws, not the whole view
+  test.each([
+    ['above the screen paints no row', 20, 0],
+    ['over five screen rows paints those rows only', 3, 5],
+  ])('a redraw in place under a view %s', async (_name, view, painted) => {
+    const t = await writtenTerminal();
+    const live = rasterRenderer(1);
+    live.r.render(t.term, true, view, t.provider, 0);
+    live.r.render(t.term, false, view, t.provider, 0);
+    const before = live.drawn.length;
+    t.term.write('\x1b[2;1H\x1b[2Kspinner');
+    live.r.render(t.term, false, view, t.provider, 0);
+    expect(live.drawn.length - before).toBe(painted);
+    expect(live.shown()).toEqual(previousFrame(t, view, 0, 1));
+    t.term.free();
+  });
+
   test('a buffer that asks for a full redraw gets one', async () => {
     const { term, provider } = await writtenTerminal();
     const live = rasterRenderer(1);

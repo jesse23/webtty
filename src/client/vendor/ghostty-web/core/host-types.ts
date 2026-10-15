@@ -183,7 +183,10 @@ export interface RenderLoopHost {
   /** The embedder's callback (attachBeforeRender), so an animation shows in this frame. */
   beforeRender(now: number): void;
   stepFind(now: number): void;
-  /** Whether this frame's paint waits for the app's synchronized update to end (SyncHold). */
+  /**
+   * Whether this frame's paint waits for the app's synchronized update to end, after ending
+   * one past its time (SyncHold.expire, then SyncHold.held).
+   */
   renderHeld(now: number): boolean;
   render(): void;
   /** Whether replies arose outside a write (a timer, a mode change) and wait for the PTY. */

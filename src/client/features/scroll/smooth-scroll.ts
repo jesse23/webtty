@@ -111,7 +111,8 @@ export class SmoothScroll implements Disposable {
    * an onScroll (Viewport.unpin, ADR 066): from any write, so `onOutput`, the next frame and
    * the next wheel event all call this. The glide moves by as many lines, keeping its
    * fraction and its motion; one heading for the bottom still ends there, so a scroll down
-   * reaches output that keeps coming. A view back at the bottom (the scrollback was cleared,
+   * reaches output that keeps coming, and one heading past the oldest line (pruned at the
+   * scrollback limit) eases in to the oldest line left. A view back at the bottom (the scrollback was cleared,
    * or the alternate screen came up) drops the glide, as does a scrollback that shrank under
    * a sub-line offset.
    */
@@ -121,7 +122,12 @@ export class SmoothScroll implements Disposable {
       if (y === 0) {
         this.jump(0);
       } else {
-        this.glide.shift(y - this.line, this.glide.active && this.glide.target === 0);
+        const delta = y - this.line;
+        const glide = this.glide;
+        glide.shift(
+          delta,
+          glide.active && glide.target === 0 ? 0 : this.clamp(glide.target + delta),
+        );
         this.glide.value = this.clamp(this.glide.value);
         this.apply();
       }

@@ -225,7 +225,7 @@ export class CanvasRenderer {
     const top = this.overscan + this.bandY - view;
     const state = this.rowState;
     if (forceAll) state.fill(ROW_INVALID);
-    else this.invalidateMoved(moves, top, rows);
+    else this.invalidateMoved(moves, top + view, top, rows);
     this.decorations.mark(state, top, view, cols, source.scrollbackLength);
 
     // The cursor is drawn over its cell after the rows. Repaint the cell the last frame's
@@ -298,9 +298,12 @@ export class CanvasRenderer {
     return Math.min(this.requestedScrollOffset, maxOffset);
   }
 
-  /** Invalidates the rows the engine changed and, when the lines moved, the rows out of view. */
-  private invalidateMoved(moves: FrameMoves, top: number, rows: number): void {
-    for (const y of moves.dirtyRows) changeRow(this.rowState, top + y);
+  /**
+   * Invalidates the rows the engine changed, its screen row 0 being canvas row `screenTop`,
+   * and, when the lines moved, the rows out of the view from `top`.
+   */
+  private invalidateMoved(moves: FrameMoves, screenTop: number, top: number, rows: number): void {
+    for (const y of moves.dirtyRows) changeRow(this.rowState, screenTop + y);
     if (moves.linesMoved) invalidateOutOfView(this.rowState, top, rows);
   }
 

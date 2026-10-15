@@ -1,6 +1,6 @@
 # SPEC: Config
 
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-15
 
 ---
 

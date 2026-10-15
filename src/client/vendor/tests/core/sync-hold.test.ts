@@ -83,21 +83,29 @@ describe('SyncHold', () => {
     expect(hold.held(600 + SYNC_HOLD_MAX_MS - 1)).toBe(true);
   });
 
-  test('an update past its time turns the mode off once, and the next begin holds again', () => {
+  test("an update past its time is ended once, by the render loop's expire, and the next begin holds again", () => {
     const { mode, hold, write } = standIn();
     write(0, `${BEGIN}stuck`);
+    // Asking does not end it
     expect(hold.held(SYNC_HOLD_MAX_MS)).toBe(false);
+    expect([mode.on, mode.ends]).toEqual([true, 0]);
+    hold.expire(SYNC_HOLD_MAX_MS);
     expect([mode.on, mode.ends]).toEqual([false, 1]);
+    hold.expire(SYNC_HOLD_MAX_MS + 16);
     expect(hold.held(SYNC_HOLD_MAX_MS + 16)).toBe(false);
     expect(mode.ends).toBe(1);
     write(5000, BEGIN);
+    hold.expire(5016);
     expect(hold.held(5016)).toBe(true);
   });
 
   test('a mode turned on unseen (a C1 CSI) is timed from the first frame that sees it', () => {
     const { mode, hold } = standIn();
     mode.on = true;
-    expect(hold.held(300)).toBe(true);
+    expect(hold.held(0)).toBe(true);
+    hold.expire(300);
+    expect(hold.held(300 + SYNC_HOLD_MAX_MS - 1)).toBe(true);
+    hold.expire(300 + SYNC_HOLD_MAX_MS);
     expect(hold.held(300 + SYNC_HOLD_MAX_MS)).toBe(false);
     expect(mode.ends).toBe(1);
   });
@@ -111,6 +119,7 @@ describe('SyncHold', () => {
     write(700, '26h');
     // Not a begin after the reset: the mode is on, timed from the first frame
     mode.on = true;
+    hold.expire(800);
     expect(hold.held(800 + SYNC_HOLD_MAX_MS - 1)).toBe(true);
   });
 });

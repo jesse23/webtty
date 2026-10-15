@@ -1,7 +1,8 @@
 // webtty (ADR 067), not from upstream.
 // The synchronized-update scanner (util): finds where the app begins a synchronized update
 // (`CSI ? 2026 h`, alone or among other modes) in output, carrying an unfinished sequence
-// across output chunks, as the cursor blink scanner does (engine/cursor-blink.ts).
+// across output chunks, as the cursor blink scanner does (engine/cursor-blink.ts). Bytes
+// are searched as bytes: only a chunk with `2026` in it is decoded whole.
 
 /** A DEC private mode set whose modes include 2026. */
 const SYNC_BEGIN_SEQ = /\x1b\[\?(?:\d*;)*2026(?:;\d*)*h/;
@@ -20,5 +21,49 @@ export function scanSyncBegin(data: string, carry = ''): { begun: boolean; carry
   const begun = text.includes('2026') && SYNC_BEGIN_SEQ.test(text);
   const esc = text.lastIndexOf('\x1b');
   const tail = esc >= 0 && text.length - esc <= MAX_CARRY ? text.slice(esc) : '';
+  return { begun, carry: MODE_SET_PREFIX.test(tail) ? tail : '' };
+}
+
+const LATIN1 = new TextDecoder('latin1');
+
+/** Whether `bytes` hold the digits `2026`. */
+function has2026(bytes: Uint8Array): boolean {
+  let i = bytes.indexOf(0x32);
+  while (i >= 0 && i + 3 < bytes.length) {
+    if (bytes[i + 1] === 0x30 && bytes[i + 2] === 0x32 && bytes[i + 3] === 0x36) return true;
+    i = bytes.indexOf(0x32, i + 1);
+  }
+  return false;
+}
+
+/** A digit or `;`: a byte of a DEC mode list. */
+function isModeListByte(byte: number): boolean {
+  return (byte >= 0x30 && byte <= 0x39) || byte === 0x3b;
+}
+
+/**
+ * `scanSyncBegin` over bytes, with the same result, decoding only what it must: a chunk
+ * without `2026` can only finish a begin the carry started (its mode list and the `h`), and
+ * leaves only the tail from its last ESC to carry.
+ */
+export function scanSyncBeginBytes(
+  data: Uint8Array,
+  carry = '',
+): { begun: boolean; carry: string } {
+  if (has2026(data)) return scanSyncBegin(LATIN1.decode(data), carry);
+  let begun = false;
+  if (carry !== '') {
+    let end = 0;
+    // The digits and semicolons that go on the carry's mode list, and the byte after them
+    while (end < data.length && isModeListByte(data[end])) end++;
+    begun = SYNC_BEGIN_SEQ.test(carry + LATIN1.decode(data.subarray(0, end + 1)));
+  }
+  const esc = data.lastIndexOf(0x1b);
+  let tail = '';
+  if (esc >= 0) {
+    if (data.length - esc <= MAX_CARRY) tail = LATIN1.decode(data.subarray(esc));
+  } else if (carry !== '' && carry.length + data.length <= MAX_CARRY) {
+    tail = carry + LATIN1.decode(data);
+  }
   return { begun, carry: MODE_SET_PREFIX.test(tail) ? tail : '' };
 }

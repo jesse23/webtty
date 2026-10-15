@@ -81,7 +81,7 @@ describe('Glide', () => {
     g.step(FRAME_MS, 1e-3);
     g.step(2 * FRAME_MS, 1e-3);
     const before = g.value;
-    g.shift(3, true);
+    g.shift(3, 0);
     expect([g.value, g.target]).toEqual([before + 3, 0]);
     // It keeps heading down from there, and arrives
     g.step(3 * FRAME_MS, 1e-3);
@@ -98,13 +98,30 @@ describe('Glide', () => {
       g.retarget(0, { duration: 100 }, 0);
       g.step(50, 1e-3);
     }
-    shifted.shift(4, true);
+    shifted.shift(4, 0);
     // Part of the way there, part of the shift is left
     for (const g of [plain, shifted]) g.step(70, 1e-3);
     expect(shifted.value).toBeGreaterThan(plain.value);
     expect(shifted.value).toBeLessThan(plain.value + 4);
     for (const g of [plain, shifted]) g.step(100, 1e-3);
     expect([shifted.value, shifted.active]).toEqual([plain.value, plain.active]);
+  });
+
+  test('a timed glide shifted to a clamped target eases in to it on time', () => {
+    const g = new Glide();
+    g.retarget(10, { duration: 100, ease: easeOutCubic }, 0);
+    g.step(50, 1e-3);
+    // The target moved past where the value may go (the oldest line): it ends there, at
+    // 10.1, not at 10.3
+    g.shift(0.3, 10.1);
+    const values: number[] = [];
+    for (let now = 60; now <= 100; now += 10) {
+      g.step(now, 1e-3);
+      values.push(g.value);
+    }
+    expect(values).toEqual([...values].sort((a, b) => a - b));
+    expect(values.at(-1)).toBe(10.1);
+    expect(g.active).toBe(false);
   });
 
   test('a retarget during a glide continues from its latest frame', () => {

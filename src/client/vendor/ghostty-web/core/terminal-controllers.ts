@@ -249,7 +249,10 @@ export function renderLoopHost(inner: Inner, core: TerminalControllers): RenderL
     live: () => inner.live(),
     beforeRender: (now) => inner.beforeRender(now),
     stepFind: (now) => core.finder.step(now),
-    renderHeld: (now) => core.sync.held(now),
+    renderHeld: (now) => {
+      core.sync.expire(now);
+      return core.sync.held(now);
+    },
     render: () => inner.render(false),
     hasReplies: () => inner.parts()?.engine.hasResponse() ?? false,
     drainReplies: () => core.writes.drainReplies(),

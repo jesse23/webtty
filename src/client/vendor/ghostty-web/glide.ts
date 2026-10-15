@@ -152,21 +152,21 @@ export class Glide {
 
   /**
    * Moves the value by `delta`, keeping the motion: the scale it moves on shifted under it
-   * (output kept the view on its text, ADR 066). The target and a timed glide's start move
-   * with it, so the glide covers the distance it had left. With `keepTarget`, a moving
-   * glide still ends on its target: a spring heads there at its velocity, and a timed
-   * glide's remaining curve is stretched to start from the moved value, so it lands on time.
+   * (output kept the view on its text, ADR 066). The glide then ends on `to`, by default
+   * the target moved by as much, so it covers the distance it had left: a spring heads there
+   * at its velocity, and a timed glide's remaining curve is stretched to run from the moved
+   * value to `to`, so it lands on time. The caller passes the old target to keep it, or a
+   * moved target clamped to where the value may go.
    */
-  shift(delta: number, keepTarget = false): void {
-    if (!keepTarget) {
-      this.target += delta;
-      this.from += delta;
-    } else if (this.moving && !this.omega) {
-      // A timed glide is at target + (from - target) * (1 - ease(t)): scaling from - target
-      // moves where it is now by delta and keeps its end and its timing
+  shift(delta: number, to = this.target + delta): void {
+    if (this.moving && !this.omega) {
+      // A timed glide is at target + (from - target) * (1 - ease(t)): this keeps 1 - ease(t)
+      // with the moved value and the new target
       const left = this.value - this.target;
-      if (left !== 0) this.from = this.target + ((this.from - this.target) * (left + delta)) / left;
+      if (left === 0) this.from += to - this.target;
+      else this.from = to + ((this.from - this.target) * (this.value + delta - to)) / left;
     }
+    this.target = to;
     this.value += delta;
   }
 
