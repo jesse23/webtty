@@ -11,6 +11,7 @@ import { DEFAULT_THEME } from '../../ghostty-web/render/default-theme';
 import type { FrameDecorations, PaintSettings } from '../../ghostty-web/render/renderable';
 import { CanvasRenderer } from '../../ghostty-web/renderer';
 import { recordingCanvas } from '../support/raster-canvas';
+import { recordingContext } from '../support/recording-context';
 import {
   COLS,
   ROWS,
@@ -70,24 +71,6 @@ describe('cell colours', () => {
     expect(cellForeground(c, selected, match, theme)).toBe(expected);
   });
 });
-
-/** A context that records calls and writes as strings. */
-function recordingContext() {
-  const calls: string[] = [];
-  const state: Record<string, unknown> = {};
-  const ctx = new Proxy(state, {
-    get: (t, key) =>
-      typeof key === 'string' && key in t
-        ? t[key]
-        : (...args: unknown[]) => calls.push(`${String(key)}(${args.join(',')})`),
-    set: (t, key, value) => {
-      t[key as string] = value;
-      calls.push(`${String(key)}=${value}`);
-      return true;
-    },
-  });
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
-}
 
 describe('CellPainter', () => {
   const settings: PaintSettings = {

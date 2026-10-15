@@ -3,25 +3,7 @@ import { DEFAULT_THEME } from '../../ghostty-web/render/default-theme';
 import type { PaintSettings } from '../../ghostty-web/render/renderable';
 import { ROW_INVALID, ROW_JOINED } from '../../ghostty-web/render/row-band';
 import { ScrollbarPainter } from '../../ghostty-web/render/scrollbar-painter';
-
-/** A context that records calls and writes as strings. */
-function recordingContext() {
-  const calls: string[] = [];
-  const ctx = new Proxy(
-    {},
-    {
-      get:
-        (_t, key) =>
-        (...args: unknown[]) =>
-          calls.push(`${String(key)}(${args.join(',')})`),
-      set: (_t, key, value) => {
-        calls.push(`${String(key)}=${value}`);
-        return true;
-      },
-    },
-  );
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
-}
+import { recordingContext } from '../support/recording-context';
 
 const settings: PaintSettings = {
   fontSize: 15,

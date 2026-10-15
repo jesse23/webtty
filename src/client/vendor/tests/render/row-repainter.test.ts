@@ -3,6 +3,7 @@ import { DEFAULT_THEME } from '../../ghostty-web/render/default-theme';
 import type { PaintSettings, RowContent, RowPainter } from '../../ghostty-web/render/renderable';
 import { ROW_CUT, ROW_INVALID, ROW_JOINED } from '../../ghostty-web/render/row-band';
 import { REPAINT_CHUNK_ROWS, RowRepainter } from '../../ghostty-web/render/row-repainter';
+import { recordingContext } from '../support/recording-context';
 import {
   COLS,
   type LineSelection,
@@ -15,25 +16,6 @@ import {
   writtenTerminal,
 } from '../support/renderer-harness';
 import { loadGhostty } from '../support/wasm';
-
-/** A context that records every call and property write, in order. */
-function recordingContext() {
-  const calls: string[] = [];
-  const ctx = new Proxy(
-    {},
-    {
-      get:
-        (_t, key) =>
-        (...args: unknown[]) =>
-          calls.push(`${String(key)}(${args.join(',')})`),
-      set: (_t, key, value) => {
-        calls.push(`${String(key)}=${value}`);
-        return true;
-      },
-    },
-  );
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
-}
 
 /** Paint settings for 8 × 15 px cells at `dpr`. */
 function settingsAt(dpr: number): PaintSettings {

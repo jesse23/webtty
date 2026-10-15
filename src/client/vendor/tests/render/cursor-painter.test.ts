@@ -10,6 +10,7 @@ import { DEFAULT_THEME } from '../../ghostty-web/render/default-theme';
 import type { RowSource } from '../../ghostty-web/render/frame-lines';
 import type { CellTextPainter, PaintSettings } from '../../ghostty-web/render/renderable';
 import { ROW_INVALID, ROW_JOINED } from '../../ghostty-web/render/row-band';
+import { recordingContext } from '../support/recording-context';
 import { COLS, ROWS, rasterRenderer, writtenTerminal } from '../support/renderer-harness';
 import { loadGhostty } from '../support/wasm';
 
@@ -56,25 +57,6 @@ describe('CursorBlink', () => {
     expect(clock.pending.timers).toBe(0);
   });
 });
-
-/** A context that records calls as strings. */
-function recordingContext() {
-  const calls: string[] = [];
-  const ctx = new Proxy(
-    {},
-    {
-      get:
-        (_t, key) =>
-        (...args: unknown[]) =>
-          calls.push(`${String(key)}(${args.join(',')})`),
-      set: (_t, key, value) => {
-        calls.push(`${String(key)}=${value}`);
-        return true;
-      },
-    },
-  );
-  return { ctx: ctx as unknown as CanvasRenderingContext2D, calls };
-}
 
 describe('CursorPainter', () => {
   const settings: PaintSettings = {
