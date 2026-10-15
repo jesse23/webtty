@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test';
-import { ManualClock } from '../../test-support/manual-clock';
-import { CanvasRenderer } from '../ghostty-web/renderer';
-import { rasterCanvas } from './support/raster-canvas';
+import { ManualClock } from '../../../test-support/manual-clock';
+import { CanvasRenderer } from '../../ghostty-web/renderer';
+import { rasterCanvas } from '../support/raster-canvas';
 import {
   COLS,
   previousFrame,
   ROWS,
   rasterRenderer,
   writtenTerminal,
-} from './support/renderer-harness';
+} from '../support/renderer-harness';
 
 // The facade: options and deps, the frame's stale and resize triggers, the getters and
 // teardown. What it paints is tested with the painters in render/.

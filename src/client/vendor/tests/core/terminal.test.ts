@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
-import type { ITerminalAddon } from '../ghostty-web/interfaces';
-import { Terminal } from '../ghostty-web/terminal';
+import type { ITerminalAddon } from '../../ghostty-web/interfaces';
+import { Terminal } from '../../ghostty-web/terminal';
 import {
   engineOf,
   openTerminal,
@@ -9,8 +9,8 @@ import {
   scrollbackLines,
   stubGlobals,
   type TerminalHarness,
-} from './support/terminal-harness';
-import { markedSession } from './support/terminal-text';
+} from '../support/terminal-harness';
+import { markedSession } from '../support/terminal-text';
 
 // The Terminal facade through its public API, opened on fakes over the real engine. Its
 // collaborators have their own tests in core/ (ADR 061).

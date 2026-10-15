@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { Ghostty, GhosttyTerminal } from '../ghostty-web/ghostty';
-import { FIXTURES_DIR, loadGhostty } from './support/wasm';
+import type { Ghostty, GhosttyTerminal } from '../../ghostty-web/ghostty';
+import { FIXTURES_DIR, loadGhostty } from '../support/wasm';
 
 // The official engine (ADR 042, ADR 047) replaying the same input two ways, cell
 // for cell. A terminal that was scrolled, paged and cached while the input arrived

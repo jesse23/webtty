@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { EventEmitter } from '../ghostty-web/event-emitter';
+import { EventEmitter } from '../../ghostty-web/event-emitter';
 
 describe('EventEmitter', () => {
   test('fires to every listener in subscription order', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import { type BufferEngine, BufferNamespace } from '../ghostty-web/buffer';
-import { loadGhostty } from './support/wasm';
+import { type BufferEngine, BufferNamespace } from '../../ghostty-web/buffer';
+import { loadGhostty } from '../support/wasm';
 
 // The buffer API is what the link providers and the kitty graphics read: the
 // cursor, the line count, and each cell's codepoint and hyperlink id.

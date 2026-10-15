@@ -7,7 +7,7 @@ import type { IDisposable, IEvent } from './interfaces';
 /**
  * One event's listeners, called in subscription order. `fire` walks the live list, so a
  * listener that unsubscribes itself while it runs makes the next listener miss that fire
- * (as upstream does; pinned by vendor/tests/event-emitter.test.ts).
+ * (as upstream does; pinned by vendor/tests/core/event-emitter.test.ts).
  */
 export class EventEmitter<T> {
   private listeners: Array<(arg: T) => void> = [];

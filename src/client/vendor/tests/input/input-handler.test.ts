@@ -1,15 +1,15 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from 'bun:test';
-import { createDomWindow, type DomWindow } from '../../test-support/dom-window';
-import { ManualClock } from '../../test-support/manual-clock';
-import type { Ghostty } from '../ghostty-web/ghostty';
-import { Key, KeyAction, type KeyEvent, Mods } from '../ghostty-web/input/key-types';
+import { createDomWindow, type DomWindow } from '../../../test-support/dom-window';
+import { ManualClock } from '../../../test-support/manual-clock';
+import type { Ghostty } from '../../ghostty-web/ghostty';
+import { Key, KeyAction, type KeyEvent, Mods } from '../../ghostty-web/input/key-types';
 import {
   InputHandler,
   type InputHandlerOptions,
   type MouseEventReport,
   type MouseTrackingConfig,
-} from '../ghostty-web/input-handler';
-import { loadGhostty } from './support/wasm';
+} from '../../ghostty-web/input-handler';
+import { loadGhostty } from '../support/wasm';
 
 // The InputHandler facade (ADR 061): its listeners, and what keys, IME compositions,
 // beforeinput and mouse events send through it.

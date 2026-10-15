@@ -7,7 +7,7 @@ import {
   SPRING_RELEASE_MS,
   springOmega,
   springStep,
-} from '../ghostty-web/glide';
+} from '../../ghostty-web/glide';
 
 describe('springStep', () => {
   test('approaches a target from rest without overshooting', () => {

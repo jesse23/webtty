@@ -10,7 +10,7 @@ import { TerminalEmitters } from '../../ghostty-web/core/terminal-emitters';
 
 // Terminal's controllers as one unit: the order attach() adds their listeners in, what
 // detach() takes away, and the input route. Each controller has its own tests; the
-// wiring is exercised whole by vendor/tests/terminal.test.ts.
+// wiring is exercised whole by vendor/tests/core/terminal.test.ts.
 
 function controllers(options: { disableStdin?: boolean } = {}) {
   const log: string[] = [];
