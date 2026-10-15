@@ -82,3 +82,32 @@ describe('Viewport', () => {
     expect(calls).toEqual([]);
   });
 });
+
+describe('Viewport.jumpToPrompt', () => {
+  // Ghostty's jump_to_prompt (ADR 057): the engine finds the row, the view puts it on top.
+  /** An engine whose prompts are on buffer rows `rows`, as promptJumpRow reports them. */
+  const engine = (rows: number[], calls: string[]) => ({
+    promptJumpRow: (top: number, delta: number) => {
+      calls.push(`from ${top} by ${delta}`);
+      const above = rows.filter((r) => (delta < 0 ? r < top : r > top));
+      const target = delta < 0 ? above[above.length + delta] : above[delta - 1];
+      return target ?? top;
+    },
+  });
+
+  test('moves a prompt to the top row, from the whole row the view starts on', () => {
+    const { view, calls } = viewport(17);
+    view.y = 2.5;
+    view.jumpToPrompt(-1, engine([0, 7, 14], calls));
+    // The top row is 17 - floor(2.5) = 15; prompt 14 is two rows of scrollback further back
+    expect(calls).toEqual(['from 15 by -1', 'scroll 3', 'show']);
+    expect(view.y).toBe(3);
+  });
+
+  test('stays where it is with no prompt to go to', () => {
+    const { view, calls } = viewport(17);
+    view.jumpToPrompt(1, engine([0, 7, 14], calls));
+    expect(calls).toEqual(['from 17 by 1']);
+    expect(view.y).toBe(0);
+  });
+});

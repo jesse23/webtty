@@ -133,6 +133,19 @@ export function deviceCellPixels(cssCell: number, dpr: number): number {
   return Math.max(1, Math.round(cssCell * dpr));
 }
 
+/** The page's device pixel ratio, 1 outside a browser or when the window reports none. */
+export function pageDevicePixelRatio(): number {
+  return (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+}
+
+/** A `cell` of CSS pixels in whole device pixels (deviceCellPixels on each side). (webtty, ADR 042) */
+export function cellDevicePixels(
+  cell: { width: number; height: number },
+  dpr: number = pageDevicePixelRatio()
+): { width: number; height: number } {
+  return { width: deviceCellPixels(cell.width, dpr), height: deviceCellPixels(cell.height, dpr) };
+}
+
 /**
  * The cursor cell's top-left corner, in CSS pixels relative to the container's
  * padding box. `cursor.y` is relative to the bottom screen; when scrolled back by

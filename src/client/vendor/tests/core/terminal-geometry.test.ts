@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  cellDevicePixels,
   cursorCellOffset,
   deviceCellPixels,
   linkViewportRange,
   mouseCursorFor,
   mouseSurface,
+  pageDevicePixelRatio,
   pointerCell,
   setStylePx,
   viewportRowToBufferRow,
@@ -159,6 +161,30 @@ describe('deviceCellPixels', () => {
   test('never reports less than one pixel', () => {
     expect(deviceCellPixels(0, 2)).toBe(1);
     expect(deviceCellPixels(0.2, 1)).toBe(1);
+  });
+});
+
+describe('cellDevicePixels', () => {
+  test('is both sides of the cell in whole device pixels', () => {
+    expect(cellDevicePixels({ width: 9.6, height: 19.2 }, 1.25)).toEqual({ width: 12, height: 24 });
+  });
+
+  test("defaults to the page's ratio, which is 1 without a window", () => {
+    expect(pageDevicePixelRatio()).toBe(1);
+    expect(cellDevicePixels({ width: 8, height: 16 })).toEqual({ width: 8, height: 16 });
+  });
+
+  test("reads the window's ratio, 1 when it reports none", () => {
+    const g = globalThis as Record<string, unknown>;
+    const saved = g.window;
+    try {
+      g.window = { devicePixelRatio: 2 };
+      expect(pageDevicePixelRatio()).toBe(2);
+      g.window = { devicePixelRatio: 0 };
+      expect(pageDevicePixelRatio()).toBe(1);
+    } finally {
+      g.window = saved;
+    }
   });
 });
 

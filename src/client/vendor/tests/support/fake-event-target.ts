@@ -13,6 +13,8 @@ export class FakeElement extends RecordingTarget {
   parentNode: FakeElement | null = null;
   width = 0;
   height = 0;
+  offsetLeft = 0;
+  offsetTop = 0;
   /** Set on a canvas only: a context that draws nothing. */
   getContext?: () => CanvasRenderingContext2D;
   private readonly attributes = new Map<string, string>();
@@ -63,6 +65,15 @@ export class FakeElement extends RecordingTarget {
 
   focus(): void {
     this.ownerDocument.activeElement = this;
+  }
+
+  contains(node: unknown): boolean {
+    return node === this || this.children.some((child) => child.contains(node));
+  }
+
+  /** An 800 × 400 box at the page's top-left corner. */
+  getBoundingClientRect() {
+    return { left: 0, top: 0, right: 800, bottom: 400, width: 800, height: 400 };
   }
 }
 

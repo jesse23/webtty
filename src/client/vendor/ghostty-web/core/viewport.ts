@@ -2,6 +2,7 @@
 // The view's position in the scrollback (object): `y` lines back from the bottom, moved
 // only within the scrollback, each move announced and the scrollbar shown (ADR 061).
 
+import type { GhosttyTerminal } from '../engine/engine-types';
 import type { ViewportHost } from './host-types';
 
 /** Where the view is: `y` = 0 shows the bottom screen, `y` > 0 is scrolled into history. */
@@ -32,6 +33,18 @@ export class Viewport {
     this.y = 0;
     this.host.scrolled(0);
     if (this.host.getScrollbackLength() > 0) this.host.showScrollbar();
+  }
+
+  /**
+   * Ghostty's `jump_to_prompt`: moves by `delta` OSC 133 prompts (negative is up), the
+   * prompt landing as the top row; nothing without marks or past the last one. (webtty,
+   * ADR 057)
+   */
+  jumpToPrompt(delta: number, engine: Pick<GhosttyTerminal, 'promptJumpRow'>): void {
+    const scrollback = this.host.getScrollbackLength();
+    const top = scrollback - Math.floor(this.y);
+    const row = engine.promptJumpRow(top, delta);
+    if (row !== top) this.scrollToLine(scrollback - row);
   }
 
   private moveTo(y: number, scrollbackLength: number): void {

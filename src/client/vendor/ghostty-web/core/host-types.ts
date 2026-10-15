@@ -252,3 +252,30 @@ export interface WheelHost {
   encodeMouse(event: MouseEventReport): string;
   send(data: string): void;
 }
+
+/**
+ * The clock the scrollbar's auto-hide and fade run on, injected so tests run them by hand;
+ * production passes the browser's (`browserScrollbarClock` in scrollbar-controller.ts).
+ */
+export interface ScrollbarClock extends TimeoutScheduler {
+  /** Wall-clock milliseconds, as `Date.now()`. */
+  now(): number;
+  requestAnimationFrame(callback: () => void): number;
+}
+
+/**
+ * What the ScrollbarController reads of the terminal when a press, drag or scroll arrives:
+ * the canvas and how far row 0 sits below its top (both undefined before open() and after
+ * dispose()), the scrollback and view it moves, and the frame that shows a new opacity.
+ */
+export interface ScrollbarHost {
+  canvas(): HTMLCanvasElement | undefined;
+  /** The renderer's scroll offset (ADR 043), or undefined without a renderer. */
+  scrollOffset(): number | undefined;
+  getScrollbackLength(): number;
+  rows(): number;
+  viewportY(): number;
+  scrollToLine(line: number): void;
+  /** Renders a frame with the scrollbar at `opacity`, if the terminal is open. */
+  render(opacity: number): void;
+}

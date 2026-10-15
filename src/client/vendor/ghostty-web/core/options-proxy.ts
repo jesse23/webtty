@@ -5,6 +5,7 @@
 
 import type { GhosttyTerminalConfig } from '../engine/engine-types';
 import type { ITerminalOptions } from '../interfaces';
+import type { RendererOptions } from '../render/renderable';
 
 /** The options a Terminal keeps: every option but the engine, defaults filled in. */
 export type TerminalOptionValues = Required<
@@ -147,5 +148,18 @@ export function toEngineConfig(options: EngineOptions): GhosttyTerminalConfig {
     cursorBlink: options.cursorBlink,
     clipboardWrite: options.clipboardWrite,
     desktopNotifications: options.desktopNotifications,
+  };
+}
+
+/** The renderer's options at open(): the font, the cursor and the theme. */
+export function rendererOptions(
+  options: Pick<TerminalOptionValues, 'fontSize' | 'fontFamily' | 'cursorStyle' | 'cursorBlink' | 'theme'>
+): RendererOptions {
+  return {
+    fontSize: options.fontSize,
+    fontFamily: options.fontFamily,
+    cursorStyle: options.cursorStyle,
+    cursorBlink: options.cursorBlink,
+    theme: options.theme,
   };
 }

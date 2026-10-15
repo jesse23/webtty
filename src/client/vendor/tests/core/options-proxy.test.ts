@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import {
   createOptionsProxy,
   parseThemeColor,
+  rendererOptions,
   TERMINAL_DEFAULTS,
   toEngineConfig,
   withDefaults,
@@ -151,6 +152,20 @@ describe('toEngineConfig', () => {
     expect(config({ clipboardWrite: false, desktopNotifications: false })).toMatchObject({
       clipboardWrite: false,
       desktopNotifications: false,
+    });
+  });
+});
+
+describe('rendererOptions', () => {
+  test("are the terminal's font, cursor and theme", () => {
+    const theme = { background: '#000' };
+    const options = withDefaults({ ghostty: {} as never, fontSize: 18, cursorBlink: true, theme });
+    expect(rendererOptions(options)).toEqual({
+      fontSize: 18,
+      fontFamily: 'monospace',
+      cursorStyle: 'block',
+      cursorBlink: true,
+      theme,
     });
   });
 });

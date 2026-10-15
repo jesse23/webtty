@@ -15,10 +15,6 @@ export const RATCHET_ALLOWLIST: Allowlist = {
   sizes: {
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
-    'src/client/vendor/ghostty-web/terminal.ts': {
-      lines: 1248,
-      step: 'vendor terminal split into core/ (ADR 061)',
-    },
     'src/config.ts': { lines: 369, step: 'server track: src/config/ split (ADR 062)' },
     'src/server/routes.ts': { lines: 485, step: 'server track: routes/ and http/ (ADR 062)' },
   },
