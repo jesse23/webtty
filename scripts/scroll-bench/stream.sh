@@ -12,13 +12,16 @@ cols=$(tput cols 2>/dev/null || echo 80)
 delay=$(awk "BEGIN { printf \"%.4f\", 1 / $rate }")
 total=$((rate * seconds))
 
+text='the quick brown fox jumps over the lazy dog while the slow cat sleeps'
+
 bar() {
   printf '\e[7m%-*s\e[0m' "$cols" " stream $1/$total  ${rate} lines/s"
 }
 
 for ((i = 1; i <= total; i++)); do
   # Replace the bar with the next line, then draw the bar below it again.
-  printf '\r\e[2K%06d  the quick brown fox jumps over the lazy dog %s\n' "$i" "$((i * 7919 % 100000))"
+  # Lines of varying length, so a frame moved by a line does not look like the one before
+  printf '\r\e[2K%06d  %s\n' "$i" "${text:0:$((i * 37 % 50 + 8))}"
   bar "$i"
   sleep "$delay"
 done

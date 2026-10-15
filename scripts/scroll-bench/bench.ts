@@ -24,8 +24,9 @@
 import path from 'node:path';
 import { type BenchArgs, basesForRun, parseBenchArgs, USAGE } from './bench-args';
 import { type Cdp, connectCdp, sleep } from './cdp';
+import { writeDump } from './dump';
 import { INPUT_PROFILES, type InputName } from './inputs';
-import { measureScroll, measureStream, startScenario } from './measure';
+import { measureScroll, measureStream, type RecordSink, startScenario } from './measure';
 import { loadScenarios, type Scenario } from './scenarios';
 import { benchSessionId, createSession, deleteSession } from './session-api';
 import { type Result, resultLine, summaryTable } from './summary';
@@ -37,8 +38,10 @@ async function runOne(
   scenario: Scenario,
   input: InputName,
   run: number,
+  dump?: string,
 ): Promise<Result> {
   const id = benchSessionId([base.label, scenario.name, input, run]);
+  const sink: RecordSink | undefined = dump ? (record) => writeDump(dump, id, record) : undefined;
   const session = await createSession(base.url, id);
   try {
     await startScenario(cdp, session.url, scenario);
@@ -52,9 +55,17 @@ async function runOne(
     };
     const profile = INPUT_PROFILES[input];
     if (scenario.kind === 'stream') {
-      return { kind: 'stream', ...key, ...(await measureStream(cdp, profile, key.direction)) };
+      return {
+        kind: 'stream',
+        ...key,
+        ...(await measureStream(cdp, profile, key.direction, scenario.pointer, sink)),
+      };
     }
-    return { kind: 'scroll', ...key, ...(await measureScroll(cdp, profile, key.direction)) };
+    return {
+      kind: 'scroll',
+      ...key,
+      ...(await measureScroll(cdp, profile, key.direction, scenario.pointer, sink)),
+    };
   } finally {
     // Leave the page first so the session's socket closes, but delete the session even
     // when the browser fails, so its app does not keep running.
@@ -88,7 +99,7 @@ async function main(argv: readonly string[]): Promise<number> {
         for (let run = 1; run <= args.runs; run++) {
           for (const base of basesForRun(args.bases, run)) {
             try {
-              const result = await runOne(cdp, base, scenario, input, run);
+              const result = await runOne(cdp, base, scenario, input, run, args.dump);
               results.push(result);
               console.log(resultLine(result));
             } catch (error) {

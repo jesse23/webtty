@@ -24,7 +24,21 @@ export interface Scenario {
   direction: Direction;
   /** Which screen the app draws on; reported with the results. */
   screen: 'alt' | 'normal';
+  /**
+   * Where the wheel events go, as fractions of the page's width and height: over the pane
+   * that scrolls in an app with several (yazi's file list, not its preview).
+   */
+  pointer: Pointer;
 }
+
+/** A point on the page as fractions of its width and height, 0 to 1. */
+export interface Pointer {
+  x: number;
+  y: number;
+}
+
+/** The middle of the page. */
+export const CENTRE: Pointer = { x: 0.5, y: 0.5 };
 
 /** Values for the `{repo}` and `{bench}` placeholders in a command. */
 export interface Placeholders {
@@ -43,6 +57,7 @@ const KNOWN_FIELDS = new Set([
   'enter2WaitMs',
   'direction',
   'screen',
+  'pointer',
 ]);
 
 function oneOf<T extends string>(where: string, value: unknown, allowed: readonly T[], or: T): T {
@@ -55,6 +70,16 @@ function ms(where: string, value: unknown, or: number): number {
   if (value === undefined) return or;
   if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
   throw new Error(`${where}: must be a number of ms, 0 or more`);
+}
+
+function pointer(where: string, value: unknown): Pointer {
+  if (value === undefined) return CENTRE;
+  const p = value as Partial<Pointer> | null;
+  const fraction = (n: unknown) => typeof n === 'number' && n >= 0 && n <= 1;
+  if (typeof p !== 'object' || p === null || !fraction(p.x) || !fraction(p.y)) {
+    throw new Error(`${where}: must be { "x": 0-1, "y": 0-1 }`);
+  }
+  return { x: p.x as number, y: p.y as number };
 }
 
 /** Replaces `{repo}` and `{bench}` in `command`. */
@@ -91,6 +116,7 @@ export function parseScenario(entry: unknown, index: number, vars: Placeholders)
     enter2WaitMs: ms(`${at} enter2WaitMs`, raw.enter2WaitMs, 6000),
     direction: oneOf(`${at} direction`, raw.direction, ['up', 'down'], 'up'),
     screen: oneOf(`${at} screen`, raw.screen, ['alt', 'normal'], 'normal'),
+    pointer: pointer(`${at} pointer`, raw.pointer),
   };
 }
 

@@ -4,6 +4,7 @@
 
 import type { Cdp } from './cdp';
 import type { PaintFrame, Profile } from './metrics';
+import type { Pointer } from './scenarios';
 
 /**
  * Wraps the canvas drawing calls to flag a frame that drew, records every animation frame
@@ -103,7 +104,9 @@ export async function decodeProfiles(
   return profiles;
 }
 
-/** The middle of the page's viewport, where the wheel events go. */
-export function viewportCentre(cdp: Cdp): Promise<{ x: number; y: number }> {
-  return cdp.eval(`({ x: Math.round(innerWidth / 2), y: Math.round(innerHeight / 2) })`);
+/** The page point at `at`, fractions of its viewport, in CSS pixels. */
+export function viewportPoint(cdp: Cdp, at: Pointer): Promise<{ x: number; y: number }> {
+  return cdp.eval(
+    `({ x: Math.round(innerWidth * ${at.x}), y: Math.round(innerHeight * ${at.y}) })`,
+  );
 }

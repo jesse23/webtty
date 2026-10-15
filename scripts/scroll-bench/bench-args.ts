@@ -16,6 +16,8 @@ export interface BenchArgs {
   inputs: InputName[];
   runs: number;
   cdpPort: number;
+  /** A folder to save each run's frames in, to check a number against the pictures. */
+  dump?: string;
 }
 
 /** The CDP port the README's Chrome command opens. */
@@ -24,6 +26,7 @@ export const DEFAULT_RUNS = 2;
 
 export const USAGE = `usage: bun scripts/scroll-bench/bench.ts --base [label=]http://localhost:PORT ...
          --scenarios FILE [--inputs trackpad,wheel,trackpoint] [--runs N] [--cdp-port PORT]
+         [--dump DIR]
 
   --base       a server to measure; repeat it to compare builds (label defaults to host:port;
                letters, digits and . _ : - only)
@@ -31,6 +34,7 @@ export const USAGE = `usage: bun scripts/scroll-bench/bench.ts --base [label=]ht
   --inputs     the input profiles to play, comma separated (default: all)
   --runs       runs of each scenario and input per server (default ${DEFAULT_RUNS})
   --cdp-port   the --remote-debugging-port of an already running Chrome (default ${DEFAULT_CDP_PORT})
+  --dump       save each run's start screenshot, recorded frames and blink list under DIR
 
 inputs:
 ${INPUT_NAMES.map((name) => `  ${name.padEnd(12)} ${INPUT_PROFILES[name].description}`).join('\n')}`;
@@ -88,6 +92,7 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
   let inputs = INPUT_NAMES;
   let runs = DEFAULT_RUNS;
   let cdpPort = DEFAULT_CDP_PORT;
+  let dump: string | undefined;
   for (let i = 0; i < argv.length; i++) {
     const flag = argv[i];
     const value = argv[i + 1];
@@ -98,11 +103,12 @@ export function parseBenchArgs(argv: readonly string[]): BenchArgs {
     else if (flag === '--inputs') inputs = parseInputs(value);
     else if (flag === '--runs') runs = positiveInt(flag, value);
     else if (flag === '--cdp-port') cdpPort = positiveInt(flag, value);
+    else if (flag === '--dump') dump = value;
     else throw new Error(`unknown flag ${flag}`);
   }
   if (bases.length === 0) throw new Error('--base: give at least one server');
   if (!scenariosFile) throw new Error('--scenarios: give the scenarios file');
   const labels = new Set(bases.map((b) => b.label));
   if (labels.size !== bases.length) throw new Error('--base: labels must be unique');
-  return { bases, scenariosFile, inputs, runs, cdpPort };
+  return { bases, scenariosFile, inputs, runs, cdpPort, ...(dump ? { dump } : {}) };
 }

@@ -4,6 +4,7 @@
 // Service over Cdp; the numbers come from metrics.ts.
 
 import { type Cdp, sleep } from './cdp';
+import type { RunRecord } from './dump';
 import { type Direction, type InputProfile, playInput } from './inputs';
 import {
   averageStepPx,
@@ -15,11 +16,20 @@ import {
   scrollWindow,
   streamStats,
 } from './metrics';
-import { decodeProfiles, readPaintCounter, resetPaintCounter, viewportCentre } from './page';
-import type { Scenario } from './scenarios';
+import { decodeProfiles, readPaintCounter, resetPaintCounter, viewportPoint } from './page';
+import { CENTRE, type Pointer, type Scenario } from './scenarios';
 import { type CastOptions, startRecording } from './screencast';
 
-const CAST: CastOptions = { quality: 80, maxWidth: 1280, maxHeight: 800 };
+/**
+ * The screencast at the page's own size: a scaled frame moves by fractions of a pixel, and
+ * the resampling blur that adds to high-contrast text read as blinks while smooth scrolling.
+ */
+async function castOptions(cdp: Cdp): Promise<CastOptions> {
+  const size = await cdp.eval<{ width: number; height: number }>(
+    `({ width: innerWidth * devicePixelRatio, height: innerHeight * devicePixelRatio })`,
+  );
+  return { quality: 80, maxWidth: size.width, maxHeight: size.height };
+}
 /** How long to wait for the client to draw its terminal canvas after the page loads. */
 const READY_TIMEOUT_MS = 10_000;
 /** Recording kept after the last wheel event, so glides and late paints are seen. */
@@ -43,7 +53,7 @@ export async function startScenario(cdp: Cdp, url: string, scenario: Scenario): 
   await cdp.navigate(url);
   await waitForTerminal(cdp);
   await sleep(500);
-  const centre = await viewportCentre(cdp);
+  const centre = await viewportPoint(cdp, CENTRE);
   await cdp.click(centre.x, centre.y);
   await cdp.text(scenario.command);
   await cdp.key('Enter');
@@ -53,6 +63,13 @@ export async function startScenario(cdp: Cdp, url: string, scenario: Scenario): 
     await sleep(scenario.enter2WaitMs);
   }
 }
+
+/** Takes what a run recorded, when the benchmark keeps it (--dump). */
+export type RecordSink = (record: RunRecord) => void;
+
+/** The start screenshot, taken only when a sink will keep it. */
+const startShot = (cdp: Cdp, sink?: RecordSink): Promise<string> =>
+  sink ? cdp.screenshot() : Promise.resolve('');
 
 /** The scroll test's numbers for one input. */
 export interface ScrollMeasure extends PaintStats {
@@ -69,11 +86,14 @@ export async function measureScroll(
   cdp: Cdp,
   input: InputProfile,
   direction: Direction,
+  pointer: Pointer = CENTRE,
+  sink?: RecordSink,
 ): Promise<ScrollMeasure> {
-  const centre = await viewportCentre(cdp);
+  const at = await viewportPoint(cdp, pointer);
+  const startPng = await startShot(cdp, sink);
   await resetPaintCounter(cdp);
-  const recording = await startRecording(cdp, CAST);
-  await playInput(cdp, input, direction, centre);
+  const recording = await startRecording(cdp, await castOptions(cdp));
+  await playInput(cdp, input, direction, at);
   await sleep(TAIL_MS);
   const cast = await recording.stop();
   const log = await readPaintCounter(cdp);
@@ -84,9 +104,11 @@ export async function measureScroll(
   );
   const window = scrollWindow(input.maxFramePx);
   const pairs = matchPairs(profiles, window);
+  const blinks = blinkFrames(profiles, pairs, window);
+  sink?.({ startPng, frames: cast, blinks });
   return {
     frames: profiles.length,
-    blinks: blinkFrames(profiles, pairs, window).length,
+    blinks: blinks.length,
     avgStepPx: averageStepPx(pairs, window),
     ...paintStats(log.frames, log.wheels, TAIL_MS),
   };
@@ -101,18 +123,23 @@ export async function measureStream(
   cdp: Cdp,
   input: InputProfile,
   direction: Direction,
+  pointer: Pointer = CENTRE,
+  sink?: RecordSink,
 ): Promise<StreamStats> {
-  const centre = await viewportCentre(cdp);
-  const recording = await startRecording(cdp, CAST);
-  await playInput(cdp, input, direction, centre);
+  const at = await viewportPoint(cdp, pointer);
+  const startPng = await startShot(cdp, sink);
+  const recording = await startRecording(cdp, await castOptions(cdp));
+  await playInput(cdp, input, direction, at);
   const scrollEnd = Date.now();
   await sleep(STREAM_SETTLE_MS + STREAM_REST_MS);
   const cast = await recording.stop();
   const profiles = await decodeProfiles(
     cdp,
     cast.map((f) => f.jpeg),
-    { x: 0, width: 4000, channels: 'r' },
+    // Where stream.sh's bar is in any terminal at least 50 columns wide: its first columns
+    { x: 8, width: 400, channels: 'r' },
   );
+  sink?.({ startPng, frames: cast, blinks: [] });
   const frames = cast.map((f, i) => ({ time: f.time, profile: profiles[i] }));
   return streamStats(frames, scrollEnd, STREAM_SETTLE_MS);
 }

@@ -15,6 +15,7 @@ describe('parseScenario', () => {
       enter2WaitMs: 6000,
       direction: 'up',
       screen: 'normal',
+      pointer: { x: 0.5, y: 0.5 },
     });
   });
 
@@ -30,6 +31,7 @@ describe('parseScenario', () => {
         enter2WaitMs: 0,
         direction: 'down',
         screen: 'alt',
+        pointer: { x: 0.3, y: 0.6 },
       },
       0,
       VARS,
@@ -42,6 +44,7 @@ describe('parseScenario', () => {
       enter2WaitMs: 0,
       direction: 'down',
       screen: 'alt',
+      pointer: { x: 0.3, y: 0.6 },
     });
   });
 
@@ -54,6 +57,8 @@ describe('parseScenario', () => {
     ['a bad direction', { name: 'a', command: 'x', direction: 'left' }, 'direction'],
     ['a negative wait', { name: 'a', command: 'x', waitMs: -1 }, 'waitMs'],
     ['a string enter2', { name: 'a', command: 'x', enter2: 'yes' }, 'enter2'],
+    ['a pointer off the page', { name: 'a', command: 'x', pointer: { x: 1.5, y: 0 } }, 'pointer'],
+    ['a pointer without y', { name: 'a', command: 'x', pointer: { x: 0.5 } }, 'pointer'],
   ];
   for (const [name, entry, message] of bad) {
     test(`rejects ${name}`, () => expect(() => parseScenario(entry, 3, VARS)).toThrow(message));

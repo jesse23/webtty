@@ -9,26 +9,30 @@
   },
   {
     "name": "vim",
-    "note": "vim on a big file, scrolled down from the top",
-    "command": "seq -f 'line %g of a big file for vim to scroll' 1 20000 > /tmp/scroll-bench.txt && vim -u NONE -c 'set mouse=a' /tmp/scroll-bench.txt",
+    "note": "vim on a big file, scrolled down from the top; the lines differ in length so a scrolled frame can be told from the one before",
+    "command": "awk 'BEGIN { for (i = 1; i <= 20000; i++) printf \"line %d %s\\n\", i, substr(\"of a big file whose lines differ in length so a scrolled frame can be told apart\", 1, i * 37 % 60 + 4) }' > /tmp/scroll-bench.txt && vim -n -u NONE -c 'set mouse=a' /tmp/scroll-bench.txt",
     "waitMs": 3000,
     "direction": "down",
     "screen": "alt"
   },
   {
     "name": "nvim",
-    "command": "seq -f 'line %g of a big file for nvim to scroll' 1 20000 > /tmp/scroll-bench.txt && nvim --clean /tmp/scroll-bench.txt",
+    "command": "awk 'BEGIN { for (i = 1; i <= 20000; i++) printf \"line %d %s\\n\", i, substr(\"of a big file whose lines differ in length so a scrolled frame can be told apart\", 1, i * 37 % 60 + 4) }' > /tmp/scroll-bench.txt && nvim -n --clean /tmp/scroll-bench.txt",
     "waitMs": 3000,
     "direction": "down",
     "screen": "alt"
   },
   {
     "name": "yazi",
-    "note": "a long file list; yazi tracks the mouse",
+    "note": "a long file list; yazi tracks the mouse, and the wheel scrolls the pane under the pointer, so it points at the current directory's list, not the preview",
     "command": "yazi /usr/bin",
     "waitMs": 3000,
     "direction": "down",
-    "screen": "alt"
+    "screen": "alt",
+    "pointer": {
+      "x": 0.3,
+      "y": 0.5
+    }
   },
   {
     "name": "less",

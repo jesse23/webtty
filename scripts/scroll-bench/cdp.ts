@@ -26,6 +26,8 @@ export interface Cdp {
   key(name: KeyName): Promise<void>;
   /** Clicks the left mouse button at (x, y), to focus what is there. */
   click(x: number, y: number): Promise<void>;
+  /** The page as a PNG, base64. */
+  screenshot(): Promise<string>;
   close(): void;
 }
 
@@ -156,6 +158,10 @@ export async function connectCdp(port: number): Promise<Cdp> {
     async click(x, y) {
       await mouse('mousePressed', x, y);
       await mouse('mouseReleased', x, y);
+    },
+    async screenshot() {
+      const r = await send('Page.captureScreenshot', { format: 'png' });
+      return String(r.data);
     },
     close: () => ws.close(),
   };
