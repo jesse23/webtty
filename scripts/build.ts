@@ -1,3 +1,7 @@
+// Builds dist/: the server and CLI bundles for Node, the minified browser bundle, the page
+// and stylesheet, the verified libghostty-vt wasm and THIRD_PARTY_LICENSES (entry, ADR 042,
+// ADR 047). The output names are fixed; package.json and the server serve them by name.
+
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';

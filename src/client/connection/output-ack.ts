@@ -1,3 +1,6 @@
+// Sends ack messages as output is parsed, so the server paces a slow tab (object,
+// ADR 048). One instance per socket, bound to that socket's send and open check.
+
 /** Characters of parsed output between acknowledgements (ADR 048). */
 export const ACK_EVERY = 64 * 1024;
 /** How long after the last output a smaller count is acknowledged, in ms. */

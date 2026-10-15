@@ -1,11 +1,12 @@
 /**
- * Padding around the canvas in the `#terminal` container.
+ * Padding around the canvas in the `#terminal` container (util, pure, ADR 033).
  *
  * The vendored `FitAddon` sizes the grid from the full container, with no scrollbar
  * reserve, so the only space left over is the sub-cell remainder. This places that
- * remainder and the configured padding around the canvas. See ADR 033.
+ * remainder and the configured padding around the canvas.
  */
 
+/** The padding on each side of the canvas, in CSS pixels. */
 export interface Insets {
   left: number;
   right: number;

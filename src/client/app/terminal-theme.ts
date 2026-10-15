@@ -1,13 +1,14 @@
 /**
- * Maps webtty's theme keys onto the names ghostty-web understands.
+ * Maps webtty's theme keys onto the names ghostty-web understands (util, pure, ADR 036).
  *
  * webtty follows Windows Terminal's names (`purple`, `brightPurple`, `selection`) while
  * ghostty-web's `ITheme` uses xterm.js names (`magenta`, `brightMagenta`,
  * `selectionBackground`, `selectionForeground`). Keys it does not know are ignored, so
  * without this mapping ANSI purple and the selection colour fall back to ghostty-web's own
- * defaults (`#bc3fbc`, and a light-gray selection with dark text). See ADR 036.
+ * defaults (`#bc3fbc`, and a light-gray selection with dark text).
  */
 
+/** The theme keys webtty's config uses, Windows Terminal's names, read by the mapping. */
 export interface ThemeKeys {
   background?: string;
   foreground?: string;
@@ -20,6 +21,7 @@ export interface ThemeKeys {
   [ansiKey: string]: string | undefined;
 }
 
+/** The config theme in ghostty-web's `ITheme` names, so purple and the selection colours apply. */
 export function toTerminalTheme(themeConfig: object): Record<string, string> {
   const theme = themeConfig as ThemeKeys;
   const {

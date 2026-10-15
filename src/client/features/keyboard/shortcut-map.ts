@@ -1,3 +1,6 @@
+// Ghostty's default copy, paste, clear, find and jump-to-prompt keys, by platform (util,
+// pure, ADR 014, ADR 054, ADR 055, ADR 057). The key dispatcher looks a keydown up here.
+
 /**
  * A copy, paste, clear-screen (ADR 054), find (ADR 055) or jump-to-prompt (ADR 057) key,
  * as Ghostty binds them by default. `performable`: when the action cannot be done (no selection to copy, the

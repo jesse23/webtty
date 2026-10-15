@@ -1,3 +1,6 @@
+// Tells the session replay the server sends on every connect from new output (object,
+// ADR 053, ADR 056), so a bell or a notification in the replay is not raised again.
+
 /**
  * The size, in characters, of the pieces the server sends the replay in (its
  * `FlowLimits.chunk`, ADR 048): every piece but the last is this long, or one shorter
