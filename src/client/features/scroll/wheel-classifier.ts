@@ -39,22 +39,15 @@ export class WheelClassifier {
     if (!isAlmostInt(deltaX) || !isAlmostInt(deltaY)) score += 0.25;
     // A wheel's notches are multiples of each other; a trackpad accelerates smoothly.
     const prev = this.previous;
-    if (prev && isMultiple(deltaX, prev.deltaX) && isMultiple(deltaY, prev.deltaY)) score -= 0.5;
+    if (prev) {
+      const [ax, ay] = [Math.abs(deltaX), Math.abs(deltaY)];
+      const [px, py] = [Math.abs(prev.deltaX), Math.abs(prev.deltaY)];
+      const minX = Math.max(Math.min(ax, px), 1);
+      const minY = Math.max(Math.min(ay, py), 1);
+      if (Math.max(ax, px) % minX === 0 && Math.max(ay, py) % minY === 0) score -= 0.5;
+    }
     return Math.min(Math.max(score, 0), 1);
   }
-}
-
-/**
- * Whether the larger of two deltas is a whole multiple of the smaller (taken as at least 1),
- * by their ratio: at a browser zoom other than 100%, Chromium divides a notch's pixels by the
- * zoom, and notches of 90.909… and 181.818… px leave a remainder in floating point though
- * one is twice the other. (webtty: VS Code compares remainders, after multiplying by its own
- * zoom factor, which a page cannot read.)
- */
-function isMultiple(a: number, b: number): boolean {
-  const low = Math.max(Math.min(Math.abs(a), Math.abs(b)), 1);
-  const ratio = Math.max(Math.abs(a), Math.abs(b)) / low;
-  return Math.abs(ratio - Math.round(ratio)) < 0.01;
 }
 
 function isAlmostInt(value: number): boolean {
