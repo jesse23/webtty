@@ -171,7 +171,7 @@ Controlled by two config keys from `GET /api/config`:
 
 | Config | Default | Behavior |
 |--------|---------|----------|
-| `copyOnSelect` | `true` | Copies a mouse selection (drag, double or triple click) to the clipboard once, on mouseup, through the Terminal's `copyOnSelect` option, and clears it; off, nothing is copied and the selection stays. |
+| `copyOnSelect` | `true` | Copies a mouse selection (drag, double or triple click) to the clipboard once, on mouseup, through the Terminal's `copyOnSelect` option, and clears it, as herdr does; off, nothing is copied and the selection stays. |
 | `rightClickBehavior` | `"contextMenu"` | What a right-click the app does not take does: `"contextMenu"` the browser menu (over the textarea, so it offers Copy and Paste); `"copyPaste"` copy and clear a selection, else the menu; `"paste"` paste the clipboard (the Ctrl+V path, ADR 037); `"none"` nothing, no menu. `"default"` is read as `"contextMenu"`. |
 
 Both can be active simultaneously. The canvas-based terminal has no DOM text selection — these and the copy keys (Cmd+C, Ctrl+Shift+C, Ctrl+Insert; see below) are the only reliable copy paths.
