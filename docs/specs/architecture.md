@@ -1,6 +1,6 @@
 # SPEC: Architecture
 
-**Last Updated:** 2026-10-14 (revised after review)
+**Last Updated:** 2026-10-14 (the refactor is done: the server branch merged, the ratchet allowlist empty, the coverage targets enforced)
 
 ---
 
@@ -51,7 +51,7 @@ src/client:
 | Test files (`*.test.ts`) may cross the client/server line (contract tests); the import rules above apply to source files only. | same |
 | The checker counts `.ts` files only, excluding `*.d.ts`; fixtures, the wasm, JSON, Markdown, HTML and CSS are not source. | same |
 
-**Contracts across the client/server line.** The config types are defined once, in `src/config/config-schema.ts`: `CLIENT_CONFIG_KEYS` (a `const` tuple, the one key list, legacy `scrollback` included) and `ClientConfig = Pick<Config, (typeof CLIENT_CONFIG_KEYS)[number]>`. The server builds `/api/config` from that list (`client-view.ts`, whose test pins the exact keys and order), and the client imports the `ClientConfig` type with `import type`, so the three copies of today (client type, server whitelist, server type) become one type and one key list. A type has no runtime keys, so there is no runtime contract test for it: `tsc` checks the client against the type. While the server and client branches of the refactor are apart, the client keeps a local `Pick<Config, …>` alias marked temporary, replaced by the import when they merge. Wire constants that the client needs as values (the WebSocket close codes 1001, 4001, 4003) are mirrored in `src/client/connection/close-codes.ts` and pinned to the server's by a contract test that imports both (tests may cross the line; code may not).
+**Contracts across the client/server line.** The config types are defined once, in `src/config/config-schema.ts`: `CLIENT_CONFIG_KEYS` (a `const` tuple, the one key list, legacy `scrollback` included) and `ClientConfig = Pick<Config, (typeof CLIENT_CONFIG_KEYS)[number]>`. The server builds `/api/config` from that list (`client-view.ts`, whose test pins the exact keys and order), and the client imports the `ClientConfig` type with `import type`, so the three copies of today (client type, server whitelist, server type) become one type and one key list. A type has no runtime keys, so there is no runtime contract test for it: `tsc` checks the client against the type (the client's test fixtures carry the legacy `scrollback` key too). Wire constants that the client needs as values (the WebSocket close codes 1001, 4001, 4003) are mirrored in `src/client/connection/close-codes.ts` and pinned to the server's `WS_CLOSE` by a contract test, `connection/close-codes.test.ts`, that imports both (tests may cross the line; code may not). The client's `replay-window.test.ts` likewise reads the replay piece size from the server's `DEFAULT_FLOW_LIMITS` in `output-pacer.ts`.
 
 ## Folder tree
 
@@ -63,7 +63,9 @@ src/
   runtime.ts                    util: bunTerminalAvailable, launchedFromBunExecutable, runningUnderBun, isWindows, packageRunner
                                 (one predicate per meaning of the three old isBun definitions, each taking an env with a production default)
   ndjson.ts                     object: LineSplitter (server /publish and CLI run)
-  test-support/server-harness.ts  test util: getFreePort, waitForServer*, makeTmpHome (was src/utils.test.ts)
+  test-support/                 server, CLI and version test support: server-harness.ts (getFreePort, waitForServer*,
+                                makeTmpHome; was src/utils.test.ts), live-server.ts and route-harness.ts (the server
+                                in-process), fake-pty.ts, fake-socket.ts, response-recorder.ts
   config/                       node; server + cli; the client imports types only
     index.ts                    service: loadConfig, initConfig, re-exports the types (keeps `../config` imports working)
     config-schema.ts            types: Config, Theme, KeyboardBinding, RightClickBehavior, ClientConfig, CLIENT_CONFIG_KEYS
@@ -81,8 +83,6 @@ src/
     app.ts                      factory: createServer({ loadConfig, store, spawnPty, paths, onStop }) → { httpServer, wss, shutdown }
     server-paths.ts             util: projectRoot, clientRoot, wasmPath (the one place that knows src vs dist depth)
     output-pacer.ts             object: OutputPacer, splitChunks, DEFAULT_FLOW_LIMITS (was flow.ts)
-    flow.ts                     temporary one-line re-export of output-pacer.ts, kept only until the client's
-                                replay-window.test.ts is repointed after the two branches merge, then deleted
     http/
       router.ts                 util: ordered method + pattern table (declaration order = the old if-chain order)
       respond.ts                util: sendJson, sendText, CORS_HEADERS
@@ -91,6 +91,7 @@ src/
     routes/
       route-table.ts            wiring: the ordered route list
       server-routes.ts  config-routes.ts  session-routes.ts  page-routes.ts  asset-routes.ts  publish-route.ts  execute-route.ts
+      running-session.ts        util: the checks publish and execute share (ID, content type, a running session)
       run-command.ts            service: child process → NDJSON (spawn injected)
     sessions/
       session-store.ts          object: SessionStore (map, lastUsedId, rename, remove, findByPid, onEmpty)
@@ -112,6 +113,7 @@ src/
     server-process.ts           service: resolveServerEntry (pure), startServer, stopServer
     browser-opener.ts           util: openBrowser, toBrowserHost
     commands/                   one file per command: go, list, remove, rename, start-stop, edit-config, run, key; key-format.ts
+    test-support/               fake-cli-deps.ts, scripted-fetch.ts
   client/
     index.ts (entry)            ~15 lines: await startClient(browserEnv())
     client.html  index.css      (paths fixed: copied by scripts/build.ts)
@@ -164,6 +166,7 @@ src/
         support/                wasm.ts (the one WASM path, a cached loadGhostty(), countedGhostty()), fake-canvas.ts, fake-event-target.ts,
                                 engine-harness.ts (engine parts without the facade), terminal-text.ts (row text, cell colours),
                                 selection-fixture.ts (a SelectionManager on a recording canvas and document),
+                                raster-canvas.ts and renderer-harness.ts (renderers on canvases that record or rasterise),
                                 terminal-harness.ts (a whole Terminal opened on the fakes, driven through its public API)
         fixtures/               PTY captures (was vendor/fixtures/)
       ghostty-web/              Biome-excluded; see "The vendored layer"
@@ -173,7 +176,8 @@ scripts/
   architecture/                 the checker's parts, each with its test: source-file.ts (paths, layers), size-limits.ts,
                                 import-scan.ts, import-rules.ts (one table entry per rule), import-cycles.ts,
                                 naming-rules.ts, ratchet.ts, ratchet-allowlist.ts (the data, with each entry's step)
-  check-coverage.ts             per-layer coverage targets over bun's lcov report (run by test:coverage)
+  check-coverage.ts             entry: per-layer coverage targets and the pure-module list over bun's lcov report
+                                (run by test:coverage) (+ test)
   check-pkg-manager.ts  clean-pkg-scripts.ts   package-manager guard and publish-time script cleanup (headers; pure parts tested)
   update-ghostty-vt.ts          CLI only (--commit, --verify)
   ghostty-vt/                   minisign.ts, sidecar.ts, inspect-wasm.ts, release-fetch.ts (fetch injected), each with its test
@@ -282,7 +286,7 @@ Features get what they need from `ClientContext` (`term`, `container`, `config`,
 
 ## Size limits
 
-Counted in lines of `.ts` source (not `*.d.ts`), comments and blank lines included. Checked by `scripts/check-architecture.ts` under `bun test`, on both refactor branches: the checker lands first on the client branch and the server branch starts from that commit, so every server step runs it too.
+Counted in lines of `.ts` source (not `*.d.ts`), comments and blank lines included. Checked by `scripts/check-architecture.ts` under `bun test`. During the refactor it ran on both branches: the checker landed first on the client branch and the server branch started from that commit, so every server step ran it too.
 
 | Files | Aim | Hard limit |
 |---|---|---|
@@ -293,7 +297,7 @@ Counted in lines of `.ts` source (not `*.d.ts`), comments and blank lines includ
 | Test files | ≤ 600 | 800 |
 | Functions | ≤ 60 lines | not checked; hot paths (`decodeRow`, `render`) say why when longer |
 
-While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/architecture/ratchet-allowlist.ts`): each file over its limit today, with its current line count, and each import or naming rule broken today, keyed `<rule> <file> -> <target>` or `<rule> <file>`, each with the step that removes it. A listed file may shrink or disappear, never grow; each step removes the entries it fixes, and the list is empty at the end. While both branches run, a missing (deleted or renamed) entry is tolerated so the server branch never edits the checker; once they merge the list is emptied and a stale entry fails.
+The checker carries a **ratchet allowlist** (`scripts/architecture/ratchet-allowlist.ts`): a file over its limit, with its line count, or a rule break, keyed `<rule> <file> -> <target>` or `<rule> <file>`, each with the step that removes it. A listed file may shrink or disappear, never grow. During the refactor it held what the tree broke when the checker landed, and each step removed the entries it fixed; while the client and server branches ran apart, a missing entry was tolerated so the server branch never edited the checker. Since the merge the list is **empty and strict**: the whole tree passes with no exception, a stale entry fails, and a new entry is a reviewed exception with the step that removes it.
 
 ## Naming
 
@@ -323,19 +327,19 @@ While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/a
 - **Server:** routes, WebSocket channels and sessions run in-process through `createServer()` on port 0 with a temporary `HOME`, so they count in coverage. A few subprocess tests remain as end-to-end checks of the entries. No test may fall back to the configured port.
 - **Vendor:** one cached `loadGhostty()` (`vendor/tests/support/wasm.ts`) so new test files do not each compile the wasm. New tests do not reach private members through `as unknown as {…}` casts; they test the collaborator that now owns the state.
 - **Listener snapshots.** Before the vendored facades are split, a test (`vendor/tests/core/listener-snapshot.test.ts`) opens a `Terminal` on recording targets and snapshots every listener it adds (target, type, capture, order) and which of them `dispose()` removes. Every vendor split step leaves that snapshot unchanged; only the ADR 065 commit changes its "removed" column (and drops the empty `compositionupdate` listener). Until then a `DisposableStore` holds only the listeners that are removed today; the ones that leak stay as they are. Since that commit every row is removed, and `vendor/tests/core/dispose.test.ts` checks that `dispose()` also clears every timeout, interval and animation frame, including after a failed `open()`.
-- **Coverage targets** (`bun run test:coverage`): app, server, CLI, config and pty ≥ 95% lines and ≥ 90% functions; vendored layer ≥ 85% lines and ≥ 80% functions; pure modules 100%. Bun's `coverageThreshold` is one global setting, so `bunfig.toml` sets the common floor (85% lines, 80% functions) and `scripts/check-coverage.ts`, run by `test:coverage` after `bun test --coverage --coverage-reporter=lcov`, enforces the per-layer targets from `coverage/lcov.info`.
+- **Coverage targets** (`bun run test:coverage`): app, server, CLI, config, pty and the shared `src/*.ts` files ≥ 95% lines and ≥ 90% functions; vendored layer ≥ 85% lines and ≥ 80% functions; the pure modules listed in `PURE_MODULES` at 100% lines, each loaded by a test. Bun's `coverageThreshold` is one global setting, so `bunfig.toml` sets the common floor (85% lines, 80% functions) and `scripts/check-coverage.ts`, run by `test:coverage` after `bun test --coverage --coverage-reporter=lcov --coverage-reporter=text`, enforces the per-layer targets from `coverage/lcov.info`. Test code (`*.test.ts`, `test-support/`, `vendor/tests/`) and `scripts/` are not counted toward a layer. A new pure module joins the list with its table-driven test.
 
 ## Features
 
 | Feature | Description | ADR | Done? |
 |---|---|---|---|
 | Architecture SPEC and conventions | Layers, folders, module kinds, naming, size limits, comments | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
-| Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet, import rules | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
+| Architecture checker | `scripts/check-architecture.ts`: size limits with a ratchet (empty and strict since the merge), import rules, cycles, naming | [ADR 059](../adrs/059.architecture.code-organisation.md) | ✅ |
 | Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ✅ |
 | Vendored terminal, renderer, input and selection split | facades at their paths, parts in `core/`, `render/`, `input/`, `selection/`; the `types.ts` shim removed, every file with its origin header | [ADR 061](../adrs/061.client.vendor-split.md) | ✅ |
 | Listener teardown | `Terminal.dispose` and `SelectionManager` release every listener | [ADR 065](../adrs/065.client.listener-teardown.md) | ✅ |
-| Server composition | `createServer`, SessionStore, route table, `ws/` and `sessions/`, config split | [ADR 062](../adrs/062.server.composition.md) | ⬜ |
-| CLI command modules | `main.ts`, WebttyClient, one file per command with injected deps | [ADR 063](../adrs/063.cli.command-modules.md) | ⬜ |
-| Test strategy | test-support fakes, injected happy-dom, in-process server tests, vendor test mirror, listener snapshots, per-layer coverage check | [ADR 064](../adrs/064.architecture.test-strategy.md) | ⬜ |
+| Server composition | `createServer`, SessionStore, route table, `ws/` and `sessions/`, config split | [ADR 062](../adrs/062.server.composition.md) | ✅ |
+| CLI command modules | `main.ts`, WebttyClient, one file per command with injected deps | [ADR 063](../adrs/063.cli.command-modules.md) | ✅ |
+| Test strategy | test-support fakes, injected happy-dom, in-process server tests, vendor test mirror, listener snapshots, close-code contract test, per-layer coverage check (`scripts/check-coverage.ts`) | [ADR 064](../adrs/064.architecture.test-strategy.md) | ✅ |

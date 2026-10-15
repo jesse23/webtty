@@ -50,7 +50,9 @@ src/client/
   vendor/
     ghostty-web/       ← derived from coder/ghostty-web lib/ at 1858a59 and heavily modified by webtty, MIT LICENSE,
                           PROVENANCE.md (upstream pin, local changes, moves and splits);
-                          ghostty.ts holds every wasm call, the binding to the official wasm (ADR 042, ADR 047);
+                          engine/ holds every wasm call, the binding to the official wasm (ADR 042, ADR 047);
+                          terminal.ts, renderer.ts, input-handler.ts, selection-manager.ts and ghostty.ts are
+                          facades over their parts in core/, render/, input/, selection/ and engine/ (ADR 061);
                           fn-table.ts is the function-table trampoline borrowed from ghostty-vt-js (LICENSE.ghostty-vt-js)
     ghostty-vt/        ← official ghostty-vt-small.wasm (Ghostty 05dcf887, ReleaseSmall) + .minisig + sidecar
                           (commit, URL, size, sha256, signature, key, licence), Ghostty LICENSE, PROVENANCE.md;
@@ -200,7 +202,7 @@ Ghostty's default copy, paste and clear-screen keys, for the browser's platform 
 | others | Shift+Insert | paste the clipboard (a page cannot read the primary selection) | |
 | all | Ctrl+V, also with Shift or Alt | paste (ADR 014) | |
 
-Ctrl+C is always the app's. Modifiers match exactly except for Ctrl+V. `features/keyboard/shortcut-map.ts` maps the `keydown` (`shortcutFor`); one capture listener on the container in `index.ts`, after the `keyboardBindings` listener, performs it and steps aside for any combo `keyboardBindings` has, so a binding (even `"chars": ""`) wins. A paste reads `navigator.clipboard.readText` (a failed read sends Ctrl+V); without the API the key is kept from the app and the browser's own paste may fire the `paste` event.
+Ctrl+C is always the app's. Modifiers match exactly except for Ctrl+V. `features/keyboard/shortcut-map.ts` maps the `keydown` (`shortcutFor`); the key dispatcher (`features/keyboard/key-dispatcher.ts`), one capture listener on the container, tries `keyboardBindings` first and performs the shortcut only when no binding has the combo, so a binding (even `"chars": ""`) wins. A paste reads `navigator.clipboard.readText` (a failed read sends Ctrl+V); without the API the key is kept from the app and the browser's own paste may fire the `paste` event.
 
 **Cmd+K** is Ghostty's `clear_screen`, done by `Terminal.clearScreen()` with VT sequences written to the terminal, never the PTY:
 
@@ -225,7 +227,7 @@ The canvas is invisible to the browser's own find, so webtty has Ghostty's searc
 | all | Escape | close | the app gets the key (bar closed) |
 | in the field | Enter / Shift+Enter | next / previous match | |
 
-Ctrl+F stays the app's. The keys go through `shortcutFor` and the listener of the copy and paste keys, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `features/find/find-keys.ts`).
+Ctrl+F stays the app's. The keys go through `shortcutFor` and the key dispatcher, so `keyboardBindings` win; in the field they are the field's own (`fieldKey` in `features/find/find-keys.ts`).
 
 - **Matching** is Ghostty's: ASCII letters case-insensitively, everything else exactly, soft-wrapped rows joined so a match can span a wrap; scrollback and screen, on the active screen.
 - **Order**: next goes toward older output (up), previous toward newer, both wrapping. Nothing is selected until the first Enter; the count is Ghostty's `selected/total` (`0/n` before then).
@@ -303,7 +305,7 @@ Programs write the clipboard with OSC 52 (`ESC ] 52 ; c ; <base64> BEL` or ST), 
 | `52;c;?` (query) | no answer, ever |
 | invalid base64, or a sequence over 8 MiB (about 6 MiB of text) | ignored whole; missing padding is accepted |
 
-`readEffects` reports the last write since the previous call, `Terminal.onClipboardWrite` fires with it, and `index.ts` passes it to `ClipboardWriter` (`features/clipboard/clipboard-writer.ts`), which calls `navigator.clipboard.writeText`. After each (re)connect it ignores writes until a `keydown`, `mousedown`, `paste` or `drop` in the tab, so the replayed history does not overwrite the clipboard on reload. A missing clipboard API (http other than localhost), a refused write (no focus in Chrome, no recent input in Firefox, most writes in Safari) and a write held back for the replay are each logged to the console once; there is no error UI.
+`readEffects` reports the last write since the previous call, `Terminal.onClipboardWrite` fires with it, and the clipboard feature (`features/clipboard/clipboard-feature.ts`) passes it to `ClipboardWriter` (`features/clipboard/clipboard-writer.ts`), which calls `navigator.clipboard.writeText`. After each (re)connect it ignores writes until a `keydown`, `mousedown`, `paste` or `drop` in the tab, so the replayed history does not overwrite the clipboard on reload. A missing clipboard API (http other than localhost), a refused write (no focus in Chrome, no recent input in Firefox, most writes in Safari) and a write held back for the replay are each logged to the console once; there is no error UI.
 
 ## Focus Reports, Title and Bell
 
@@ -325,7 +327,7 @@ Programs ask for desktop notifications with OSC 9 (`ESC ] 9 ; <body> BEL`, iTerm
 | `9;4`, `9;42 tests passed` (not a full ConEmu form) | a notification, as in Ghostty |
 | `777;<other>;…`, `777;notify;<title>` (no body) | nothing |
 
-`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and `index.ts` passes it to `DesktopNotifier` (`features/notifications/desktop-notifier.ts`, with the browser's API behind `browser-notifications.ts`), which, as Ghostty on macOS:
+`readEffects` reports every request since the previous call, `Terminal.onDesktopNotification` fires for each, and the notifications feature (`features/notifications/notifications-feature.ts`) passes it to `DesktopNotifier` (`features/notifications/desktop-notifier.ts`, with the browser's API behind `browser-notifications.ts`), which, as Ghostty on macOS:
 
 - drops it while `ReplayWindow` says the output is replay;
 - shows at most one a second, and the same title and body at most once in five seconds;

@@ -1,6 +1,6 @@
 # SPEC: Kitty Graphics
 
-**Last Updated:** 2026-10-13
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -145,7 +145,12 @@ src/client/
       placement-geometry.ts  placement record, cursor advance, draw rectangle (pure)
       overlay-canvas.ts    the overlay canvas, its frame loop and repaint rules, dispose()
       test-support/        graphics-harness.ts: fake terminal and decoder, happy-dom container
-  index.ts           ← wires ws.onmessage through KittyGraphics
+    kitty-feature.ts ← installKitty: KittyGraphics on the container, its replies sent
+                       through the connection (ADR 060)
+  connection/output-pipeline.ts ← the per-message order: replay window, KittyGraphics.feed
+                       (which writes to the terminal), ack after the parse, smooth scroll
+  app/start-client.ts ← installs the kitty feature at step 3; app/connect-pty.ts builds the
+                       pipeline around it and resets it when a socket opens
 ```
 
 ## Known limitations
