@@ -334,7 +334,7 @@ While the refactor runs, the checker carries a **ratchet allowlist** (`scripts/a
 | Client composition root and feature modules | `start-client.ts`, `install(ctx, deps)`, PtyConnection, one key dispatcher, `index.ts` an entry only | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Kitty graphics split | `kitty.ts` and `graphics.ts` split into `features/kitty/protocol` and `graphics` | [ADR 060](../adrs/060.client.feature-modules.md) | ✅ |
 | Vendored engine split | `ghostty.ts` into `engine/`, `OfficialTerminal` a facade | [ADR 061](../adrs/061.client.vendor-split.md) | ✅ |
-| Vendored terminal, renderer, input and selection split | facades at their paths, parts in `core/`, `render/`, `input/`, `selection/` | [ADR 061](../adrs/061.client.vendor-split.md) | ⬜ |
+| Vendored terminal, renderer, input and selection split | facades at their paths, parts in `core/`, `render/`, `input/`, `selection/`; the `types.ts` shim removed, every file with its origin header | [ADR 061](../adrs/061.client.vendor-split.md) | ✅ |
 | Listener teardown | `Terminal.dispose` and `SelectionManager` release every listener | [ADR 065](../adrs/065.client.listener-teardown.md) | ✅ |
 | Server composition | `createServer`, SessionStore, route table, `ws/` and `sessions/`, config split | [ADR 062](../adrs/062.server.composition.md) | ⬜ |
 | CLI command modules | `main.ts`, WebttyClient, one file per command with injected deps | [ADR 063](../adrs/063.cli.command-modules.md) | ⬜ |
