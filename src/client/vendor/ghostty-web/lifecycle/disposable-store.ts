@@ -58,6 +58,17 @@ export class DisposableStore implements Disposable {
     return item;
   }
 
+  /**
+   * Forgets `item` without disposing it, for one that has released itself, such as a
+   * timeout that has run; true when the store held it.
+   */
+  delete(item: Disposable): boolean {
+    const at = this.items.indexOf(item);
+    if (at < 0) return false;
+    this.items.splice(at, 1);
+    return true;
+  }
+
   /** Disposes everything added, newest first. A throwing item does not stop the others; the first error is rethrown at the end. */
   dispose(): void {
     if (this.disposed) return;

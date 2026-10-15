@@ -47,6 +47,16 @@ describe('DisposableStore', () => {
     expect(late).toBe(1);
   });
 
+  test('delete forgets an item without disposing it; an unknown one is not held', () => {
+    let runs = 0;
+    const store = new DisposableStore();
+    const timer = store.add(toDisposable(() => runs++));
+    expect(store.delete(timer)).toBe(true);
+    expect(store.delete(timer)).toBe(false);
+    store.dispose();
+    expect(runs).toBe(0);
+  });
+
   test('a throwing item does not stop the rest; the first error is rethrown', () => {
     const order: string[] = [];
     const store = new DisposableStore();

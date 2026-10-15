@@ -42,6 +42,7 @@ import type {
   ITerminalCore,
   ITerminalOptions,
 } from './interfaces';
+import { DisposableStore } from './lifecycle/disposable-store';
 import { LinkDetector } from './link-detector';
 import { OSC8LinkProvider } from './providers/osc8-link-provider';
 import { UrlRegexProvider } from './providers/url-regex-provider';
@@ -216,7 +217,9 @@ export class Terminal implements ITerminalCore {
    * in `made` as it exists, so a failure part way cleans up what was made.
    */
   private createParts(parent: HTMLElement, made: PartsMade<TerminalParts>): TerminalParts {
-    makeContainerEditable(parent);
+    const domListeners = new DisposableStore();
+    made.domListeners = domListeners;
+    domListeners.add(makeContainerEditable(parent));
     // Focus is followed, and kept on the textarea, by the focus tracker (webtty, ADR 053)
     this.core.focus.attach(parent);
     labelContainer(parent);
@@ -228,7 +231,7 @@ export class Terminal implements ITerminalCore {
     const textarea = createInputTextarea(document);
     made.textarea = textarea;
     parent.appendChild(textarea);
-    focusTextareaOnPress(canvas, textarea);
+    domListeners.add(focusTextareaOnPress(canvas, textarea));
     const renderer = new CanvasRenderer(canvas, rendererOptions(this.options));
     made.renderer = renderer;
     // Sized with the renderer's resize, for its device-pixel scaling
@@ -261,7 +264,7 @@ export class Terminal implements ITerminalCore {
     // OSC 8 hyperlinks take precedence over plain-text URLs
     links.registerProvider(new OSC8LinkProvider(this));
     links.registerProvider(new UrlRegexProvider(this));
-    return { element: parent, engine, canvas, textarea, renderer, input, selection, links };
+    return { element: parent, domListeners, engine, canvas, textarea, renderer, input, selection, links };
   }
 
   /**
@@ -412,9 +415,7 @@ export class Terminal implements ITerminalCore {
    * settles, which some browsers need for the focus to stick.
    */
   focus(): void {
-    if (!this.isOpen || !this.element) return;
-    this.element.focus();
-    setTimeout(() => this.element?.focus(), 0);
+    if (this.isOpen) this.core.focus.focusContainer();
   }
 
   /** Activates an addon; dispose() disposes it. */
@@ -544,19 +545,11 @@ export class Terminal implements ITerminalCore {
 
   /**
    * Takes down what open() made, on dispose or after a failed open(): `parts` may be
-   * partial. The listeners marked as leaking in the listener snapshot stay (ADR 065).
+   * partial. Every listener, timer and frame open() and the controllers added goes (ADR 065).
    */
   private cleanupComponents(parts: Partial<OpenedParts> | undefined): void {
     this.core.detach();
-    if (parts?.element) {
-      this.core.focus.dispose();
-      unlabelContainer(parts.element);
-    }
-    // Never true here: both callers clear isOpen first (ADR 065)
-    if (this.isOpen && typeof document !== 'undefined') {
-      this.core.scrollbar.unwatchRelease();
-      this.core.focus.detachWindow();
-    }
+    if (parts?.element) unlabelContainer(parts.element);
     if (parts) disposeParts(parts);
     this.parts = undefined;
     this.ghostty = undefined;

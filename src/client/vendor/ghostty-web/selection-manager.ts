@@ -2,7 +2,7 @@
 // Text selection (facade): `SelectionManager` holds the selection's two ends in absolute
 // rows, its text (Ghostty's, ADR 050), copy on select and the change event, and hands the
 // mouse gestures, the coordinates, the context-menu textarea and the copy chain to
-// selection/ (ADR 043, ADR 051, ADR 057, ADR 061).
+// selection/ (ADR 043, ADR 051, ADR 057, ADR 061); dispose() releases all of it (ADR 065).
 
 import type {
   SelectionCanvasSource,
@@ -16,7 +16,7 @@ import { pressToApp } from './mouse-route';
 import type { CellRange } from './render/cell-range';
 import type { AutoScrollTimers } from './selection/auto-scroll';
 import { browserClipboardEnv, type ClipboardEnv, copyText } from './selection/clipboard-copy';
-import { ContextMenuTextarea } from './selection/context-menu-textarea';
+import { ContextMenuTextarea, type MenuTimers } from './selection/context-menu-textarea';
 import {
   absoluteRowToViewport,
   type BufferPoint,
@@ -34,7 +34,8 @@ export type SelectionCoordinates = CellRange;
 export interface SelectionDeps {
   document?: GestureDocument & ClipboardEnv['document'];
   timers?: AutoScrollTimers;
-  setTimeout?: (run: () => void, ms: number) => unknown;
+  /** The timeout the context menu's reset waits on. */
+  menuTimers?: MenuTimers;
   /** The clipboard a copy goes to; by default the page's, read at each copy. */
   clipboard?: () => ClipboardEnv;
 }
@@ -60,7 +61,7 @@ export class SelectionManager {
   ) {
     const doc = deps.document ?? document;
     this.clipboard = deps.clipboard ?? (() => browserClipboardEnv(textarea, doc));
-    this.contextMenu = new ContextMenuTextarea(textarea, doc, deps.setTimeout);
+    this.contextMenu = new ContextMenuTextarea(textarea, doc, deps.menuTimers);
     this.gestures = new SelectionGestures(
       renderer.getCanvas(),
       doc,
@@ -139,13 +140,13 @@ export class SelectionManager {
   }
 
   /**
-   * Cleanup resources: the emitter, the auto-scroll, and the document listeners for the
-   * drag and outside clicks. The canvas listeners and the document mousedown stay until
-   * ADR 065.
+   * Releases everything it added: the emitter, the auto-scroll, every gesture listener and
+   * the context menu's wait and close listeners (ADR 065).
    */
   dispose(): void {
     this.selectionChangedEmitter.dispose();
     this.gestures.dispose();
+    this.contextMenu.dispose();
   }
 
   /**

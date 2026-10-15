@@ -1,15 +1,18 @@
 // webtty (ADR 053, ADR 061), not from upstream.
 // Where keyboard focus is (object): it keeps focus off the container, follows it into and
 // out of the terminal, and sends Ghostty's focus reports while the app has mode 1004 on
-// (ADR 053). Moved out of terminal.ts (ADR 061).
+// (ADR 053). Moved out of terminal.ts (ADR 061); every listener and timer it adds is
+// released by dispose() (ADR 065).
 
 import {
   type Disposable,
   DisposableStore,
   type ListenerTarget,
   listen,
+  toDisposable,
 } from '../lifecycle/disposable-store';
-import type { FocusHost } from './host-types';
+import type { FocusHost, TimeoutScheduler } from './host-types';
+import { browserTimeouts } from './mouse-controller';
 import { FOCUS_EVENT_MODE } from './terminal-constants';
 
 /** The window and document the tracker listens on and reads, injected so tests pass fakes. */
@@ -32,9 +35,13 @@ export class FocusTracker implements Disposable {
   // Whether mode 1004 was on after the last write
   private reporting = false;
   private env?: FocusEnv;
-  private containerListeners?: DisposableStore;
+  private listeners?: DisposableStore;
 
-  constructor(private readonly host: FocusHost) {}
+  /** `timeouts` runs focusContainer()'s second try. */
+  constructor(
+    private readonly host: FocusHost,
+    private readonly timeouts: TimeoutScheduler = browserTimeouts,
+  ) {}
 
   /**
    * Adds the focus listeners, in the order Terminal.open() always added them: the
@@ -43,40 +50,47 @@ export class FocusTracker implements Disposable {
   attach(container: HTMLElement, env: FocusEnv = browserFocusEnv()): void {
     this.env = env;
     const listeners = new DisposableStore();
-    this.containerListeners = listeners;
+    this.listeners = listeners;
     // Never let the container hold focus, or the browser writes IME composition
     // text into it; input goes to the textarea. This covers clicks in the padding,
     // tab focus and focus(). (webtty)
     listeners.add(listen(container, 'focusin', this.redirect));
     // focus() on a background window moves activeElement without a focusin; catch
     // the container still holding focus when the window comes back. (webtty)
-    // leaks until ADR 065
-    env.window.addEventListener('focus', this.windowFocused);
+    listeners.add(listen(env.window, 'focus', this.windowFocused));
     // Terminal focus for mode 1004: a window blur or focus usually reaches the focused
     // element as focusout / focusin too, but Chrome switching tabs only changes the
     // page's visibility, so blur and visibility are watched as well. (webtty, ADR 053)
     listeners.add(listen(container, 'focusin', this.gained));
     listeners.add(listen(container, 'focusout', this.lost));
-    // leaks until ADR 065
-    env.window.addEventListener('blur', this.windowBlurred);
-    // leaks until ADR 065
-    env.document.addEventListener('visibilitychange', this.visibilityChanged);
-  }
-
-  /** Removes the container's listeners; the window's and document's stay (ADR 065). */
-  dispose(): void {
-    this.containerListeners?.dispose();
+    listeners.add(listen(env.window, 'blur', this.windowBlurred));
+    listeners.add(listen(env.document, 'visibilitychange', this.visibilityChanged));
   }
 
   /**
-   * Removes the window's and document's listeners. Terminal calls it only while open,
-   * which its teardown never is, so today they leak (ADR 065).
+   * Removes the container's, the window's and the document's listeners and cancels a
+   * pending refocus (ADR 065). Calling it again does nothing.
    */
-  detachWindow(): void {
-    if (!this.env) return;
-    this.env.window.removeEventListener('focus', this.windowFocused);
-    this.env.window.removeEventListener('blur', this.windowBlurred);
-    this.env.document.removeEventListener('visibilitychange', this.visibilityChanged);
+  dispose(): void {
+    this.listeners?.dispose();
+  }
+
+  /**
+   * Focuses the container now and once more after the DOM settles, which some browsers
+   * need for the focus to stick. The container passes it on to the textarea.
+   */
+  focusContainer(): void {
+    const element = this.host.element();
+    const listeners = this.listeners;
+    if (!element || !listeners) return;
+    element.focus();
+    // The second try is cancelled by dispose(), and forgets itself once it has run
+    let pending: Disposable | undefined;
+    const id = this.timeouts.setTimeout(() => {
+      if (pending) listeners.delete(pending);
+      this.host.element()?.focus();
+    }, 0);
+    pending = listeners.add(toDisposable(() => this.timeouts.clearTimeout(id)));
   }
 
   /** After a write: Ghostty reports the focus when the app turns mode 1004 on. */

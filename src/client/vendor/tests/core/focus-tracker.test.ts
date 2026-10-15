@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { createDomWindow, type DomWindow } from '../../../test-support/dom-window';
+import { ManualClock } from '../../../test-support/manual-clock';
 import {
   type ListenerRecord,
   RecordingTarget,
@@ -32,6 +33,20 @@ afterEach(async () => {
 });
 
 /** A tracker attached to a container holding a textarea; `sent` collects its reports. */
+/** A host over `container` alone, no engine. */
+function hostOf(container: HTMLElement | undefined) {
+  return {
+    element: () => container,
+    textarea: () => undefined,
+    engine: () => undefined,
+    disableStdin: () => false,
+    send: () => {},
+  };
+}
+
+/** A host with nothing open. */
+const noHost = () => hostOf(undefined);
+
 async function tracked(options: { disableStdin?: boolean } = {}) {
   dom = createDomWindow();
   const { document, window } = dom;
@@ -99,30 +114,58 @@ describe('FocusTracker listeners', () => {
     engine.free();
   });
 
-  test('dispose removes the container listeners only, once; detachWindow the rest', async () => {
+  test('dispose removes every listener with its capture flag, once (ADR 065)', async () => {
     const { tracker, containerLog, win, page, engine } = await tracked();
     tracker.dispose();
     tracker.dispose();
-    expect(containerLog.active).toEqual([]);
-    expect(containerLog.removed).toHaveLength(3);
-    // leaks until ADR 065
-    expect(win.active).toHaveLength(2);
-    expect(page.active).toHaveLength(1);
-    tracker.detachWindow();
-    expect(win.active).toEqual([]);
-    expect(page.active).toEqual([]);
+    for (const target of [containerLog, win, page]) {
+      expect(target.active).toEqual([]);
+      // The store removes them newest first
+      expect([...target.removed].reverse()).toEqual(target.added);
+    }
     engine.free();
   });
 
-  test('detachWindow before attach does nothing', () => {
-    const tracker = new FocusTracker({
-      element: () => undefined,
-      textarea: () => undefined,
-      engine: () => undefined,
-      disableStdin: () => false,
-      send: () => {},
-    });
-    expect(() => tracker.detachWindow()).not.toThrow();
+  test('dispose before attach does nothing', () => {
+    expect(() => new FocusTracker(noHost()).dispose()).not.toThrow();
+  });
+});
+
+describe('FocusTracker focusContainer', () => {
+  test('focuses the container now and once more after a timeout', async () => {
+    const { tracker, engine, container } = await tracked();
+    const clock = new ManualClock();
+    const refocusing = new FocusTracker(hostOf(container), clock);
+    refocusing.attach(container, { window: new RecordingTarget(), document: new FakePage() });
+    let focuses = 0;
+    container.focus = () => void focuses++;
+    refocusing.focusContainer();
+    expect([focuses, clock.pending.timers]).toEqual([1, 1]);
+    clock.advance(0);
+    expect([focuses, clock.pending.timers]).toEqual([2, 0]);
+    // The timeout that ran is forgotten, so dispose() has nothing more to cancel
+    refocusing.dispose();
+    tracker.dispose();
+    engine.free();
+  });
+
+  test('dispose() cancels a refocus not yet run', async () => {
+    const { container } = await tracked();
+    const clock = new ManualClock();
+    const tracker = new FocusTracker(hostOf(container), clock);
+    tracker.attach(container, { window: new RecordingTarget(), document: new FakePage() });
+    let focuses = 0;
+    container.focus = () => void focuses++;
+    tracker.focusContainer();
+    tracker.dispose();
+    clock.advance(10);
+    expect([focuses, clock.pending.timers]).toEqual([1, 0]);
+  });
+
+  test('does nothing before attach or without a container', () => {
+    const clock = new ManualClock();
+    new FocusTracker(noHost(), clock).focusContainer();
+    expect(clock.pending.timers).toBe(0);
   });
 });
 
@@ -147,7 +190,7 @@ describe('FocusTracker keeps focus off the container', () => {
     page.activeElement = container;
     windowFocus();
     expect(focused).toBe(1);
-    // After teardown the leaked listener finds no container
+    // With no container, as after dispose(), a window focus moves nothing
     detachElement();
     windowFocus();
     expect(focused).toBe(1);

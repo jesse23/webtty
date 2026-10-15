@@ -117,7 +117,7 @@ describe('InputHandler set-up and teardown', () => {
     const input = handler();
     const added = add.map((spy) => spy.mock.calls.map(([type]) => type));
     expect(added).toEqual([
-      ['keydown', 'compositionstart', 'compositionupdate', 'compositionend', 'mousedown'],
+      ['keydown', 'compositionstart', 'compositionend', 'mousedown'],
       ['beforeinput'],
       ['mouseup', 'mousemove'],
     ]);
@@ -125,7 +125,7 @@ describe('InputHandler set-up and teardown', () => {
     const removed = remove.map((spy) => spy.mock.calls.map(([type]) => type).sort());
     expect(removed).toEqual(added.map((types) => [...types].sort()));
     input.dispose();
-    expect(remove.map((spy) => spy.mock.calls.length)).toEqual([5, 1, 2]);
+    expect(remove.map((spy) => spy.mock.calls.length)).toEqual([4, 1, 2]);
     // Nothing is sent after dispose
     keydown('KeyA', 'a');
     expect(sent).toEqual([]);

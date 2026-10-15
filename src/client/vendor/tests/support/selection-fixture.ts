@@ -113,7 +113,7 @@ export function selectionFixture(
     {
       document: doc as unknown as Document,
       timers: clock,
-      setTimeout: clock.setTimeout,
+      menuTimers: clock,
       clipboard: () => clipboard,
     },
   );

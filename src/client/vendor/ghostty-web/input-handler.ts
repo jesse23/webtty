@@ -1,7 +1,8 @@
 // Derived from coder/ghostty-web lib/input-handler.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // Keyboard, IME and mouse input (facade): `InputHandler` owns the listeners on the
 // container, the input element and the document, and hands each event to the key encoding,
-// the text-input echo guard or the mouse reporter in input/ (ADR 047, ADR 049, ADR 061).
+// the text-input echo guard or the mouse reporter in input/ (ADR 047, ADR 049, ADR 061);
+// dispose() removes every listener (ADR 065).
 import type { KeyEncoder } from './engine/engine-types';
 import type { Ghostty } from './ghostty';
 import {
@@ -94,8 +95,8 @@ export class InputHandler {
       store.add(listen(inputElement, 'beforeinput', (e) => this.handleBeforeInput(e)));
     }
     store.add(listen(container, 'compositionstart', () => this.handleCompositionStart()));
-    // Removed with the other no-op listeners by ADR 065 (V14)
-    store.add(listen(container, 'compositionupdate', () => this.handleCompositionUpdate()));
+    // No compositionupdate listener: the browser's IME shows the text being composed, and
+    // upstream's listened and did nothing (webtty, ADR 065)
     store.add(listen(container, 'compositionend', (e) => this.handleCompositionEnd(e)));
     store.add(listen(container, 'mousedown', (e) => this.mouse.down(e)));
     store.add(listen(mouseTarget, 'mouseup', (e) => this.mouse.up(e as MouseEvent)));
@@ -179,12 +180,6 @@ export class InputHandler {
 
   private handleCompositionStart(): void {
     this.isComposing = true;
-  }
-
-  private handleCompositionUpdate(): void {
-    // We could track the current composition string here if we wanted to
-    // display it in a custom way, but for now we rely on the browser's
-    // input method editor UI.
   }
 
   private handleCompositionEnd(event: CompositionEvent): void {

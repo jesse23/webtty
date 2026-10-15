@@ -1,9 +1,11 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // What Terminal.open() creates (types + util): the parts held together while the terminal
 // is open, seen through narrow interfaces so core/ never imports a facade class, and
-// their teardown, which also takes down a set left partial by a failed open() (ADR 061).
+// their teardown, which also takes down a set left partial by a failed open() (ADR 061,
+// ADR 065).
 
 import type { GhosttyTerminal } from '../engine/engine-types';
+import type { Disposable } from '../lifecycle/disposable-store';
 import type { SearchHighlights } from '../search';
 import type { LinkSource, MenuSelection, MouseRenderer } from './host-types';
 
@@ -45,6 +47,8 @@ export interface OpenedParts<
   L extends LinksPart = LinksPart,
 > {
   readonly element: HTMLElement;
+  /** The listeners of the DOM setup (core/dom-setup.ts) on the container and canvas (ADR 065). */
+  readonly domListeners: Disposable;
   /** reset() replaces it with a new engine. */
   engine: GhosttyTerminal;
   readonly canvas: HTMLCanvasElement;
@@ -69,7 +73,8 @@ export type DisposableParts = {
 
 /**
  * Disposes the selection, input and renderer, takes the canvas and textarea out of the
- * container, disposes the links and frees the engine; parts not made are skipped.
+ * container, disposes the links and the DOM setup's listeners and frees the engine; parts
+ * not made are skipped.
  */
 export function disposeParts(parts: DisposableParts): void {
   parts.selection?.dispose();
@@ -79,5 +84,6 @@ export function disposeParts(parts: DisposableParts): void {
     if (node?.parentNode) node.parentNode.removeChild(node);
   }
   parts.links?.dispose();
+  parts.domListeners?.dispose();
   parts.engine?.free();
 }

@@ -161,14 +161,23 @@ describe('Terminal lifecycle', () => {
   });
 
   test('focus() focuses the container now and again after a tick', async () => {
-    const { term, container, doc } = await open();
+    const { term, container, doc, clock } = await open();
     const focused = () => doc.activeElement;
     doc.activeElement = null;
     term.focus();
     expect(focused()).toBe(container);
     doc.activeElement = null;
-    await new Promise((resolve) => setTimeout(resolve, 1));
+    clock.advance(0);
     expect(focused()).toBe(container);
+  });
+
+  test('dispose() cancels a refocus still waiting (ADR 065)', async () => {
+    const { term, doc, clock } = await open();
+    term.focus();
+    term.dispose();
+    doc.activeElement = null;
+    clock.advance(0);
+    expect(doc.activeElement).toBeNull();
   });
 
   test('before open() the read-only API answers empty', () => {

@@ -147,7 +147,7 @@ describe('SelectionManager copy on select', () => {
 });
 
 describe('SelectionManager dispose', () => {
-  test('removes the document listeners it added, stops the auto-scroll, and runs once', async () => {
+  test('removes every listener it added, stops the auto-scroll, and runs once (ADR 065)', async () => {
     const ghostty = await loadGhostty();
     const t = ghostty.createTerminal(10, 2);
     const f = selectionFixture(t);
@@ -156,18 +156,17 @@ describe('SelectionManager dispose', () => {
     expect(f.clock.pending.timers).toBe(1);
     f.m.dispose();
     expect(f.clock.pending.timers).toBe(0);
-    // The document mousedown and the canvas listeners leak until ADR 065
-    expect(f.doc.active.map((r) => r.type)).toEqual(['mousedown']);
-    expect(f.canvas.active.map((r) => r.type)).toEqual([
-      'mousedown',
-      'mousemove',
-      'mouseleave',
-      'mouseenter',
+    expect([f.doc.active, f.canvas.active]).toEqual([[], []]);
+    expect(f.canvas.removed.map((r) => r.type).sort()).toEqual([
       'click',
+      'mousedown',
+      'mouseenter',
+      'mouseleave',
+      'mousemove',
     ]);
-    const removed = f.doc.removed.length;
+    const removed = f.doc.removed.length + f.canvas.removed.length;
     f.m.dispose();
-    expect(f.doc.removed.length).toBe(removed);
+    expect(f.doc.removed.length + f.canvas.removed.length).toBe(removed);
     t.free();
   });
 });

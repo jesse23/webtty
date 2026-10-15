@@ -1,10 +1,16 @@
 // Derived from coder/ghostty-web lib/selection-manager.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // Mouse selection gestures (object): a press and drag on the canvas, a drag past its edge
 // (auto-scroll), double and triple clicks, and a click outside to clear, turned into
-// calls on a GestureHost (ADR 050, ADR 051, ADR 057, ADR 061).
+// calls on a GestureHost (ADR 050, ADR 051, ADR 057, ADR 061); dispose() removes every
+// listener it added (ADR 065).
 
 import type { ScreenRange } from '../engine/engine-types';
-import { DisposableStore, type Disposable, listen } from '../lifecycle/disposable-store';
+import {
+  type Disposable,
+  DisposableStore,
+  type ListenerTarget,
+  listen,
+} from '../lifecycle/disposable-store';
 import { AUTO_SCROLL_LINES, AutoScroll, type AutoScrollTimers, extendedEnd } from './auto-scroll';
 import {
   type BufferPoint,
@@ -17,7 +23,7 @@ import {
 
 /** The canvas the gestures listen on. */
 export interface GestureCanvas
-  extends Pick<HTMLElement, 'addEventListener' | 'contains' | 'clientHeight'> {
+  extends Pick<HTMLElement, 'addEventListener' | 'removeEventListener' | 'contains' | 'clientHeight'> {
   getBoundingClientRect(): ClientRect;
   readonly parentElement: Pick<HTMLElement, 'focus'> | null;
 }
@@ -66,8 +72,7 @@ export class SelectionGestures implements Disposable {
   private thresholdMet = false;
   private downTarget: EventTarget | null = null;
   private readonly autoScroll: AutoScroll;
-  // Only the listeners dispose() removes today; the others leak until ADR 065
-  private readonly store = new DisposableStore();
+  private readonly listeners = new DisposableStore();
 
   constructor(
     private readonly canvas: GestureCanvas,
@@ -89,42 +94,38 @@ export class SelectionGestures implements Disposable {
     this.selecting = false;
   }
 
-  /** Stops the auto-scroll and removes the document's move, release and click listeners. */
+  /** Stops the auto-scroll and removes every listener (ADR 065). Calling it again does nothing. */
   dispose(): void {
     this.autoScroll.stop();
-    this.store.dispose();
+    this.listeners.dispose();
   }
 
   /** Adds the listeners in upstream's order, which the listener snapshot pins (ADR 064). */
   private attach(): void {
-    const { canvas, doc } = this;
-    // leaks until ADR 065
-    canvas.addEventListener('mousedown', (e: MouseEvent) => this.canvasDown(e));
-    // leaks until ADR 065
-    canvas.addEventListener('mousemove', (e: MouseEvent) => this.canvasMove(e));
-    // leaks until ADR 065
-    canvas.addEventListener('mouseleave', (e: MouseEvent) => {
+    const { canvas, doc, listeners } = this;
+    const on = (target: ListenerTarget, type: string, handle: (e: MouseEvent) => void) =>
+      listeners.add(listen(target, type, (e) => handle(e as MouseEvent)));
+    on(canvas, 'mousedown', (e) => this.canvasDown(e));
+    on(canvas, 'mousemove', (e) => this.canvasMove(e));
+    on(canvas, 'mouseleave', (e) => {
       // Leaving the canvas mid-drag scrolls toward the side it left by
       const direction = this.selecting
         ? verticalOverflow(canvas.getBoundingClientRect(), e.clientY)
         : 0;
       if (direction !== 0) this.autoScroll.start(direction);
     });
-    // leaks until ADR 065
-    canvas.addEventListener('mouseenter', () => {
+    on(canvas, 'mouseenter', () => {
       if (this.selecting) this.autoScroll.stop();
     });
-    this.store.add(listen(doc, 'mousemove', (e) => this.documentMove(e as MouseEvent)));
-    // Where a press started, so a click that began inside the canvas does not clear.
-    // leaks until ADR 065
-    doc.addEventListener('mousedown', (e: MouseEvent) => {
+    on(doc, 'mousemove', (e) => this.documentMove(e));
+    // Where a press started, so a click that began inside the canvas does not clear
+    on(doc, 'mousedown', (e) => {
       this.downTarget = e.target;
     });
     // A release on the document, not the canvas, so one outside the canvas ends the drag
-    this.store.add(listen(doc, 'mouseup', () => this.release()));
-    // leaks until ADR 065
-    canvas.addEventListener('click', (e: MouseEvent) => this.multiClick(e));
-    this.store.add(listen(doc, 'click', (e) => this.documentClick(e as MouseEvent)));
+    on(doc, 'mouseup', () => this.release());
+    on(canvas, 'click', (e) => this.multiClick(e));
+    on(doc, 'click', (e) => this.documentClick(e));
   }
 
   /** A left press starts a selection, clearing the old one; it focuses the terminal first. */

@@ -214,28 +214,57 @@ describe('ScrollbarController teardown', () => {
     expect([bar.opacity, clock.pending]).toEqual([1, { timers: 0, frames: 0 }]);
   });
 
-  test('the document mouseup stays after dispose() until unwatchRelease() (ADR 065)', () => {
+  test('dispose() removes the document mouseup too, with its flags (ADR 065)', () => {
     dom = createDomWindow();
     const doc = recordListeners(dom.document, 'document');
-    const bar = new ScrollbarController(
-      {
-        canvas: () => undefined,
-        scrollOffset: () => undefined,
-        getScrollbackLength: () => 0,
-        rows: () => 1,
-        viewportY: () => 0,
-        scrollToLine: () => {},
-        render: () => {},
-      },
-      new ManualClock(),
-    );
-    bar.unwatchRelease();
+    const bar = new ScrollbarController(idleHost(), new ManualClock());
+    // Watching before attach() still has a store to go in
     bar.watchRelease(doc);
     bar.dispose();
+    expect(doc.active).toEqual([]);
+    expect(doc.removed).toEqual(doc.added);
+    // After dispose(), watching again starts a new store, which a second dispose() releases
+    bar.watchRelease(doc);
     expect(doc.active.map((r) => r.type)).toEqual(['mouseup']);
-    bar.unwatchRelease();
+    bar.dispose();
     expect(doc.active).toEqual([]);
   });
+
+  test('dispose() cancels the next frame of every fade still running (ADR 065)', () => {
+    const { bar, clock, renders } = scrollbar();
+    bar.show();
+    expect(clock.pending.frames).toBe(1);
+    bar.dispose();
+    const rendered = renders.length;
+    clock.frame(SCROLLBAR_FADE_DURATION_MS);
+    expect([clock.pending, renders.length]).toEqual([{ timers: 0, frames: 0 }, rendered]);
+  });
+});
+
+/** A host with no canvas and no scrollback. */
+function idleHost(): ScrollbarHost {
+  return {
+    canvas: () => undefined,
+    scrollOffset: () => undefined,
+    getScrollbackLength: () => 0,
+    rows: () => 1,
+    viewportY: () => 0,
+    scrollToLine: () => {},
+    render: () => {},
+  };
+}
+
+test('the browser clock cancels a frame on the global cancelAnimationFrame', () => {
+  const g = globalThis as Record<string, unknown>;
+  const saved = g.cancelAnimationFrame;
+  const cancelled: number[] = [];
+  g.cancelAnimationFrame = (id: number) => void cancelled.push(id);
+  try {
+    browserScrollbarClock.cancelAnimationFrame(7);
+  } finally {
+    g.cancelAnimationFrame = saved;
+  }
+  expect(cancelled).toEqual([7]);
 });
 
 test('the browser clock reads the wall clock', () => {

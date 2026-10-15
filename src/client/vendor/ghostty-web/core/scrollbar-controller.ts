@@ -1,7 +1,8 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // The terminal's scrollbar (controller): a press on the track jumps, a press on the thumb
 // drags, and each scroll fades it in, then out after a pause; the hit test is the
-// painter's geometry (render/scrollbar-geometry.ts). Moved out of terminal.ts (ADR 061).
+// painter's geometry (render/scrollbar-geometry.ts). Moved out of terminal.ts (ADR 061);
+// dispose() releases its listeners, auto-hide and fade (ADR 065).
 
 import { DisposableStore, listen, type ListenerTarget } from '../lifecycle/disposable-store';
 import {
@@ -20,6 +21,7 @@ export const browserScrollbarClock: ScrollbarClock = {
   setTimeout: (callback, ms) => window.setTimeout(callback, ms),
   clearTimeout: (id) => window.clearTimeout(id),
   requestAnimationFrame: (callback) => requestAnimationFrame(callback),
+  cancelAnimationFrame: (id) => cancelAnimationFrame(id),
 };
 
 /**
@@ -33,8 +35,9 @@ export class ScrollbarController {
   private visible = false;
   private shownOpacity = 0;
   private hideTimeout?: number;
+  // The next frame of each fade still running
+  private readonly fadeFrames = new Set<number>();
   private listeners?: DisposableStore;
-  private releaseTarget?: ListenerTarget;
 
   constructor(
     private readonly host: ScrollbarHost,
@@ -55,26 +58,22 @@ export class ScrollbarController {
 
   /**
    * Adds the document's mouseup, so a drag ends even when released outside the canvas;
-   * open() adds it after the mouse controller's listeners.
+   * open() adds it after the mouse controller's listeners, and dispose() removes it.
    */
   watchRelease(doc: ListenerTarget): void {
-    this.releaseTarget = doc;
-    // leaks until ADR 065
-    doc.addEventListener('mouseup', this.release);
+    if (!this.listeners || this.listeners.isDisposed) this.listeners = new DisposableStore();
+    this.listeners.add(listen(doc, 'mouseup', this.release));
   }
 
   /**
-   * Removes the document's mouseup. Terminal calls it only while open, which its teardown
-   * never is, so today it leaks (ADR 065).
+   * Removes the listeners, the pending auto-hide and a fade's next frame (ADR 065). Calling
+   * it again does nothing.
    */
-  unwatchRelease(): void {
-    this.releaseTarget?.removeEventListener('mouseup', this.release);
-  }
-
-  /** Removes the press listener and the pending auto-hide. Calling it again does nothing. */
   dispose(): void {
     this.listeners?.dispose();
     this.cancelHide();
+    for (const id of this.fadeFrames) this.clock.cancelAnimationFrame(id);
+    this.fadeFrames.clear();
   }
 
   /** Moves a drag in progress to `e`; true when there was one and the move is used up. */
@@ -181,18 +180,20 @@ export class ScrollbarController {
   /**
    * Fades in from 0, or out from the current opacity, over SCROLLBAR_FADE_DURATION_MS,
    * rendering each frame. A fade out ends hidden, with one more render at opacity 0 to clear
-   * it. The frames are not cancelled on dispose(): they run out within the fade, rendering
-   * nothing once the terminal is closed.
+   * it. dispose() cancels the next frame (ADR 065).
    */
   private fade(direction: 'in' | 'out'): void {
     const start = this.clock.now();
     const from = this.shownOpacity;
+    let frame = 0;
     const animate = () => {
+      this.fadeFrames.delete(frame);
       const progress = Math.min((this.clock.now() - start) / SCROLLBAR_FADE_DURATION_MS, 1);
       this.shownOpacity = direction === 'in' ? progress : from * (1 - progress);
       this.host.render(this.shownOpacity);
       if (progress < 1) {
-        this.clock.requestAnimationFrame(animate);
+        frame = this.clock.requestAnimationFrame(animate);
+        this.fadeFrames.add(frame);
       } else if (direction === 'out') {
         this.visible = false;
         this.shownOpacity = 0;

@@ -167,6 +167,22 @@ describe('WritePipeline order', () => {
   });
 });
 
+describe('WritePipeline dispose', () => {
+  test('cancels the callbacks still waiting, and forgets the ones run; again does nothing (ADR 065)', () => {
+    const { clock, pipeline } = recorded();
+    const called: string[] = [];
+    pipeline.write('a', () => called.push('a'));
+    clock.frame();
+    pipeline.write('b', () => called.push('b'));
+    pipeline.write('c', () => called.push('c'));
+    expect(clock.pending.frames).toBe(2);
+    pipeline.dispose();
+    pipeline.dispose();
+    clock.frame();
+    expect([called, clock.pending.frames]).toEqual([['a'], 0]);
+  });
+});
+
 describe('WritePipeline clear at ground', () => {
   // Ghostty's clear_screen written to the terminal (ADR 054), on a real 20x5 engine.
   async function engine() {

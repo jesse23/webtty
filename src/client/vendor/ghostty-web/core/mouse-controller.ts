@@ -21,10 +21,10 @@ import {
   viewportRowToBufferRow,
 } from './terminal-geometry';
 
-/** The browser's timeouts, read when called. */
+/** The page's timeouts, read when called; a timeout is cleared on the window that set it. */
 export const browserTimeouts: TimeoutScheduler = {
   setTimeout: (callback, ms) => window.setTimeout(callback, ms),
-  clearTimeout: (id) => clearTimeout(id),
+  clearTimeout: (id) => window.clearTimeout(id),
 };
 
 /**

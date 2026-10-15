@@ -62,6 +62,16 @@ describe('the container', () => {
     child.dispatchEvent(childs);
     expect([own.defaultPrevented, childs.defaultPrevented]).toEqual([true, false]);
   });
+
+  test('its Disposable removes the cancelling listener (ADR 065)', () => {
+    const { container, window } = setup();
+    const recorded = recordListeners(container, 'container');
+    makeContainerEditable(container).dispose();
+    expect(recorded.active).toEqual([]);
+    const own = new window.InputEvent('beforeinput', { cancelable: true, bubbles: true });
+    container.dispatchEvent(own);
+    expect(own.defaultPrevented).toBe(false);
+  });
 });
 
 describe('the canvas and textarea', () => {
@@ -109,6 +119,18 @@ describe('the canvas and textarea', () => {
     const tap = new window.Event('touchend', { cancelable: true });
     canvas.dispatchEvent(tap);
     expect([tap.defaultPrevented, document.activeElement]).toEqual([true, textarea]);
+  });
+
+  test('the press-to-focus Disposable removes both listeners, once (ADR 065)', () => {
+    const { document } = setup();
+    const canvas = createTerminalCanvas(document);
+    const textarea = createInputTextarea(document);
+    const recorded = recordListeners(canvas, 'canvas');
+    const listeners = focusTextareaOnPress(canvas, textarea);
+    listeners.dispose();
+    listeners.dispose();
+    expect(recorded.active).toEqual([]);
+    expect(recorded.removed).toHaveLength(2);
   });
 
   test('sizeCanvasElement sizes the element to the grid', () => {

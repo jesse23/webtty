@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { ManualClock } from '../../../test-support/manual-clock';
 import { RecordingTarget } from '../../../test-support/recording-target';
 import {
+  browserMenuTimers,
   CONTEXT_MENU_RESET_DELAY_MS,
   ContextMenuTextarea,
 } from '../../ghostty-web/selection/context-menu-textarea';
@@ -14,11 +15,7 @@ function menu() {
   const textarea = new FakeTextarea();
   const doc = new RecordingTarget('document');
   const clock = new ManualClock();
-  const shown = new ContextMenuTextarea(
-    textarea.element,
-    doc as unknown as Document,
-    clock.setTimeout,
-  );
+  const shown = new ContextMenuTextarea(textarea.element, doc as unknown as Document, clock);
   return { textarea, doc, clock, menu: shown };
 }
 
@@ -80,6 +77,42 @@ describe('ContextMenuTextarea', () => {
       expect(textarea.active).toHaveLength(0);
     },
   );
+
+  test('dispose() cancels the wait, then the close listeners; again does nothing (ADR 065)', () => {
+    const { textarea, doc, clock, menu: m } = menu();
+    m.show({ clientX: 1, clientY: 1 }, null);
+    m.dispose();
+    clock.advance(CONTEXT_MENU_RESET_DELAY_MS);
+    expect([doc.added.length, clock.pending.timers]).toEqual([0, 0]);
+    // Two menus open, both listening for the close
+    m.show({ clientX: 1, clientY: 1 }, null);
+    m.show({ clientX: 2, clientY: 2 }, null);
+    clock.advance(CONTEXT_MENU_RESET_DELAY_MS);
+    expect(doc.active).toHaveLength(4);
+    m.dispose();
+    m.dispose();
+    for (const target of [doc, textarea]) {
+      expect(target.active).toEqual([]);
+      expect(target.removed).toEqual(target.added);
+    }
+  });
+
+  test('a menu that closed is forgotten: dispose() removes nothing more', () => {
+    const { textarea, doc, clock, menu: m } = menu();
+    m.show({ clientX: 1, clientY: 1 }, null);
+    clock.advance(CONTEXT_MENU_RESET_DELAY_MS);
+    fire(doc, 'click');
+    const removed = doc.removed.length + textarea.removed.length;
+    m.dispose();
+    expect(doc.removed.length + textarea.removed.length).toBe(removed);
+  });
+
+  test('the browser timers are the global setTimeout and clearTimeout', async () => {
+    let ran = false;
+    browserMenuTimers.clearTimeout(browserMenuTimers.setTimeout(() => (ran = true), 0));
+    await Bun.sleep(5);
+    expect(ran).toBe(false);
+  });
 
   test('waits on the global setTimeout by default', async () => {
     const textarea = new FakeTextarea();

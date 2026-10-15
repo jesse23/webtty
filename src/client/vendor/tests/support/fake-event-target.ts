@@ -119,15 +119,20 @@ export class FakeMediaQueryList extends RecordingTarget {
 }
 
 /**
- * A window at device pixel ratio 1 whose intervals are logged and never run, so nothing
- * the terminal schedules on it fires after the test.
+ * A window at device pixel ratio 1 whose timeouts and intervals are logged and never run,
+ * so nothing the terminal schedules on it fires after the test.
  */
 export class FakeWindow extends RecordingTarget {
   readonly devicePixelRatio = 1;
   /** The delay of every interval set, in order. */
   readonly intervals: number[] = [];
+  /** The delay of every timeout set, in order. */
+  readonly timeouts: number[] = [];
+  /** The ids of the timeouts and intervals set and not cleared yet. */
+  readonly timers = new Set<number>();
   /** The media queries `matchMedia` handed out, in order. */
   readonly mediaQueries: FakeMediaQueryList[] = [];
+  private nextTimer = 1;
 
   constructor(timeline: ListenerRecord[]) {
     super('window');
@@ -142,10 +147,26 @@ export class FakeWindow extends RecordingTarget {
   }
 
   setInterval(_handler: () => void, ms = 0): number {
-    return this.intervals.push(ms);
+    this.intervals.push(ms);
+    return this.addTimer();
   }
 
-  clearTimeout(): void {}
+  setTimeout(_handler: () => void, ms = 0): number {
+    this.timeouts.push(ms);
+    return this.addTimer();
+  }
 
-  clearInterval(): void {}
+  clearTimeout(id?: number): void {
+    if (id !== undefined) this.timers.delete(id);
+  }
+
+  clearInterval(id?: number): void {
+    if (id !== undefined) this.timers.delete(id);
+  }
+
+  private addTimer(): number {
+    const id = this.nextTimer++;
+    this.timers.add(id);
+    return id;
+  }
 }

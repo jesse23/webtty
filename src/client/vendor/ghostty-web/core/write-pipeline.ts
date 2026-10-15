@@ -2,7 +2,7 @@
 // The write pipeline (controller): a write in its fixed order, a waiting clear at ground,
 // the engine write, the replies, the focus-mode edge, the effects, the link cache, the
 // auto-scroll and the echo render, plus clear screen and the reply drain (ADR 042, ADR 053,
-// ADR 054, ADR 055, ADR 061).
+// ADR 054, ADR 055, ADR 061); dispose() cancels the write callbacks still waiting (ADR 065).
 
 import type { FrameScheduler, WriteHost } from './host-types';
 import { browserFrames } from './render-loop';
@@ -16,11 +16,13 @@ export class WritePipeline {
   private pendingClear = false;
   // Input was sent: the next write renders at once, for its echo
   private awaitingEcho = false;
+  // The frames of the write callbacks not run yet
+  private readonly callbackFrames = new Set<number>();
 
   /** `frames` runs a write's callback on the next frame. */
   constructor(
     private readonly host: WriteHost,
-    private readonly frames: Pick<FrameScheduler, 'requestAnimationFrame'> = browserFrames,
+    private readonly frames: FrameScheduler = browserFrames,
   ) {}
 
   /** Writes output to the engine and runs every step after it, in order. */
@@ -66,7 +68,7 @@ export class WritePipeline {
     }
 
     // The callback runs on the next frame, after the render
-    if (callback) this.frames.requestAnimationFrame(callback);
+    if (callback) this.runNextFrame(callback);
 
     if (this.awaitingEcho) {
       this.awaitingEcho = false;
@@ -106,6 +108,21 @@ export class WritePipeline {
       if (response === null) break;
       this.host.send(response);
     }
+  }
+
+  /** Cancels the write callbacks still waiting for their frame (ADR 065). Calling it again does nothing. */
+  dispose(): void {
+    for (const id of this.callbackFrames) this.frames.cancelAnimationFrame(id);
+    this.callbackFrames.clear();
+  }
+
+  /** Runs a write's callback on the next frame, remembered until then so dispose() can cancel it. */
+  private runNextFrame(callback: () => void): void {
+    const id = this.frames.requestAnimationFrame(() => {
+      this.callbackFrames.delete(id);
+      callback();
+    });
+    this.callbackFrames.add(id);
   }
 
   /** Clears at a shell prompt (FF sent for the redraw), elsewhere the rows above the cursor. */

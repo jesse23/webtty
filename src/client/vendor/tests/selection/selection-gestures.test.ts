@@ -297,17 +297,19 @@ describe('SelectionGestures clicks', () => {
 });
 
 describe('SelectionGestures dispose', () => {
-  test('removes the document move, release and click listeners and stops scrolling, once', () => {
+  test('removes every canvas and document listener and stops scrolling, once (ADR 065)', () => {
     const t = gestures();
     expect(t.doc.added.map((r) => r.type)).toEqual(['mousemove', 'mousedown', 'mouseup', 'click']);
     press(t, 0, 0);
     moveTo(t, 140, 200);
     t.g.dispose();
     expect(t.clock.pending.timers).toBe(0);
-    expect(t.doc.removed.map((r) => r.type).sort()).toEqual(['click', 'mousemove', 'mouseup']);
-    // The canvas listeners and the document mousedown leak until ADR 065
-    expect(t.canvas.active).toHaveLength(5);
+    for (const target of [t.doc, t.canvas]) {
+      expect(target.active).toEqual([]);
+      // The store removes them newest first
+      expect([...target.removed].reverse()).toEqual(target.added);
+    }
     t.g.dispose();
-    expect(t.doc.removed).toHaveLength(3);
+    expect(t.doc.removed.length + t.canvas.removed.length).toBe(9);
   });
 });

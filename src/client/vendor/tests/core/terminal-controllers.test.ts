@@ -81,14 +81,15 @@ describe('TerminalControllers attach and detach', () => {
     ]);
   });
 
-  test("detach() removes the container's listeners; the document's mouseup stays (ADR 065)", () => {
+  test("detach() removes every listener, the document's mouseup too; again does nothing (ADR 065)", () => {
     const { core } = controllers();
     const { container, doc } = targets();
     core.attach(container as unknown as HTMLElement, doc);
     core.detach();
+    const removed = container.removed.length + doc.removed.length;
     core.detach();
-    expect(container.active).toEqual([]);
-    expect(doc.active.map((r) => r.type)).toEqual(['mouseup']);
+    expect([container.active, doc.active]).toEqual([[], []]);
+    expect(container.removed.length + doc.removed.length).toBe(removed);
   });
 });
 

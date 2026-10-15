@@ -1,20 +1,25 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // The DOM Terminal.open() builds and cleanupComponents takes down (util): the container's
 // attributes, the canvas element, the hidden input textarea, the canvas's press-to-focus,
-// and the element sizing and textarea anchoring done after (ADR 061).
+// and the element sizing and textarea anchoring done after (ADR 061, ADR 065).
 
+import {
+  type Disposable,
+  DisposableStore,
+  listen,
+} from '../lifecycle/disposable-store';
 import { mouseCursorFor, setStylePx } from './terminal-geometry';
 
 /**
  * Makes the container focusable and contenteditable, so browser extensions (Vimium and
  * the like) treat it as an input and leave its keys alone, while the browser's own editing
- * of it is cancelled: input is handled by the terminal.
+ * of it is cancelled: input is handled by the terminal. The Disposable removes the
+ * cancelling listener (ADR 065).
  */
-export function makeContainerEditable(container: HTMLElement): void {
+export function makeContainerEditable(container: HTMLElement): Disposable {
   if (!container.hasAttribute('tabindex')) container.setAttribute('tabindex', '0');
   container.setAttribute('contenteditable', 'true');
-  // leaks until ADR 065
-  container.addEventListener('beforeinput', (e) => {
+  return listen(container, 'beforeinput', (e) => {
     if (e.target === container) e.preventDefault();
   });
 }
@@ -76,22 +81,27 @@ export function createInputTextarea(doc: Document): HTMLTextAreaElement {
 
 /**
  * Focuses the textarea on a press (desktop) or a tap (mobile) on the canvas, with the
- * default prevented first; on iOS that keeps the native caret away.
+ * default prevented first; on iOS that keeps the native caret away. The Disposable removes
+ * both listeners (ADR 065).
  */
 export function focusTextareaOnPress(
   canvas: HTMLCanvasElement,
   textarea: HTMLTextAreaElement,
-): void {
-  // leaks until ADR 065
-  canvas.addEventListener('mousedown', (ev) => {
-    ev.preventDefault();
-    textarea.focus();
-  });
-  // leaks until ADR 065
-  canvas.addEventListener('touchend', (ev) => {
-    ev.preventDefault();
-    textarea.focus();
-  });
+): Disposable {
+  const listeners = new DisposableStore();
+  listeners.add(
+    listen(canvas, 'mousedown', (ev) => {
+      ev.preventDefault();
+      textarea.focus();
+    }),
+  );
+  listeners.add(
+    listen(canvas, 'touchend', (ev) => {
+      ev.preventDefault();
+      textarea.focus();
+    }),
+  );
+  return listeners;
 }
 
 /** Sizes the canvas element to `cols` × `rows` cells of the renderer's metrics. */

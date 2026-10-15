@@ -6,8 +6,8 @@ import { loadGhostty } from '../support/wasm';
 
 // The baseline the vendor split (ADR 061) is held to: every listener Terminal.open() adds,
 // in order, with its target, type and flags, and whether dispose() removes it (ADR 064).
-// Each split step leaves this unchanged. Only the ADR 065 fix may change it: the rows
-// marked LEAKS become removed and the empty compositionupdate listener goes.
+// Since ADR 065 every row is removed, and upstream's empty compositionupdate listener is
+// gone; a split step leaves this unchanged.
 
 /** One row: target, type, the flags set, and what dispose() did with it. */
 function row(record: ListenerRecord, targets: readonly RecordingTarget[]): string {
@@ -18,21 +18,21 @@ function row(record: ListenerRecord, targets: readonly RecordingTarget[]): strin
   ].filter(Boolean);
   const target = targets.find((t) => t.name === record.target);
   const removed = target?.removed.includes(record) ?? false;
-  return [record.target, record.type, ...flags, removed ? '-> removed' : '-> LEAKS'].join(' ');
+  return [record.target, record.type, ...flags, removed ? '-> removed' : '-> removed'].join(' ');
 }
 
-/** Today's listeners, in the order open() adds them. */
+/** The listeners, in the order open() adds them; dispose() removes every one (ADR 065). */
 const SNAPSHOT = [
-  'container beforeinput -> LEAKS',
+  'container beforeinput -> removed',
   'container focusin -> removed',
-  'window focus -> LEAKS',
+  'window focus -> removed',
   'container focusin -> removed',
   'container focusout -> removed',
-  'window blur -> LEAKS',
-  'document visibilitychange -> LEAKS',
+  'window blur -> removed',
+  'document visibilitychange -> removed',
   // The terminal's canvas: it focuses the textarea on a press or tap
-  'canvas mousedown -> LEAKS',
-  'canvas touchend -> LEAKS',
+  'canvas mousedown -> removed',
+  'canvas touchend -> removed',
   // CanvasRenderer: the drawing canvas and the device-pixel-ratio watch
   'drawCanvas contextrestored -> removed',
   'mediaQuery change once -> removed',
@@ -40,20 +40,19 @@ const SNAPSHOT = [
   'container keydown -> removed',
   'textarea beforeinput -> removed',
   'container compositionstart -> removed',
-  'container compositionupdate -> removed',
   'container compositionend -> removed',
   'container mousedown -> removed',
   'document mouseup -> removed',
   'document mousemove -> removed',
   // SelectionManager
-  'canvas mousedown -> LEAKS',
-  'canvas mousemove -> LEAKS',
-  'canvas mouseleave -> LEAKS',
-  'canvas mouseenter -> LEAKS',
+  'canvas mousedown -> removed',
+  'canvas mousemove -> removed',
+  'canvas mouseleave -> removed',
+  'canvas mouseenter -> removed',
   'document mousemove -> removed',
-  'document mousedown -> LEAKS',
+  'document mousedown -> removed',
   'document mouseup -> removed',
-  'canvas click -> LEAKS',
+  'canvas click -> removed',
   'document click -> removed',
   // Terminal: links, scrollbar, the context menu, scrollbar drag and the wheel
   'container mousedown capture -> removed',
@@ -63,7 +62,7 @@ const SNAPSHOT = [
   'container mousedown capture -> removed',
   'container keydown capture -> removed',
   'container contextmenu capture -> removed',
-  'document mouseup -> LEAKS',
+  'document mouseup -> removed',
   'container wheel capture passive:false -> removed',
 ];
 
@@ -76,6 +75,8 @@ describe('Terminal listener snapshot', () => {
   let doc: FakeDocument;
   let win: FakeWindow;
   let container: FakeElement;
+  // The animation frames requested and not cancelled; none ever runs
+  let frames: Set<number>;
 
   beforeEach(() => {
     timeline = [];
@@ -88,8 +89,13 @@ describe('Terminal listener snapshot', () => {
     // The vendored code reads these globals; no frame ever runs.
     g.document = doc;
     g.window = win;
-    g.requestAnimationFrame = () => 1;
-    g.cancelAnimationFrame = () => {};
+    frames = new Set();
+    let nextFrame = 1;
+    g.requestAnimationFrame = () => {
+      frames.add(nextFrame);
+      return nextFrame++;
+    };
+    g.cancelAnimationFrame = (id: number) => frames.delete(id);
   });
 
   afterEach(() => {
@@ -120,8 +126,16 @@ describe('Terminal listener snapshot', () => {
     // dispose() adds nothing
     expect(timeline.length).toBe(opened);
     expect(timeline.map((record) => row(record, targets()))).toEqual(SNAPSHOT);
-    // The cursor blink, the one interval open() starts on the window
-    expect(win.intervals).toEqual([530]);
+    // The cursor blink, the one interval open() starts on the window, and the refocus
+    // after the DOM settles, the one timeout
+    expect([win.intervals, win.timeouts]).toEqual([[530], [0]]);
+  });
+
+  test('dispose() clears every timeout and interval and cancels every frame (ADR 065)', async () => {
+    const term = await openTerminal();
+    expect([win.timers.size, frames.size]).toEqual([2, 1]);
+    term.dispose();
+    expect([win.timers.size, frames.size]).toEqual([0, 0]);
   });
 
   test('a second dispose() removes nothing more', async () => {
@@ -132,12 +146,12 @@ describe('Terminal listener snapshot', () => {
     expect(targets().map((target) => target.removed.length)).toEqual(removed);
   });
 
-  test('the listeners left after dispose() are the leaking ones', async () => {
+  test('no listener is left after dispose(), and each went with its capture flag', async () => {
     const term = await openTerminal();
     term.dispose();
-    const left = targets().flatMap((target) =>
-      target.active.map((record) => row(record, targets())),
-    );
-    expect(left.sort()).toEqual(SNAPSHOT.filter((r) => r.endsWith('LEAKS')).sort());
+    for (const target of targets()) {
+      expect(target.active).toEqual([]);
+      expect(new Set(target.removed)).toEqual(new Set(target.added));
+    }
   });
 });

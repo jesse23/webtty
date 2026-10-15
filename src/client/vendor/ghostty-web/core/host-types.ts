@@ -261,6 +261,7 @@ export interface ScrollbarClock extends TimeoutScheduler {
   /** Wall-clock milliseconds, as `Date.now()`. */
   now(): number;
   requestAnimationFrame(callback: () => void): number;
+  cancelAnimationFrame(id: number): void;
 }
 
 /**

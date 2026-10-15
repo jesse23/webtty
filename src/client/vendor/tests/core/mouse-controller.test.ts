@@ -379,15 +379,20 @@ describe('MouseController right-click', () => {
 });
 
 describe('browserTimeouts', () => {
-  test("reads the page's window.setTimeout and the global clearTimeout when called", () => {
+  test("reads the page's window.setTimeout and window.clearTimeout when called", () => {
     const g = globalThis as Record<string, unknown>;
     const saved = g.window;
     const scheduled: number[] = [];
-    g.window = { setTimeout: (_run: () => void, ms: number) => scheduled.push(ms) };
+    const cleared: unknown[] = [];
+    g.window = {
+      setTimeout: (_run: () => void, ms: number) => scheduled.push(ms),
+      clearTimeout: (id: unknown) => void cleared.push(id),
+    };
     try {
       expect(browserTimeouts.setTimeout(() => {}, 16)).toBe(1);
       expect(scheduled).toEqual([16]);
-      browserTimeouts.clearTimeout(undefined);
+      browserTimeouts.clearTimeout(1);
+      expect(cleared).toEqual([1]);
     } finally {
       g.window = saved;
     }

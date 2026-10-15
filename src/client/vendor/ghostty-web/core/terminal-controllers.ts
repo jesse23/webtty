@@ -92,7 +92,7 @@ export class TerminalControllers {
     private readonly inner: ControllersInternalsHost,
     clock?: ControllersClock,
   ) {
-    this.focus = new FocusTracker(focusHost(term, inner));
+    this.focus = new FocusTracker(focusHost(term, inner), clock);
     this.finder = new FindController(findHost(term, inner), clock?.now);
     this.writes = new WritePipeline(writeHost(term, inner, this), clock);
     this.renderLoop = new RenderLoop(renderLoopHost(inner, this), clock, clock?.now);
@@ -140,13 +140,18 @@ export class TerminalControllers {
   }
 
   /**
-   * Removes the wheel's, the mouse's and the scrollbar's container listeners, with the
-   * wheel's queued ticks, the mouse's throttled move and the scrollbar's auto-hide.
+   * Removes every listener the controllers added, with the next frame of the render loop,
+   * the wheel's queued ticks, the
+   * mouse's throttled move, the scrollbar's auto-hide and fade, the focus tracker's
+   * refocus and the write callbacks not run yet (ADR 065). Calling it again does nothing.
    */
   detach(): void {
+    this.renderLoop.cancel();
     this.wheel.dispose();
     this.mouse.dispose();
     this.scrollbar.dispose();
+    this.focus.dispose();
+    this.writes.dispose();
   }
 }
 

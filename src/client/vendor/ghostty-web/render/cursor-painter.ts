@@ -17,10 +17,10 @@ import { invalidateRow } from './row-band';
 /** The blink half-period, as xterm.js uses. */
 export const CURSOR_BLINK_INTERVAL_MS = 530;
 
-/** The window's interval timer, read when the blink starts. */
+/** The window's interval timer, read when the blink starts; cleared on the window that set it. */
 export const windowIntervals: IntervalTimers = {
   setInterval: (run, ms) => window.setInterval(run, ms),
-  clearInterval: (id) => clearInterval(id),
+  clearInterval: (id) => window.clearInterval(id),
 };
 
 /**
