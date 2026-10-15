@@ -127,7 +127,7 @@ webtty is an npm CLI — no `Info.plist`, no bundle. A `webtty://` scheme would 
 - `src/pty/node.ts`: return `pid: ptyProc.pid`
 - `src/pty/bun.ts`: return `pid: proc.pid`
 
-**`Session`** (`src/server/session.ts`): no change to the Session struct — `pty.pid` is read directly from the PtyProcess when serializing.
+**`Session`** (`src/server/sessions/session.ts`): no change to the Session struct — `pty.pid` is read directly from the PtyProcess when serializing.
 
 **`sessionToJson`**: include `pid: s.pty?.pid ?? null`.
 
@@ -141,7 +141,7 @@ webtty is an npm CLI — no `Info.plist`, no bundle. A `webtty://` scheme would 
 
 ### PID-based navigation — detail
 
-**New server route** (`src/server/routes.ts`):
+**New server route** (`src/server/routes/page-routes.ts`):
 
 ```
 GET /p/<pid>

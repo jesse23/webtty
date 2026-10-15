@@ -1,8 +1,11 @@
+// Tests for the PTY facade: which backend each runtime and platform picks, and spawnPty
+// returning a working PtyProcess (ADR 062).
 import { describe, expect, test } from 'bun:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnForSession } from './index';
+import { bunTerminalAvailable, isWindows, type RuntimeEnv, runningUnderBun } from '../runtime';
+import { type PtySpawnOptions, selectBackend, spawnPty } from './index';
 
 function waitForData(received: string[], content: string, timeout = 3000): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -25,21 +28,49 @@ const TEST_SHELL = process.platform === 'win32' ? (process.env.COMSPEC ?? 'cmd.e
 // the first PTY write. The server always runs under Node on Windows (see http.ts),
 // so skip the interactive data test under Bun on Windows — it passes in CI (Linux)
 // and under Node on Windows.
-const isBunOnWindows =
-  process.platform === 'win32' &&
-  typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+const isBunOnWindows = isWindows() && runningUnderBun();
 
-describe('spawnForSession', () => {
+/** Spawn options for the test shell at 80x24 in the current directory. */
+function options(): PtySpawnOptions {
+  return {
+    shell: TEST_SHELL,
+    cols: 80,
+    rows: 24,
+    term: 'xterm-256color',
+    colorTerm: 'truecolor',
+    cwd: process.cwd(),
+    env: {},
+  };
+}
+
+/** A runtime snapshot with only the fields selectBackend reads set. */
+const runtime = (platform: string, bunVersion: string | undefined): RuntimeEnv => ({
+  platform,
+  execPath: '/usr/bin/x',
+  bunVersion,
+  bunGlobal: undefined,
+});
+
+describe('selectBackend', () => {
+  test.each([
+    ['Bun on macOS', 'Bun.Terminal', runtime('darwin', '1.3.0')],
+    ['Bun on Linux', 'Bun.Terminal', runtime('linux', '1.3.0')],
+    ['Bun on Windows', 'node-pty', runtime('win32', '1.3.0')],
+    ['Node on macOS', 'node-pty', runtime('darwin', undefined)],
+    ['Node on Linux', 'node-pty', runtime('linux', undefined)],
+    ['Node on Windows', 'node-pty', runtime('win32', undefined)],
+  ] as const)('%s uses %s', (_name, expected, env) => {
+    expect(selectBackend(env)).toBe(expected);
+  });
+
+  test('defaults to the live process', () => {
+    expect(selectBackend()).toBe(bunTerminalAvailable() ? 'Bun.Terminal' : 'node-pty');
+  });
+});
+
+describe('spawnPty', () => {
   test('returns a PtyProcess with the expected interface', () => {
-    const pty = spawnForSession(
-      80,
-      24,
-      TEST_SHELL,
-      'xterm-256color',
-      'truecolor',
-      process.cwd(),
-      {},
-    );
+    const pty = spawnPty(options());
 
     expect(typeof pty.onData).toBe('function');
     expect(typeof pty.onExit).toBe('function');
@@ -52,15 +83,7 @@ describe('spawnForSession', () => {
   });
 
   test.skipIf(isBunOnWindows)('spawned process can receive data', async () => {
-    const pty = spawnForSession(
-      80,
-      24,
-      TEST_SHELL,
-      'xterm-256color',
-      'truecolor',
-      process.cwd(),
-      {},
-    );
+    const pty = spawnPty(options());
     const received: string[] = [];
     pty.onData((data) => received.push(data));
 
@@ -85,15 +108,7 @@ describe('spawnForSession', () => {
       // prefix straddle block (and read) boundaries.
       const file = path.join(os.tmpdir(), `webtty-pty-mb-${process.pid}.txt`);
       fs.writeFileSync(file, `x${'─'.repeat(100_000)}\n`);
-      const pty = spawnForSession(
-        80,
-        24,
-        TEST_SHELL,
-        'xterm-256color',
-        'truecolor',
-        process.cwd(),
-        {},
-      );
+      const pty = spawnPty(options());
       const received: string[] = [];
       pty.onData((d) => received.push(d));
       pty.write(`cat '${file}'; echo DONE-$((40+2))\n`);

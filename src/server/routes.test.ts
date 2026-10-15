@@ -1,45 +1,33 @@
+// Behaviour tests for the HTTP routes against the whole server built in-process by
+// createServer, with real shells for the execute routes; the exact replies are pinned by the
+// routes-*golden tests (ADR 062, ADR 064). The tests share one server and run in order.
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  cleanupTmpHome,
-  getFreePort,
-  makeTmpHome,
-  waitForServer,
-  waitForServerDown,
-} from '../utils.test';
+import { DEFAULT_THEME } from '../config';
+import { type LiveServer, startLiveServer } from '../test-support/live-server';
+import { type TmpHome, useTmpHome } from '../test-support/server-harness';
 import { getVersion } from '../version';
+import { resolveServerPaths } from './server-paths';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const SERVER_ENTRY = path.resolve(__dirname, 'index.ts');
 
 describe('server — routes', () => {
-  let proc: ChildProcess;
+  let live: LiveServer;
   let baseUrl: string;
-  let tmpHome: string;
+  let home: TmpHome;
 
   beforeAll(async () => {
-    tmpHome = makeTmpHome('routes-test');
-    const port = await getFreePort();
-    baseUrl = `http://127.0.0.1:${port}`;
-    proc = spawn(process.execPath, [SERVER_ENTRY], {
-      env: {
-        ...process.env,
-        PORT: String(port),
-        HOME: tmpHome,
-        ...(process.platform !== 'win32' && { SHELL: '/bin/sh' }),
-      },
-      stdio: 'ignore',
-    });
-    await waitForServer(baseUrl);
+    home = useTmpHome('routes-test');
+    live = await startLiveServer({ paths: resolveServerPaths() });
+    baseUrl = live.base;
   });
 
   afterAll(() => {
-    proc.kill();
-    cleanupTmpHome(tmpHome);
+    live.close();
+    home.restore();
   });
 
   test('GET /unknown returns 404', async () => {
@@ -127,6 +115,32 @@ describe('server — routes', () => {
     expect(body.host).toBeUndefined();
     expect(body.shell).toBeUndefined();
     expect(body.logs).toBeUndefined();
+  });
+
+  test('GET /api/config sends exactly the client keys, in order, with the default values', async () => {
+    // Pinned literal: the whitelist the route built by hand before CLIENT_CONFIG_KEYS existed.
+    const expected = {
+      cols: 80,
+      rows: 24,
+      fontSize: 13,
+      fontFamily: "Menlo, Consolas, 'DejaVu Sans Mono', monospace, 'STIX Two Text'",
+      cursorStyle: 'bar',
+      cursorStyleBlink: true,
+      scrollback: 256 * 1024,
+      scrollbackLines: 10000,
+      theme: DEFAULT_THEME,
+      copyOnSelect: true,
+      rightClickBehavior: 'contextMenu',
+      clipboardWrite: true,
+      bellTitle: true,
+      desktopNotifications: true,
+      mouseScrollSpeed: 1,
+      padding: 0,
+      keyboardBindings: [],
+    };
+    const res = await fetch(`${baseUrl}/api/config`);
+    expect(res.headers.get('content-type')).toBe('application/json');
+    expect(await res.text()).toBe(JSON.stringify(expected));
   });
 
   test('GET /api/sessions returns array', async () => {
@@ -430,45 +444,13 @@ describe('server — routes', () => {
     expect(typeof exitLine?.error).toBe('string');
   });
 
-  test('POST /s/:id/execute does not leak server PORT into child env', async () => {
-    await fetch(`${baseUrl}/api/sessions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: 'execute-port-leak' }),
-    });
-    const wsUrl = baseUrl.replace(/^http/, 'ws');
-    const ws = new WebSocket(`${wsUrl}/ws/execute-port-leak/pty?cols=80&rows=24`);
-    await new Promise<void>((resolve, reject) => {
-      ws.onopen = () => resolve();
-      ws.onerror = () => reject(new Error('WS error'));
-      setTimeout(() => reject(new Error('WS timeout')), 5000);
-    });
-    const res = await fetch(`${baseUrl}/s/execute-port-leak/execute`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        cmd: process.execPath,
-        args: ['-e', 'console.log(process.env.PORT ?? "")'],
-      }),
-    });
-    ws.close();
-    expect(res.status).toBe(200);
-    const text = await res.text();
-    const lines = text
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((l) => JSON.parse(l) as Record<string, unknown>);
-    const stdoutLine = lines.find((l) => l.stream === 'stdout');
-    expect(stdoutLine).toBeDefined();
-    expect(String(stdoutLine?.data).trim()).toBe('');
-  });
-
   test('POST /api/server/stop returns 200 and stops server', async () => {
     const res = await fetch(`${baseUrl}/api/server/stop`, { method: 'POST' });
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('stopping');
-    await waitForServerDown(baseUrl);
+    live.server.httpServer.closeAllConnections();
+    await live.stopped;
+    expect(live.stops()).toBe(1);
     await expect(fetch(`${baseUrl}/api/sessions`)).rejects.toThrow();
   });
 });

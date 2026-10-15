@@ -56,7 +56,7 @@ The command exits when the editor exits.
 
 ## Code structure
 
-`src/cli/index.ts` is the entry and `main.ts` the composition root; each command is a module under `src/cli/commands/` that takes its dependencies (`CliDeps`: the API client, output, exit, spawn, config) as an argument ([ADR 063](../adrs/063.cli.command-modules.md)). See the [architecture SPEC](architecture.md) for the repo-wide layout and conventions.
+`src/cli/index.ts` is the entry and `main.ts` the composition root; each command is a module under `src/cli/commands/` that takes its dependencies (`CliDeps`: the API client, config, output, exit, version, server control, browser opener, editor and TTY) as an argument ([ADR 063](../adrs/063.cli.command-modules.md)). See the [architecture SPEC](architecture.md) for the repo-wide layout and conventions.
 
 ## Features
 
