@@ -248,10 +248,10 @@ Other patterns used, each in one named place: **Command map** for shortcut dispa
 
 ### The client composition root
 
-`startClient(env)` runs these steps, in this order, written once in the file with numbered comments. The order is today's `index.ts` (at commit d333069) with two moves, each stated with why it is equivalent; it is pinned by a test that installs everything on fakes and records each listener's target, type, phase and position and each terminal emitter subscription.
+`startClient(env)` runs these steps, in this order, written once in the file with numbered comments. The order is today's `index.ts` (at commit d333069) with three moves, each stated with why it is equivalent; it is pinned by a test that installs everything on fakes and records each listener's target, type, phase and position and each terminal emitter subscription.
 
 1. **Bootstrap.** The session id from `location`; the config (`/api/config`); `ReplayWindow`; the `TabTitle` object (it sets `document.title`, so it stays before the wasm load); `Ghostty.load('/ghostty-vt-small.wasm')`; the terminal theme; `new Terminal(toTerminalOptions(…))`; the padding colour; `await term.open(container)`.
-2. **Layout and views.** `EdgeExtender`; `Composer` (container `compositionstart`, `compositionupdate`, `compositionend`, `focusout`); `WheelStream` and `SmoothScroll`; the FitAddon and the `Fitter`, whose first `schedule()` runs here; the `ResizeObserver`; window `resize`; `fonts.ready`; repaint on visible (document `visibilitychange`); the DPR watch.
+2. **Layout and views.** `EdgeExtender`; `Composer` (container `compositionstart`, `compositionupdate`, `compositionend`, `focusout`); `WheelStream` and `SmoothScroll`; the FitAddon and the `Fitter`, whose first `schedule()` runs here; the `ResizeObserver`; window `resize`; `fonts.ready`; the DPR watch (all in `installLayout`); repaint on visible (document `visibilitychange`). *The DPR watch moved up* past repaint on visible so the layout feature owns it. Equivalent: it listens on a `matchMedia` query, not on the document, so no listener on a shared target changes position.
 3. **Kitty graphics.** `KittyGraphics` (its overlay into the container, a document `visibilitychange`); its replies go out through the connection handle, which is created at step 7 and read only when a reply is sent.
 4. **Clipboard.** `onClipboardWrite`; window capture `keydown`, `mousedown`, `paste`, `drop` arming the writer.
 5. **Tab title.** `onTitleChange`, `onBell`; container `focusin`; window capture `keydown`.

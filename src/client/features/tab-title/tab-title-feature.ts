@@ -1,7 +1,9 @@
 // Wires the tab title to the terminal (feature, ADR 053, ADR 060): the program's OSC 0/2
 // title and its bells go to the TabTitle, and focus in the terminal or a key clears the
 // bell mark. Ghostty clears it on focus; a window focus reaches the container as a
-// `focusin` too, while Chrome switching back to the tab only shows it.
+// `focusin` too, while Chrome switching back to the tab only shows it. Returning to a tab
+// whose terminal is focused clears it too, from the notifications feature's
+// `visibilitychange` listener (it attends the title and the notifier, in that order).
 
 import type { ClientContext, Feature } from '../../app/client-context';
 import { DisposableStore, listen } from '../../vendor/ghostty-web';

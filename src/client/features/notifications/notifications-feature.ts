@@ -74,6 +74,7 @@ export function installNotifications(
   store.add(
     listen(doc, 'visibilitychange', () => {
       if (!focused()) return;
+      // Clears the tab title's bell mark too: the tab title feature has no listener here.
       title.attended();
       notifier.attended();
     }),
