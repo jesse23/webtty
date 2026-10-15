@@ -235,6 +235,68 @@ describe('startClient', () => {
     expect(fake.term.options.fontSize).toBe(15);
   });
 
+  test("the edge strips copy the part of the renderer's canvas in view", async () => {
+    fake = fakeClientEnv();
+    const { document, HTMLCanvasElement } = fake.dom.window;
+    // happy-dom has no 2D context: this document's canvases get one that logs which
+    // canvas the strips copy.
+    const copied: unknown[] = [];
+    const create = document.createElement.bind(document);
+    document.createElement = ((tag: string) => {
+      const el = create(tag);
+      if (el instanceof HTMLCanvasElement) {
+        el.getContext = (() => ({
+          drawImage: (src: unknown) => copied.push(src),
+        })) as unknown as HTMLCanvasElement['getContext'];
+      }
+      return el;
+    }) as Document['createElement'];
+    client = await startClient(fake.env);
+    // An 800x400 terminal canvas, first in a 809x407 box as open() puts it, so both strips
+    // show after a fit.
+    const canvas = create('canvas');
+    canvas.width = 800;
+    canvas.height = 400;
+    for (const [el, sizes] of [
+      [canvas, { offsetLeft: 0, offsetTop: 0, offsetWidth: 800, offsetHeight: 400 }],
+      [fake.container, { clientWidth: 809, clientHeight: 407 }],
+    ] as const) {
+      for (const [name, value] of Object.entries(sizes)) {
+        Object.defineProperty(el, name, { value, configurable: true });
+      }
+    }
+    fake.container.prepend(canvas);
+    const view = create('canvas');
+    view.width = 800;
+    view.height = 400;
+    const renderer = fake.term.attachRenderer();
+    // The fit sizes the grid from the container and the renderer's cell size.
+    Object.assign(fake.term, { element: fake.container });
+    Object.assign(renderer, {
+      getMetrics: () => ({ width: 10, height: 20, baseline: 15 }),
+      setScrollOffset: () => {},
+      visibleArea: { canvas: view, y: 0, height: 400, lastLine: 399 },
+    });
+    // Font zoom fits at once; the strips then paint on the next frame.
+    // FitAddon reads the padding through the global window's getComputedStyle, in the
+    // zoom's fit and in the refit its grid resize schedules for the next frame.
+    const g = globalThis as { window?: unknown };
+    const hadWindow = 'window' in g;
+    const saved = g.window;
+    g.window = fake.dom.window;
+    try {
+      const { KeyboardEvent } = fake.dom.window;
+      fake.win.dispatch(new KeyboardEvent('keydown', { key: '=', code: 'Equal', ctrlKey: true }));
+      fake.clock.frame();
+    } finally {
+      if (hadWindow) g.window = saved;
+      else delete g.window;
+    }
+    // The bottom and right strips each copy from the renderer's canvas in view.
+    expect(copied.length).toBe(2);
+    expect(copied.every((src) => src === view)).toBe(true);
+  });
+
   test('dispose removes every listener, view and hook, and closes the socket; twice is a no-op', async () => {
     await start();
     const socket = fake.sockets.last();
