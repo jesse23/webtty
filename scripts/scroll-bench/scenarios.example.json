@@ -1,0 +1,86 @@
+[
+  {
+    "name": "seq",
+    "note": "shell scrollback: 5000 lines on the normal screen, scrolled back",
+    "command": "seq 1 5000",
+    "waitMs": 2000,
+    "direction": "up",
+    "screen": "normal"
+  },
+  {
+    "name": "vim",
+    "note": "vim on a big file, scrolled down from the top",
+    "command": "seq -f 'line %g of a big file for vim to scroll' 1 20000 > /tmp/scroll-bench.txt && vim -u NONE -c 'set mouse=a' /tmp/scroll-bench.txt",
+    "waitMs": 3000,
+    "direction": "down",
+    "screen": "alt"
+  },
+  {
+    "name": "nvim",
+    "command": "seq -f 'line %g of a big file for nvim to scroll' 1 20000 > /tmp/scroll-bench.txt && nvim --clean /tmp/scroll-bench.txt",
+    "waitMs": 3000,
+    "direction": "down",
+    "screen": "alt"
+  },
+  {
+    "name": "yazi",
+    "note": "a long file list; yazi tracks the mouse",
+    "command": "yazi /usr/bin",
+    "waitMs": 3000,
+    "direction": "down",
+    "screen": "alt"
+  },
+  {
+    "name": "less",
+    "note": "alternate screen without mouse tracking: the wheel becomes arrow keys",
+    "command": "seq 1 20000 | less",
+    "waitMs": 2000,
+    "direction": "down",
+    "screen": "alt"
+  },
+  {
+    "name": "pi-fullscreen",
+    "note": "placeholder: -r opens pi's session picker, the second Enter resumes the first entry",
+    "command": "pi -r",
+    "waitMs": 4000,
+    "enter2": true,
+    "enter2WaitMs": 6000,
+    "direction": "up",
+    "screen": "alt"
+  },
+  {
+    "name": "pi-classic",
+    "note": "placeholder: pi drawing on the normal screen",
+    "command": "pi --tui-mode regular -r",
+    "waitMs": 4000,
+    "enter2": true,
+    "enter2WaitMs": 6000,
+    "direction": "up",
+    "screen": "normal"
+  },
+  {
+    "name": "claude-fullscreen",
+    "note": "placeholder: replace <id> with a long Claude Code session; --fork-session leaves it untouched",
+    "command": "claude --resume <id> --fork-session",
+    "waitMs": 8000,
+    "direction": "up",
+    "screen": "alt"
+  },
+  {
+    "name": "claude-classic",
+    "note": "placeholder: Claude Code on the normal screen",
+    "command": "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1 claude --resume <id> --fork-session",
+    "waitMs": 8000,
+    "direction": "up",
+    "screen": "normal"
+  },
+  {
+    "name": "stream",
+    "note": "the stream test: scroll back while output streams; the view should stay put",
+    "kind": "stream",
+    "command": "bash {bench}/stream.sh 40 120",
+    "waitMs": 4000,
+    "direction": "up",
+    "screen": "normal"
+  }
+]

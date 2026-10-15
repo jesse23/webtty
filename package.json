@@ -25,6 +25,7 @@
     "server:node": "node dist/server/index.js",
     "webtty:prod": "bun -- dist/cli/index.js",
     "webtty": "bun run src/cli/index.ts",
+    "bench:scroll": "bun scripts/scroll-bench/bench.ts",
     "prepack": "bun scripts/clean-pkg-scripts.ts strip",
     "postpack": "bun scripts/clean-pkg-scripts.ts restore"
   },
