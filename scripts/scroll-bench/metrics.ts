@@ -131,6 +131,14 @@ export function paintStats(
   };
 }
 
+/**
+ * Whether a scroll run saw nothing move: a handful of frames and paints, as from the cursor
+ * blinking alone. The app never started or never took the wheel, so the run says nothing.
+ */
+export function nothingMoved(run: { frames: number; paintsPerSec: number }): boolean {
+  return run.frames <= 10 && run.paintsPerSec < 3;
+}
+
 /** A recorded frame of the streaming test: when it came and how it looked. */
 export interface StreamFrame {
   time: number;

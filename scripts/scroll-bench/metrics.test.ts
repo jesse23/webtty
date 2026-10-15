@@ -7,6 +7,7 @@ import {
   blinkFrames,
   matchPairs,
   median,
+  nothingMoved,
   type PaintFrame,
   type Profile,
   paintStats,
@@ -171,4 +172,13 @@ describe('median', () => {
   for (const [values, expected] of cases) {
     test(`${JSON.stringify(values)} → ${expected}`, () => expect(median(values)).toBe(expected));
   }
+});
+
+describe('nothingMoved', () => {
+  test.each([
+    [{ frames: 7, paintsPerSec: 1.9 }, true],
+    [{ frames: 10, paintsPerSec: 2.9 }, true],
+    [{ frames: 33, paintsPerSec: 10.2 }, false],
+    [{ frames: 8, paintsPerSec: 6 }, false],
+  ])('%j: %p', (run, idle) => expect(nothingMoved(run)).toBe(idle));
 });

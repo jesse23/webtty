@@ -3,8 +3,9 @@
 // creates a fresh session, opens it in an already running Chrome, starts the scenario's
 // app, scrolls with the input while recording the screencast, prints one JSON line of
 // numbers and deletes the session; then a markdown table of the medians over the runs.
-// A run that fails prints an error line and the benchmark goes on with the next; the
-// servers take turns going first, so none is always measured after the others.
+// A scroll run in which nothing moved (the app never started or never took the wheel) is
+// run once more. A run that fails prints an error line and the benchmark goes on with the
+// next; the servers take turns going first, so none is always measured after the others.
 //
 // Start Chrome or Chromium yourself; the benchmark never launches or closes a browser:
 //
@@ -27,6 +28,7 @@ import { type Cdp, connectCdp, sleep } from './cdp';
 import { writeDump } from './dump';
 import { INPUT_PROFILES, type InputName } from './inputs';
 import { measureScroll, measureStream, type RecordSink, startScenario } from './measure';
+import { nothingMoved } from './metrics';
 import { loadScenarios, type Scenario } from './scenarios';
 import { benchSessionId, createSession, deleteSession } from './session-api';
 import { type Result, resultLine, summaryTable } from './summary';
@@ -99,7 +101,13 @@ async function main(argv: readonly string[]): Promise<number> {
         for (let run = 1; run <= args.runs; run++) {
           for (const base of basesForRun(args.bases, run)) {
             try {
-              const result = await runOne(cdp, base, scenario, input, run, args.dump);
+              let result = await runOne(cdp, base, scenario, input, run, args.dump);
+              if (result.kind === 'scroll' && nothingMoved(result)) {
+                console.error(
+                  `# retried ${base.label} ${scenario.name} ${input} run ${run}: nothing moved`,
+                );
+                result = await runOne(cdp, base, scenario, input, run, args.dump);
+              }
               results.push(result);
               console.log(resultLine(result));
             } catch (error) {

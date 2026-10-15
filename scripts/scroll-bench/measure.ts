@@ -32,6 +32,8 @@ async function castOptions(cdp: Cdp): Promise<CastOptions> {
 }
 /** How long to wait for the client to draw its terminal canvas after the page loads. */
 const READY_TIMEOUT_MS = 10_000;
+/** Time for the session's shell to show its prompt after the terminal appears. */
+const SHELL_START_MS = 1500;
 /** Recording kept after the last wheel event, so glides and late paints are seen. */
 const TAIL_MS = 400;
 /** The stream test watches the view at rest this long after the scroll. */
@@ -52,7 +54,8 @@ async function waitForTerminal(cdp: Cdp): Promise<void> {
 export async function startScenario(cdp: Cdp, url: string, scenario: Scenario): Promise<void> {
   await cdp.navigate(url);
   await waitForTerminal(cdp);
-  await sleep(500);
+  // The shell starts after the canvas: a command typed before its prompt can be lost
+  await sleep(SHELL_START_MS);
   const centre = await viewportPoint(cdp, CENTRE);
   await cdp.click(centre.x, centre.y);
   await cdp.text(scenario.command);
