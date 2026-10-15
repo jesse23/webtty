@@ -188,6 +188,7 @@ function world() {
   emit.desktopNotification.event((n) => void log.push(`notify ${n.title}`));
   emit.findChange.event((state) => void log.push(`find ${state.total}`));
   emit.pasteRequest.event(() => void log.push('paste request'));
+  emit.updatePainted.event(() => void log.push('update painted'));
   const inner: ControllersInternalsHost = {
     emit,
     parts: () => parts as unknown as OpenedParts,
@@ -266,9 +267,17 @@ describe('TerminalControllers hosts', () => {
     host.unpinView();
     host.wroteOutput('o');
     host.renderEcho();
-    // Inside the app's synchronized update the echo waits for the frame after it (ADR 067)
+    // An update's end paints only after a held frame, and tells the embedder (ADR 067)
+    expect(host.syncPaintPoint('\x1b[?2026l')).toBe(-1);
+    core.sync.frameHeld();
+    expect(host.syncPaintPoint('\x1b[?2026l')).toBe(8);
+    host.paintUpdate();
+    expect(host.syncPaintPoint('\x1b[?2026l')).toBe(-1);
+    // Inside the app's synchronized update the echo waits for the frame after it, and an
+    // update's end does not paint while the engine still has the mode on
     sync.on = true;
     host.renderEcho();
+    host.paintUpdate();
     expect(log).toEqual([
       'data r',
       'follow focus mode',
@@ -282,6 +291,8 @@ describe('TerminalControllers hosts', () => {
       'unpin true',
       'wrote o',
       'render false undefined',
+      'render false undefined',
+      'update painted',
     ]);
   });
 
@@ -305,6 +316,8 @@ describe('TerminalControllers hosts', () => {
     ]);
     sync.on = true;
     expect(host.renderHeld(1)).toBe(true);
+    // A held frame makes the next update's end paint (ADR 067)
+    expect(core.sync.paintPoint('\x1b[?2026l')).toBe(8);
     sync.on = false;
     host.beforeRender(1);
     host.stepFind(2);

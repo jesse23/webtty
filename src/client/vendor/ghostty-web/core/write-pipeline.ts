@@ -39,8 +39,9 @@ export class WritePipeline {
     // selected find match is kept by the find step instead (ADR 055).
     const pinned = !host.findAnchored() && !engine.isAlternateScreen() && host.pinView();
     try {
-      // A pinned write keeps Ghostty's viewport away from the view, so it paints on a frame
-      if (pinned) this.feed(data);
+      // A pinned write keeps Ghostty's viewport away from the view, and a view on a find
+      // match moves back to it only in the find step: either paints on a frame
+      if (pinned || host.findAnchored()) this.feed(data);
       else this.feedPainting(data);
     } finally {
       if (pinned) host.unpinView();
@@ -134,8 +135,12 @@ export class WritePipeline {
     const split = (from: number, to?: number) =>
       typeof data === 'string' ? data.slice(from, to) : data.subarray(from, to);
     this.feed(split(0, at));
-    this.host.paintUpdate();
-    if (at < data.length) this.feed(split(at));
+    try {
+      this.host.paintUpdate();
+    } finally {
+      // A paint that throws must not cost the engine the rest of the output
+      if (at < data.length) this.feed(split(at));
+    }
   }
 
   /** The engine parses the VT stream, a waiting clear going in where it reaches ground. */

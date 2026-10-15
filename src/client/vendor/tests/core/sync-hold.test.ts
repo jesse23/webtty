@@ -215,6 +215,32 @@ describe('Terminal.renderHeld', () => {
     }
   });
 
+  test('any paint ends the wait: a frame or an echo between the held frame and the end', async () => {
+    const h = await openTerminal();
+    try {
+      const { term, clock } = h;
+      const render = spyOn(rendererOf(term), 'render');
+      // Held, then a frame paints outside an update: no update end waits any more
+      term.write(`${BEGIN}one`);
+      clock.frame();
+      term.write(`${END}`);
+      clock.frame();
+      render.mockClear();
+      term.write(`${BEGIN}two${END}${BEGIN}three`);
+      expect(render).not.toHaveBeenCalled();
+      // Held, then the echo of typed input paints: likewise
+      clock.frame();
+      term.write(`${END}`);
+      h.container.dispatch(keydown('a'));
+      term.write('a');
+      render.mockClear();
+      term.write(`${BEGIN}four${END}${BEGIN}five`);
+      expect(render).not.toHaveBeenCalled();
+    } finally {
+      h.close();
+    }
+  });
+
   test('reset replaces the engine and forgets its update; a replay ending inside one holds a second at most', async () => {
     const h = await openTerminal();
     try {

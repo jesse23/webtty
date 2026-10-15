@@ -176,7 +176,8 @@ export class TerminalControllers {
 
 // Each controller's host, read when called: the parts are undefined before open() and
 // after dispose(), and the other controllers are reached through `core` once all exist.
-// Every member is one forwarding call, pinned by terminal-controllers.test.ts.
+// Every member forwards to one place, the paints also telling the sync hold (ADR 067);
+// terminal-controllers.test.ts pins where each goes.
 
 /** Short for the internals host in the builders below. */
 type Inner = ControllersInternalsHost;
@@ -229,6 +230,8 @@ export function writeHost(term: ControllersHost, inner: Inner, core: TerminalCon
     },
     syncPaintPoint: (data) => core.sync.paintPoint(data),
     paintUpdate: () => {
+      // The output fed so far ended the update; the engine's mode has the last word
+      if (core.sync.held()) return;
       paint(inner, core);
       inner.emit.updatePainted.fire();
     },

@@ -29,6 +29,8 @@ interface Options {
   throws?: boolean;
   /** Where SyncHold.paintPoint says to paint; -1 by default. */
   paintAt?: number;
+  /** The paint at an update's end throws, as a failing listener would. */
+  paintThrows?: boolean;
 }
 
 /** A pipeline on a recording engine and host: `calls` logs both, in order. */
@@ -94,7 +96,10 @@ function recordingHost(
     },
     unpinView: () => calls.push('unpinView'),
     syncPaintPoint: () => options.paintAt ?? -1,
-    paintUpdate: () => calls.push('paintUpdate'),
+    paintUpdate: () => {
+      calls.push('paintUpdate');
+      if (options.paintThrows) throw new Error('paint');
+    },
     wroteOutput: (data) => calls.push(`wroteOutput ${JSON.stringify(data)}`),
     renderEcho: () => calls.push('renderEcho'),
   };
@@ -204,10 +209,34 @@ describe('WritePipeline order', () => {
     const atEnd = recorded({ paintAt: 3 });
     atEnd.pipeline.write(new TextEncoder().encode('end'));
     expect(writes(atEnd.calls)).toEqual(['engine.write [101,110,100]', 'paintUpdate']);
-    // A pinned write keeps Ghostty's viewport off the view: it paints on a frame
-    const pinned = recorded({ paintAt: 3, viewportY: 2 });
-    pinned.pipeline.write('endnext');
-    expect(writes(pinned.calls)).toEqual(['engine.write "endnext"']);
+    // A pinned write keeps Ghostty's viewport off the view, and a find match moves the view
+    // back only in the find step: both paint on a frame
+    for (const options of [{ viewportY: 2 }, { anchored: true }]) {
+      const whole = recorded({ paintAt: 3, ...options });
+      whole.pipeline.write('endnext');
+      expect(writes(whole.calls)).toEqual(['engine.write "endnext"']);
+    }
+  });
+
+  test('a paint that throws still writes the rest of the output (ADR 067)', () => {
+    const { calls, pipeline } = recorded({ paintAt: 3, paintThrows: true });
+    expect(() => pipeline.write('endnext')).toThrow('paint');
+    expect(calls.filter((c) => c.startsWith('engine.write'))).toEqual([
+      'engine.write "end"',
+      'engine.write "next"',
+    ]);
+  });
+
+  test('a waiting clear goes in at ground across the two halves of a painted write', async () => {
+    const term = (await loadGhostty()).createTerminal(20, 5);
+    const calls: string[] = [];
+    const pipeline = new WritePipeline(recordingHost(calls, () => term, { paintAt: 4 }));
+    pipeline.write('top\r\n\x1b[3');
+    pipeline.clearAtGround();
+    pipeline.write('Cxx\x1b[?2026hbelow');
+    expect(calls).toContain('paintUpdate');
+    expect(term.getScrollbackLength()).toBe(0);
+    term.free();
   });
 
   test('drainReplies sends every queued reply, and nothing without an engine', () => {

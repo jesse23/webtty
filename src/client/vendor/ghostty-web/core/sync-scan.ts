@@ -74,13 +74,15 @@ export function scanSyncBeginBytes(
 /**
  * Where the last synchronized update that ends in `data` ends: the index just past its
  * `CSI ? 2026 l`, in UTF-16 units for a string and bytes for bytes, or -1 if none ends in
- * it. An end split across chunks is not found; the update then paints on the next frame.
+ * it. An end begun in the `carry` the previous chunk left is found where `data` finishes it.
  */
-export function lastSyncEnd(data: string | Uint8Array): number {
-  if (typeof data !== 'string' && !has2026(data)) return -1;
-  const text = typeof data === 'string' ? data : LATIN1.decode(data);
-  if (typeof data === 'string' && !text.includes('2026')) return -1;
+export function lastSyncEnd(data: string | Uint8Array, carry = ''): number {
+  const has = typeof data === 'string' ? data.includes('2026') : has2026(data);
+  if (!has && carry === '') return -1;
+  // Without `2026` in it, the chunk can only finish the carry's end, in its first bytes
+  const part = has ? data : data.slice(0, MAX_CARRY);
+  const text = carry + (typeof part === 'string' ? part : LATIN1.decode(part));
   let end = -1;
   for (const match of text.matchAll(SYNC_END_SEQ)) end = match.index + match[0].length;
-  return end;
+  return end > carry.length ? end - carry.length : -1;
 }

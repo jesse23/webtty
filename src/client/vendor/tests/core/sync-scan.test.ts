@@ -85,6 +85,13 @@ describe('lastSyncEnd', () => {
     expect(lastSyncEnd(new TextEncoder().encode(data))).toBe(end);
   });
 
+  test('an end begun in the carry is found where the chunk finishes it', () => {
+    expect(lastSyncEnd('26lmore', '\x1b[?20')).toBe(3);
+    expect(lastSyncEnd(new TextEncoder().encode('26lmore'), '\x1b[?20')).toBe(3);
+    expect(lastSyncEnd('26hmore', '\x1b[?20')).toBe(-1);
+    expect(lastSyncEnd('more', '')).toBe(-1);
+  });
+
   test('an index in bytes for bytes, past multi-byte characters', () => {
     const data = '─\x1b[?2026l';
     expect(lastSyncEnd(data)).toBe(9);

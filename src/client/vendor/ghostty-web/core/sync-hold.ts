@@ -89,7 +89,7 @@ export class SyncHold {
    * it, while a held frame waits for one; -1 to write it whole and paint on a frame.
    */
   paintPoint(data: string | Uint8Array): number {
-    return this.waiting ? lastSyncEnd(data) : -1;
+    return this.waiting ? lastSyncEnd(data, this.carry) : -1;
   }
 
   /** Forgets the update and any unfinished sequence: the engine was replaced. */
