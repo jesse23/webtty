@@ -10,6 +10,7 @@ import {
   mouseHost,
   renderLoopHost,
   scrollbarHost,
+  syncHoldHost,
   TerminalControllers,
   wheelHost,
   writeHost,
@@ -38,10 +39,10 @@ function controllers(options: { disableStdin?: boolean } = {}) {
   };
   const emit = new TerminalEmitters();
   emit.data.event((data) => void log.push(`data ${JSON.stringify(data)}`));
-  // The input route reaches the selection, the render loop the engine's replies
+  // The input route reaches the selection, the render loop the engine's replies and modes
   const parts = {
     selection: { clearSelection: () => void log.push('clear selection') },
-    engine: { hasResponse: () => false },
+    engine: { hasResponse: () => false, getMode: () => false },
   };
   const core = new TerminalControllers(
     term,
@@ -152,11 +153,17 @@ describe('TerminalControllers wiring', () => {
  */
 function world() {
   const log: string[] = [];
+  /** Whether the engine reports the app's synchronized update (mode 2026) on. */
+  const sync = { on: false };
   const parts = {
     element: { id: 'element' },
     textarea: { id: 'textarea' },
     canvas: { id: 'canvas' },
-    engine: { hasResponse: () => true },
+    engine: {
+      hasResponse: () => true,
+      getMode: (mode: number) => mode === 2026 && sync.on,
+      setMode: (mode: number, on: boolean) => void log.push(`mode ${mode} ${on}`),
+    },
     renderer: {
       scrollOffset: 7,
       setSearchHighlights: () => void log.push('highlight'),
@@ -195,9 +202,10 @@ function world() {
   spyOn(core.focus, 'followMode').mockImplementation(() => void log.push('follow focus mode'));
   spyOn(core.finder, 'step').mockImplementation((now) => void log.push(`find step ${now}`));
   spyOn(core.writes, 'drainReplies').mockImplementation(() => void log.push('drain'));
+  spyOn(core.sync, 'wrote').mockImplementation((data) => void log.push(`wrote ${data}`));
   spyOn(core.scrollbar, 'drag').mockImplementation(() => true);
   spyOn(core.mouse, 'encode').mockImplementation(() => 'report');
-  return { log, parts, term, inner, core };
+  return { log, parts, term, inner, core, sync };
 }
 
 // Each host member is one forwarding call to the terminal, its parts, its emitters or
@@ -232,7 +240,7 @@ describe('TerminalControllers hosts', () => {
   });
 
   test('write: the engine, the emitters, the link cache, the view and the controllers', () => {
-    const { log, parts, term, inner, core } = world();
+    const { log, parts, term, inner, core, sync } = world();
     const host = writeHost(term, inner, core);
     expect<unknown[]>([
       host.engine(),
@@ -248,6 +256,10 @@ describe('TerminalControllers hosts', () => {
     host.notify({ title: 'n', body: '' });
     host.outputChanged();
     host.scrollToBottom();
+    host.wroteOutput('o');
+    host.renderEcho();
+    // Inside the app's synchronized update the echo waits for the frame after it (ADR 067)
+    sync.on = true;
     host.renderEcho();
     expect(log).toEqual([
       'data r',
@@ -258,14 +270,32 @@ describe('TerminalControllers hosts', () => {
       'notify n',
       'links stale',
       'scroll to bottom',
+      'wrote o',
       'render false undefined',
     ]);
   });
 
+  test("sync hold: the engine's mode 2026, read and turned off", () => {
+    const { log, inner, sync } = world();
+    const host = syncHoldHost(inner);
+    expect(host.active()).toBe(false);
+    sync.on = true;
+    expect(host.active()).toBe(true);
+    host.end();
+    expect(log).toEqual(['mode 2026 false']);
+  });
+
   test("render loop: each of a frame's steps", () => {
-    const { log, inner, core } = world();
+    const { log, inner, core, sync } = world();
     const host = renderLoopHost(inner, core);
-    expect<unknown[]>([host.live(), host.hasReplies()]).toEqual([true, true]);
+    expect<unknown[]>([host.live(), host.hasReplies(), host.renderHeld(0)]).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    sync.on = true;
+    expect(host.renderHeld(1)).toBe(true);
+    sync.on = false;
     host.beforeRender(1);
     host.stepFind(2);
     host.render();

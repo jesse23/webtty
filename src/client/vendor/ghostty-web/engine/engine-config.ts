@@ -146,11 +146,6 @@ export class EngineConfig {
    */
   private syncBlink(): void {
     if (this.ctx.getMode(MODE_CURSOR_BLINK) === this.blink) return;
-    const { at, L } = this.ctx;
-    const M = L.mode;
-    const dv = this.ctx.dv();
-    dv.setUint16(at.mode + M.mode, MODE_CURSOR_BLINK, true);
-    dv.setUint8(at.mode + M.value, this.blink ? 1 : 0);
-    this.ctx.setOption(L.opt.MODE, at.mode, 'MODE 12');
+    this.ctx.setMode(MODE_CURSOR_BLINK, this.blink);
   }
 }

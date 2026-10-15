@@ -1,6 +1,6 @@
 # SPEC: Client
 
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-15
 
 ---
 
@@ -393,3 +393,4 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Configurable padding | Top-level `padding` (px, default `0`) reserves space around the canvas on all sides; the grid is fitted to what remains; the top and left gap is exactly `padding` and the leftover goes to the right and bottom; optional `theme.padding` colours the space `padding` adds (default: `theme.background`) but not the leftover | [ADR 034](../adrs/034.client.padding-config.md) | ✅ |
 | Edge extension | The leftover strip at the right and bottom takes the edge cells' own background, by repainting the canvas' last pixel row and column across it; always on, no setting | [ADR 035](../adrs/035.client.edge-extend.md) | ✅ |
 | Theme key mapping | The config's `purple`, `brightPurple` and `selection` are translated to the terminal's `magenta`, `brightMagenta` and `selectionBackground`, which were previously ignored; `selectionForeground` is new and defaults to `background` when `selection` is set | [ADR 036](../adrs/036.client.theme-key-mapping.md) | ✅ |
+| Synchronized output | While the app sends a synchronized update (DEC mode 2026), the terminal, the echo of typed input and the kitty overlay do not paint, so an app that redraws the whole screen across several WebSocket messages is never shown half drawn. As in Ghostty, every `CSI ? 2026 h` restarts a one-second timer, and when it runs out the mode is turned off, so an app that never ends an update cannot freeze the view | [ADR 067](../adrs/067.client.synchronized-output.md) | ✅ |

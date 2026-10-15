@@ -1,8 +1,9 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // The write pipeline (controller): a write in its fixed order, a waiting clear at ground,
-// the engine write, the replies, the focus-mode edge, the effects, the link cache, the
-// auto-scroll and the echo render, plus clear screen and the reply drain (ADR 042, ADR 053,
-// ADR 054, ADR 055, ADR 061); dispose() cancels the write callbacks still waiting (ADR 065).
+// the engine write, the synchronized update's timing, the replies, the focus-mode edge, the
+// effects, the link cache, the auto-scroll and the echo render, plus clear screen and the
+// reply drain (ADR 042, ADR 053, ADR 054, ADR 055, ADR 061, ADR 067); dispose() cancels the
+// write callbacks still waiting (ADR 065).
 
 import type { FrameScheduler, WriteHost } from './host-types';
 import { browserFrames } from './render-loop';
@@ -29,19 +30,10 @@ export class WritePipeline {
   write(data: string | Uint8Array, callback?: () => void): void {
     const host = this.host;
     const engine = host.engine()!;
-    // A waiting clear goes in where the output reaches ground (webtty, ADR 054)
-    if (this.pendingClear) {
-      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-      const n = engine.writeUntilGround(bytes);
-      if (n !== null) {
-        this.pendingClear = false;
-        this.writeClear();
-      }
-      data = bytes.subarray(n ?? bytes.length);
-    }
+    this.feed(data);
 
-    // The engine parses the VT stream
-    engine.write(data);
+    // A begin of the app's synchronized update restarts its time (webtty, ADR 067)
+    host.wroteOutput(data);
 
     // Replies the output asked for (DSR and the like) go back to the PTY
     this.drainReplies();
@@ -114,6 +106,22 @@ export class WritePipeline {
   dispose(): void {
     for (const id of this.callbackFrames) this.frames.cancelAnimationFrame(id);
     this.callbackFrames.clear();
+  }
+
+  /** The engine parses the VT stream, a waiting clear going in where it reaches ground. */
+  private feed(data: string | Uint8Array): void {
+    const engine = this.host.engine()!;
+    // A waiting clear goes in where the output reaches ground (webtty, ADR 054)
+    if (this.pendingClear) {
+      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+      const n = engine.writeUntilGround(bytes);
+      if (n !== null) {
+        this.pendingClear = false;
+        this.writeClear();
+      }
+      data = bytes.subarray(n ?? bytes.length);
+    }
+    engine.write(data);
   }
 
   /** Runs a write's callback on the next frame, remembered until then so dispose() can cancel it. */

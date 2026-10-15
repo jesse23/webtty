@@ -174,6 +174,8 @@ export interface GhosttyTerminal {
   isAlternateScreen(): boolean;
   hasMouseTracking(): boolean;
   getMode(mode: number, isAnsi?: boolean): boolean;
+  /** Sets a DEC private mode, as the app's `CSI ? Pm h` / `l` would. (ADR 067) */
+  setMode(mode: number, on: boolean): void;
   /**
    * Whether the cursor is at a shell prompt or its input, from OSC 133 marks; false
    * without them and on the alternate screen. (ADR 054)

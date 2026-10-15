@@ -1,7 +1,8 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // Terminal's controllers, made and wired in one place (composition): focus, find, writes,
-// the render loop, the viewport, the scrollbar, the mouse and the wheel, each reaching the
-// terminal and the others only through the hosts given here (ADR 061).
+// the render loop, the synchronized-update hold, the viewport, the scrollbar, the mouse and
+// the wheel, each reaching the terminal and the others only through the hosts given here
+// (ADR 061, ADR 067).
 
 import type { ListenerTarget } from '../lifecycle/disposable-store';
 import type { RightClickBehavior } from '../mouse-route';
@@ -14,6 +15,7 @@ import type {
   MouseHost,
   RenderLoopHost,
   ScrollbarHost,
+  SyncHoldHost,
   TimeoutScheduler,
   WheelHost,
   WriteHost,
@@ -25,6 +27,7 @@ import { ScrollbarController } from './scrollbar-controller';
 import type { TerminalEmitters } from './terminal-emitters';
 import { Viewport } from './viewport';
 import { WheelController } from './wheel-controller';
+import { SYNCHRONIZED_OUTPUT_MODE, SyncHold } from './sync-hold';
 import { WritePipeline } from './write-pipeline';
 
 /** What the controllers read of Terminal's public surface, each read made when needed. */
@@ -86,12 +89,15 @@ export class TerminalControllers {
   readonly mouse: MouseController;
   /** Wheel events to the embedder, or to the app as ticks or arrows (ADR 045, ADR 049). */
   readonly wheel: WheelController;
+  /** Painting held while the app sends a synchronized update (mode 2026, ADR 067). */
+  readonly sync: SyncHold;
 
   constructor(
     private readonly term: ControllersHost,
     private readonly inner: ControllersInternalsHost,
     clock?: ControllersClock,
   ) {
+    this.sync = new SyncHold(syncHoldHost(inner), clock?.now);
     this.focus = new FocusTracker(focusHost(term, inner), clock);
     this.finder = new FindController(findHost(term, inner), clock?.now);
     this.writes = new WritePipeline(writeHost(term, inner, this), clock);
@@ -121,6 +127,18 @@ export class TerminalControllers {
     }
     this.writes.awaitEcho();
     this.inner.emit.data.fire(data);
+  }
+
+  /** Terminal.reset() replaced the engine: what the controllers knew of the old one goes. */
+  engineReplaced(): void {
+    // The new engine starts with mode 1004 off (webtty, ADR 053)
+    this.focus.reset();
+    // A clear waiting for the old engine's output is not for the new one (webtty, ADR 054)
+    this.writes.reset();
+    // Nor is its synchronized update (webtty, ADR 067)
+    this.sync.reset();
+    // A search goes on in the new engine (webtty, ADR 055)
+    this.finder.restart();
   }
 
   /**
@@ -201,7 +219,19 @@ export function writeHost(term: ControllersHost, inner: Inner, core: TerminalCon
     viewportY: () => term.viewportY,
     findAnchored: () => core.finder.anchored,
     scrollToBottom: () => term.scrollToBottom(),
-    renderEcho: () => inner.render(false),
+    wroteOutput: (data) => core.sync.wrote(data),
+    // Not inside a synchronized update: the frame after it ends paints (ADR 067)
+    renderEcho: () => {
+      if (!core.sync.held()) inner.render(false);
+    },
+  };
+}
+
+/** The synchronized-update hold's view of the engine's mode 2026 (ADR 067). */
+export function syncHoldHost(inner: Inner): SyncHoldHost {
+  return {
+    active: () => inner.parts()?.engine.getMode(SYNCHRONIZED_OUTPUT_MODE) ?? false,
+    end: () => inner.parts()?.engine.setMode(SYNCHRONIZED_OUTPUT_MODE, false),
   };
 }
 
@@ -211,6 +241,7 @@ export function renderLoopHost(inner: Inner, core: TerminalControllers): RenderL
     live: () => inner.live(),
     beforeRender: (now) => inner.beforeRender(now),
     stepFind: (now) => core.finder.step(now),
+    renderHeld: (now) => core.sync.held(now),
     render: () => inner.render(false),
     hasReplies: () => inner.parts()?.engine.hasResponse() ?? false,
     drainReplies: () => core.writes.drainReplies(),

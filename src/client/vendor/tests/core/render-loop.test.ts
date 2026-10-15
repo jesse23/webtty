@@ -10,11 +10,12 @@ import { RenderLoop } from '../../ghostty-web/core/render-loop';
 function loop(start = 100) {
   const clock = new ManualClock(start);
   const calls: string[] = [];
-  const state = { live: true, replies: false };
+  const state = { live: true, replies: false, held: false };
   const host: RenderLoopHost = {
     live: () => state.live,
     beforeRender: (now) => calls.push(`beforeRender ${now}`),
     stepFind: (now) => calls.push(`stepFind ${now}`),
+    renderHeld: () => state.held,
     render: () => calls.push('render'),
     hasReplies: () => state.replies,
     drainReplies: () => calls.push('drainReplies'),
@@ -52,6 +53,17 @@ describe('RenderLoop', () => {
       'drainReplies',
       'anchorTextarea',
     ]);
+  });
+
+  test("a frame inside the app's synchronized update skips only the render (ADR 067)", () => {
+    const { calls, clock, state, renderLoop } = loop(0);
+    renderLoop.start();
+    calls.length = 0;
+    state.held = true;
+    state.replies = true;
+    clock.frame(16);
+    expect(calls).toEqual(['beforeRender 16', 'stepFind 16', 'drainReplies', 'anchorTextarea']);
+    expect(clock.pending.frames).toBe(1);
   });
 
   test('start while running does nothing', () => {

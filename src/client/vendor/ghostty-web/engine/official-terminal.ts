@@ -325,6 +325,10 @@ export class OfficialTerminal implements GhosttyTerminal {
     return this.ctx.getMode(mode, isAnsi);
   }
 
+  setMode(mode: number, on: boolean): void {
+    this.ctx.setMode(mode, on);
+  }
+
   /** A one-byte bool terminal data item; false if Ghostty refuses the read. */
   private getFlag(data: number): boolean {
     const at = this.ctx.at;

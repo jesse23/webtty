@@ -1,7 +1,8 @@
 // Derived from coder/ghostty-web lib/terminal.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
 // The render loop (controller): one animation frame after another while the terminal is
 // open, each running beforeRender, a find step, the render, the replies that arose outside
-// a write and the textarea anchoring, in that order (ADR 042, ADR 045, ADR 055, ADR 061).
+// a write and the textarea anchoring, in that order (ADR 042, ADR 045, ADR 055, ADR 061,
+// ADR 067).
 
 import type { FrameScheduler, RenderLoopHost } from './host-types';
 
@@ -53,8 +54,9 @@ export class RenderLoop {
     host.beforeRender(now ?? this.now());
     host.stepFind(now ?? this.now());
     // Render with the engine's dirty tracking: it updates the render state once,
-    // redraws only dirty rows and clears the dirty flags at the end
-    host.render();
+    // redraws only dirty rows and clears the dirty flags at the end. Not while the app
+    // sends a synchronized update: the screen would show it half drawn (webtty, ADR 067)
+    if (!host.renderHeld(now ?? this.now())) host.render();
     // Replies that arose outside write() reach the PTY within a frame (webtty, ADR 042)
     if (host.hasReplies()) host.drainReplies();
     // Keep the input textarea on the cursor cell (webtty)

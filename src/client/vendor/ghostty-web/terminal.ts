@@ -161,6 +161,11 @@ export class Terminal implements ITerminalCore {
     return this.parts?.renderer;
   }
 
+  /** Whether painting at `now` waits for the app's synchronized update (mode 2026, ADR 067). */
+  renderHeld(now: number): boolean {
+    return this.core.sync.held(now);
+  }
+
   /**
    * Lines scrolled back from the bottom of the scrollback (0 = at the bottom); fractional
    * while smooth scrolling. Setting it moves the view without firing onScroll.
@@ -395,7 +400,7 @@ export class Terminal implements ITerminalCore {
     return this.renderer ? cellDevicePixels(this.renderer.getMetrics()) : null;
   }
 
-  /** Starts over on a new engine: the title, focus reports and a waiting clear reset. */
+  /** Starts over on a new engine: the title and the controllers' engine state reset. */
   reset(): void {
     const parts = this.openParts();
     parts.engine.free();
@@ -403,12 +408,7 @@ export class Terminal implements ITerminalCore {
     this.syncCellPixelSize();
     parts.renderer.clear();
     this.currentTitle = '';
-    // The new engine starts with mode 1004 off (webtty, ADR 053)
-    this.core.focus.reset();
-    // A clear waiting for the old engine's output is not for the new one (webtty, ADR 054)
-    this.core.writes.reset();
-    // A search goes on in the new engine (webtty, ADR 055)
-    this.core.finder.restart();
+    this.core.engineReplaced();
   }
 
   /**

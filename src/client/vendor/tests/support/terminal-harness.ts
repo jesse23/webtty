@@ -1,6 +1,6 @@
 // A whole vendored Terminal opened on fakes (test support, ADR 064): the fake document,
 // window and container of the listener snapshot, the real wasm engine and a manual clock
-// for frames and timeouts, so a test drives the terminal through its public API only. The
+// for frames, timeouts and performance.now(), so a test drives the terminal through its public API only. The
 // vendored code reads globals; they are swapped in by openTerminal and put back by close().
 
 import { ManualClock } from '../../../test-support/manual-clock';
@@ -29,7 +29,13 @@ export interface TerminalHarness {
   close(): void;
 }
 
-const GLOBALS = ['document', 'window', 'requestAnimationFrame', 'cancelAnimationFrame'] as const;
+const GLOBALS = [
+  'document',
+  'window',
+  'requestAnimationFrame',
+  'cancelAnimationFrame',
+  'performance',
+] as const;
 
 /** The fakes in the vendored code's globals, and the call that puts the real ones back. */
 export interface StubbedGlobals {
@@ -42,8 +48,8 @@ export interface StubbedGlobals {
 }
 
 /**
- * Puts a fake document and window, and the clock's animation frames, in the globals the
- * vendored code reads; the window's timeouts run on the clock too.
+ * Puts a fake document and window, and the clock's animation frames and time, in the
+ * globals the vendored code reads; the window's timeouts run on the clock too.
  */
 export function stubGlobals(): StubbedGlobals {
   const g = globalThis as Record<string, unknown>;
@@ -58,6 +64,8 @@ export function stubGlobals(): StubbedGlobals {
   g.window = win;
   g.requestAnimationFrame = clock.requestAnimationFrame;
   g.cancelAnimationFrame = clock.cancelAnimationFrame;
+  // Writes are timed on performance.now(), frames on their timestamps: one clock for both
+  g.performance = { now: () => clock.now() };
   return {
     doc,
     win,

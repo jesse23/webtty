@@ -147,8 +147,21 @@ export interface WriteHost {
   /** Whether the view is kept on a selected find match (FindController.anchored). */
   findAnchored(): boolean;
   scrollToBottom(): void;
-  /** Renders now, if the terminal is open, so typed input's echo shows without a frame's wait. */
+  /** The output just written, which may begin a synchronized update (SyncHold.wrote). */
+  wroteOutput(data: string | Uint8Array): void;
+  /**
+   * Renders now, if the terminal is open and no synchronized update holds painting, so
+   * typed input's echo shows without a frame's wait.
+   */
   renderEcho(): void;
+}
+
+/** What the SyncHold reads and changes of the engine's mode 2026; nothing before open(). */
+export interface SyncHoldHost {
+  /** Whether mode 2026 is on. */
+  active(): boolean;
+  /** Turns mode 2026 off, as Ghostty does when an update runs past its time. */
+  end(): void;
 }
 
 /** The steps of one render-loop frame, called in the order the RenderLoop fixes. */
@@ -158,6 +171,8 @@ export interface RenderLoopHost {
   /** The embedder's callback (attachBeforeRender), so an animation shows in this frame. */
   beforeRender(now: number): void;
   stepFind(now: number): void;
+  /** Whether this frame's paint waits for the app's synchronized update to end (SyncHold). */
+  renderHeld(now: number): boolean;
   render(): void;
   /** Whether replies arose outside a write (a timer, a mode change) and wait for the PTY. */
   hasReplies(): boolean;

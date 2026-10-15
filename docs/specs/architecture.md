@@ -1,6 +1,6 @@
 # SPEC: Architecture
 
-**Last Updated:** 2026-10-14 (the tree reconciled with the code after the refactor: the ratchet allowlist empty, the coverage targets enforced)
+**Last Updated:** 2026-10-15 (`core/sync-hold.ts` and `core/sync-scan.ts`, ADR 067)
 
 ---
 
@@ -212,6 +212,7 @@ ghostty-web/
     host-types.ts  terminal-constants.ts  terminal-geometry.ts  options-proxy.ts  option-changes.ts
     dom-setup.ts  opened-parts.ts (OpenedParts, disposeParts)  terminal-emitters.ts
     viewport.ts  focus-tracker.ts  find-controller.ts  write-pipeline.ts  render-loop.ts
+    sync-hold.ts (painting held during an app's synchronized update)  sync-scan.ts
     mouse-controller.ts  wheel-controller.ts  scrollbar-controller.ts
     terminal-controllers.ts (the controllers above made and wired in one place, the input route)
   render/               renderable.ts  default-theme.ts  device-pixel-ratio.ts  frame-lines.ts  cell-range.ts  row-band.ts

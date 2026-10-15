@@ -1,6 +1,7 @@
 // The canvas kitty images are drawn on, laid over the terminal's own (view, ADR 032): it
 // repaints on the frame after anything changed, follows the terminal's scroll, size and
-// pixel ratio, and frees its backing store while there is nothing to draw.
+// pixel ratio, holds while the app sends a synchronized update (ADR 067), and frees its
+// backing store while there is nothing to draw.
 
 import { TERMINAL_CANVAS_UNDER_OVERLAY, terminalCanvas } from '../../../layout/terminal-canvas';
 import { DisposableStore, listen, toDisposable } from '../../../vendor/ghostty-web';
@@ -80,9 +81,12 @@ export class OverlayCanvas {
     this.store.dispose();
   }
 
-  private readonly tick = (): void => {
+  private readonly tick = (now: number): void => {
     this.frame = this.deps.window.requestAnimationFrame(this.tick);
     if (this.source.placements.size === 0 && !this.canvas.width) return;
+    // An app that redraws its images deletes every placement and places them again in
+    // one synchronized update; painting in between would blink them (ADR 067).
+    if (this.term.renderHeld?.(now)) return;
     const canvas = terminalCanvas(this.container, TERMINAL_CANVAS_UNDER_OVERLAY);
     if (!canvas) return;
     const cell = cellSize(this.term);

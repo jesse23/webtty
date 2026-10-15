@@ -1,7 +1,7 @@
-// webtty (ADR 042, ADR 061), not from upstream.
+// webtty (ADR 042, ADR 061, ADR 067), not from upstream.
 // The state one terminal's bindings share (object): the wasm exports and layout, the
 // terminal handle, the scratch slots, the grid and cell pixel size, the content generation,
-// the terminal info read once per generation, and the mode reads. Memory views are built
+// the terminal info read once per generation, and the mode reads and sets. Memory views are built
 // per call, never stored.
 
 import type { EngineHost } from './engine-types';
@@ -123,6 +123,16 @@ export class EngineContext<K extends string = never> {
   setOption(option: number, value: number, what: string): void {
     const rc = this.ex.ghostty_terminal_set(this.term, option, value);
     if (rc !== 0) throw new Error(`libghostty-vt terminal_set ${what} failed: ${rc}`);
+  }
+
+  /** Sets a DEC private mode as the app would (`GHOSTTY_TERMINAL_OPT_MODE`). */
+  setMode(mode: number, on: boolean): void {
+    const at = this.at;
+    const M = this.L.mode;
+    const dv = this.dv();
+    dv.setUint16(at.mode + M.mode, mode & 0x7fff, true);
+    dv.setUint8(at.mode + M.value, on ? 1 : 0);
+    this.setOption(this.L.opt.MODE, at.mode, `MODE ${mode}`);
   }
 
   /** Whether a DEC private (or, with `isAnsi`, an ANSI) mode is set. */

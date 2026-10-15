@@ -83,12 +83,13 @@ function recordingHost(
     viewportY: () => options.viewportY ?? 0,
     findAnchored: () => options.anchored ?? false,
     scrollToBottom: () => calls.push('scrollToBottom'),
+    wroteOutput: (data) => calls.push(`wroteOutput ${JSON.stringify(data)}`),
     renderEcho: () => calls.push('renderEcho'),
   };
 }
 
 describe('WritePipeline order', () => {
-  test('write, replies, focus edge, effects, link cache, auto-scroll, callback, echo', () => {
+  test('write, sync timing, replies, focus edge, effects, link cache, auto-scroll, callback, echo', () => {
     const { calls, clock, pipeline } = recorded({
       effects: {
         bell: true,
@@ -107,6 +108,7 @@ describe('WritePipeline order', () => {
     pipeline.write('x', () => called++);
     expect(calls).toEqual([
       'engine.write "x"',
+      'wroteOutput "x"',
       'reply \x1b[1;1R',
       'send "\\u001b[1;1R"',
       'reply \x1b[0n',
@@ -131,7 +133,13 @@ describe('WritePipeline order', () => {
   test('without effects, at the bottom and with no input sent, only the fixed steps run', () => {
     const { calls, clock, pipeline } = recorded();
     pipeline.write('x');
-    expect(calls).toEqual(['engine.write "x"', 'followFocusMode', 'readEffects', 'outputChanged']);
+    expect(calls).toEqual([
+      'engine.write "x"',
+      'wroteOutput "x"',
+      'followFocusMode',
+      'readEffects',
+      'outputChanged',
+    ]);
     expect(clock.pending.frames).toBe(0);
   });
 
@@ -156,6 +164,19 @@ describe('WritePipeline order', () => {
       expect(calls.includes('scrollToBottom')).toBe(scrolls);
     },
   );
+
+  test('the sync hold sees all the output, the part a waiting clear came after too (ADR 067)', async () => {
+    const term = (await loadGhostty()).createTerminal(20, 5);
+    const calls: string[] = [];
+    const pipeline = new WritePipeline(recordingHost(calls, () => term, {}));
+    pipeline.write('\x1b[3');
+    pipeline.clearAtGround();
+    pipeline.write('C\x1b[?2026h');
+    expect(calls.filter((c) => c.startsWith('wroteOutput')).at(-1)).toBe(
+      'wroteOutput "C\\u001b[?2026h"',
+    );
+    term.free();
+  });
 
   test('drainReplies sends every queued reply, and nothing without an engine', () => {
     const { calls, pipeline } = recorded({ replies: ['a', 'b'] });

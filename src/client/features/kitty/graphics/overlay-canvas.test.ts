@@ -31,11 +31,16 @@ function setup(withTerminalCanvas = true) {
     }
     container.append(canvas);
   }
+  const sync = { held: false, at: [] as number[] };
   const term = {
     write: () => {},
     buffer: { active: { cursorX: 0, cursorY: 0 } },
     viewportY: 0,
     renderer: { getMetrics: () => ({ width: 10, height: 20 }), scrollOffset: 0 },
+    renderHeld: (now: number) => {
+      sync.at.push(now);
+      return sync.held;
+    },
   } satisfies KittyTerminal;
   const placements = new Placements();
   const bitmaps = new Map<number, ImageBitmap>();
@@ -71,6 +76,7 @@ function setup(withTerminalCanvas = true) {
     placements.add(placementAt({}, imageId, { absRow, col }, { x: 2, y: 2 }));
   return {
     term,
+    sync,
     container,
     placements,
     bitmaps,
@@ -141,6 +147,23 @@ describe('OverlayCanvas', () => {
     s.clock.frame();
     expect(s.repaints()).toBe(4);
     expect(s.canvas.width).toBe(800);
+  });
+
+  test("holds its repaints while the app's synchronized update runs, then catches up (ADR 067)", () => {
+    const s = setup();
+    s.bitmaps.set(1, fakeBitmap(4, 4));
+    s.place(1);
+    s.sync.held = true;
+    s.clock.frame();
+    s.overlay.markDirty();
+    s.clock.frame();
+    expect(s.repaints()).toBe(0);
+    // Each frame asks with its own timestamp.
+    expect(s.sync.at).toHaveLength(2);
+    expect(s.sync.at[1]).toBeGreaterThan(s.sync.at[0]);
+    s.sync.held = false;
+    s.clock.frame();
+    expect([s.repaints(), s.draws.length]).toEqual([1, 1]);
   });
 
   test('a tab coming back to the foreground repaints; hiding it does not', () => {
