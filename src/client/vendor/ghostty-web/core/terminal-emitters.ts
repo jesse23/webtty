@@ -16,6 +16,7 @@ export class TerminalEmitters {
   readonly clipboardWrite = new EventEmitter<string>();
   readonly desktopNotification = new EventEmitter<DesktopNotification>();
   readonly findChange = new EventEmitter<SearchState>();
+  readonly updatePainted = new EventEmitter<void>();
 
   /** Drops every listener of every emitter. */
   dispose(): void {
@@ -28,5 +29,6 @@ export class TerminalEmitters {
     this.clipboardWrite.dispose();
     this.desktopNotification.dispose();
     this.findChange.dispose();
+    this.updatePainted.dispose();
   }
 }

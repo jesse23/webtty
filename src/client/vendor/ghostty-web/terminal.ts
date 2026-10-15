@@ -108,6 +108,8 @@ export class Terminal implements ITerminalCore {
     this.emit.desktopNotification.event;
   /** The match count or the selected match changed (webtty, ADR 055) */
   public readonly onFindChange: IEvent<SearchState> = this.emit.findChange.event;
+  /** A synchronized update was painted as it ended, between frames (webtty, ADR 067) */
+  public readonly onUpdatePainted: IEvent<void> = this.emit.updatePainted.event;
 
   // Focus, find, writes, the render loop, the view, the scrollbar, the mouse and the wheel
   private readonly core = new TerminalControllers(this, {

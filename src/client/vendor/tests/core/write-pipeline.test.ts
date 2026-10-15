@@ -27,6 +27,8 @@ interface Options {
   disableStdin?: boolean;
   /** The engine write throws, as on a wasm trap. */
   throws?: boolean;
+  /** Where SyncHold.paintPoint says to paint; -1 by default. */
+  paintAt?: number;
 }
 
 /** A pipeline on a recording engine and host: `calls` logs both, in order. */
@@ -91,6 +93,8 @@ function recordingHost(
       return (options.viewportY ?? 0) > 0;
     },
     unpinView: () => calls.push('unpinView'),
+    syncPaintPoint: () => options.paintAt ?? -1,
+    paintUpdate: () => calls.push('paintUpdate'),
     wroteOutput: (data) => calls.push(`wroteOutput ${JSON.stringify(data)}`),
     renderEcho: () => calls.push('renderEcho'),
   };
@@ -190,6 +194,20 @@ describe('WritePipeline order', () => {
       'wroteOutput "C\\u001b[?2026h"',
     );
     term.free();
+  });
+
+  test('an update a held frame waits for is painted at its end, before the rest is written (ADR 067)', () => {
+    const writes = (c: string[]) => c.filter((x) => /^(engine\.write|paintUpdate)/.test(x));
+    const { calls, pipeline } = recorded({ paintAt: 3 });
+    pipeline.write('endnext');
+    expect(writes(calls)).toEqual(['engine.write "end"', 'paintUpdate', 'engine.write "next"']);
+    const atEnd = recorded({ paintAt: 3 });
+    atEnd.pipeline.write(new TextEncoder().encode('end'));
+    expect(writes(atEnd.calls)).toEqual(['engine.write [101,110,100]', 'paintUpdate']);
+    // A pinned write keeps Ghostty's viewport off the view: it paints on a frame
+    const pinned = recorded({ paintAt: 3, viewportY: 2 });
+    pinned.pipeline.write('endnext');
+    expect(writes(pinned.calls)).toEqual(['engine.write "endnext"']);
   });
 
   test('drainReplies sends every queued reply, and nothing without an engine', () => {

@@ -1,8 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { scanSyncBegin, scanSyncBeginBytes } from '../../ghostty-web/core/sync-scan';
+import { lastSyncEnd, scanSyncBegin, scanSyncBeginBytes } from '../../ghostty-web/core/sync-scan';
 
 // The synchronized-update scanner (ADR 067): which mode sets begin an update, a begin
-// split across output chunks, and the byte scan agreeing with the string scan.
+// split across output chunks, the byte scan agreeing with the string scan, and where the
+// last update in a chunk ends.
 
 describe('scanSyncBegin', () => {
   test.each([
@@ -65,5 +66,28 @@ describe('scanSyncBeginBytes', () => {
         expect(bytes).toEqual(text);
       }
     }
+  });
+});
+
+describe('lastSyncEnd', () => {
+  test.each([
+    ['a\x1b[?2026lb', 9],
+    ['\x1b[?2026h1\x1b[?2026l\x1b[?2026h2\x1b[?2026l', 34],
+    ['\x1b[?2026h1\x1b[?2026l\x1b[?2026h2', 17],
+    ['\x1b[?25;2026l', 11],
+    // A begin, other modes and lookalikes end nothing
+    ['\x1b[?2026h', -1],
+    ['\x1b[?12026l', -1],
+    ['2026l', -1],
+    ['plain output', -1],
+  ])('%j ends its last update at %p', (data, end) => {
+    expect(lastSyncEnd(data)).toBe(end);
+    expect(lastSyncEnd(new TextEncoder().encode(data))).toBe(end);
+  });
+
+  test('an index in bytes for bytes, past multi-byte characters', () => {
+    const data = '─\x1b[?2026l';
+    expect(lastSyncEnd(data)).toBe(9);
+    expect(lastSyncEnd(new TextEncoder().encode(data))).toBe(11);
   });
 });

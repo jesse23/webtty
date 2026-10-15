@@ -227,12 +227,23 @@ export function writeHost(term: ControllersHost, inner: Inner, core: TerminalCon
       const engine = inner.parts()?.engine;
       if (engine) core.viewport.unpin(engine);
     },
+    syncPaintPoint: (data) => core.sync.paintPoint(data),
+    paintUpdate: () => {
+      paint(inner, core);
+      inner.emit.updatePainted.fire();
+    },
     wroteOutput: (data) => core.sync.wrote(data),
     // Not inside a synchronized update: the frame after it ends paints (ADR 067)
     renderEcho: () => {
-      if (!core.sync.held()) inner.render(false);
+      if (!core.sync.held()) paint(inner, core);
     },
   };
+}
+
+/** Renders what changed, which ends any wait for an update's end (SyncHold.painted). */
+function paint(inner: Inner, core: TerminalControllers): void {
+  inner.render(false);
+  core.sync.painted();
 }
 
 /** The synchronized-update hold's view of the engine's mode 2026 (ADR 067). */
@@ -251,9 +262,11 @@ export function renderLoopHost(inner: Inner, core: TerminalControllers): RenderL
     stepFind: (now) => core.finder.step(now),
     renderHeld: (now) => {
       core.sync.expire(now);
-      return core.sync.held(now);
+      const held = core.sync.held(now);
+      if (held) core.sync.frameHeld();
+      return held;
     },
-    render: () => inner.render(false),
+    render: () => paint(inner, core),
     hasReplies: () => inner.parts()?.engine.hasResponse() ?? false,
     drainReplies: () => core.writes.drainReplies(),
     anchorTextarea: () => inner.anchorTextarea(),

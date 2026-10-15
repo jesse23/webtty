@@ -6,10 +6,13 @@
 // keeps those half-drawn frames off the screen. The policy is Ghostty's (termio/Thread.zig
 // `sync_reset_ms`, Termio.zig `resetSynchronizedOutput`): every begin restarts a 1 s
 // timer, and when it runs out the mode is turned off, so an app that never ends an update
-// cannot freeze the view, and DECRQM, the echo and the next update all see it off.
+// cannot freeze the view, and DECRQM, the echo and the next update all see it off. And, as
+// Ghostty's renderer wakes when an update ends, an update that ends after a held frame is
+// painted at its end, before the next one begins: an app that sends updates back to back
+// would otherwise be caught inside one on every frame.
 
 import type { SyncHoldHost } from './host-types';
-import { scanSyncBegin, scanSyncBeginBytes } from './sync-scan';
+import { lastSyncEnd, scanSyncBegin, scanSyncBeginBytes } from './sync-scan';
 
 /** Synchronized output: the app brackets an update with `CSI ? 2026 h` and `CSI ? 2026 l`. */
 export const SYNCHRONIZED_OUTPUT_MODE = 2026;
@@ -23,6 +26,8 @@ export class SyncHold {
   private since: number | null = null;
   /** The unfinished mode sequence the last write ended in. */
   private carry = '';
+  /** A frame was held since the last paint: the next update to end paints at its end. */
+  private waiting = false;
 
   /** `now` is the clock a write is timed on; a frame passes its own timestamp. */
   constructor(
@@ -69,9 +74,28 @@ export class SyncHold {
     return this.host.active() && (this.since === null || now - this.since < SYNC_HOLD_MAX_MS);
   }
 
+  /** The render loop held a frame's paint. */
+  frameHeld(): void {
+    this.waiting = true;
+  }
+
+  /** The terminal painted: nothing waits for an update's end. */
+  painted(): void {
+    this.waiting = false;
+  }
+
+  /**
+   * Where to paint in output about to be written: just past the last update that ends in
+   * it, while a held frame waits for one; -1 to write it whole and paint on a frame.
+   */
+  paintPoint(data: string | Uint8Array): number {
+    return this.waiting ? lastSyncEnd(data) : -1;
+  }
+
   /** Forgets the update and any unfinished sequence: the engine was replaced. */
   reset(): void {
     this.since = null;
     this.carry = '';
+    this.waiting = false;
   }
 }

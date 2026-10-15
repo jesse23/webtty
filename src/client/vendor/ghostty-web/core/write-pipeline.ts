@@ -39,7 +39,9 @@ export class WritePipeline {
     // selected find match is kept by the find step instead (ADR 055).
     const pinned = !host.findAnchored() && !engine.isAlternateScreen() && host.pinView();
     try {
-      this.feed(data);
+      // A pinned write keeps Ghostty's viewport away from the view, so it paints on a frame
+      if (pinned) this.feed(data);
+      else this.feedPainting(data);
     } finally {
       if (pinned) host.unpinView();
     }
@@ -116,6 +118,24 @@ export class WritePipeline {
   dispose(): void {
     for (const id of this.callbackFrames) this.frames.cancelAnimationFrame(id);
     this.callbackFrames.clear();
+  }
+
+  /**
+   * Feeds output, painting where the synchronized update a held frame waits for ends,
+   * before the rest of the output begins the next one, as Ghostty's renderer wakes when an
+   * update ends (webtty, ADR 067).
+   */
+  private feedPainting(data: string | Uint8Array): void {
+    const at = this.host.syncPaintPoint(data);
+    if (at < 0) {
+      this.feed(data);
+      return;
+    }
+    const split = (from: number, to?: number) =>
+      typeof data === 'string' ? data.slice(from, to) : data.subarray(from, to);
+    this.feed(split(0, at));
+    this.host.paintUpdate();
+    if (at < data.length) this.feed(split(at));
   }
 
   /** The engine parses the VT stream, a waiting clear going in where it reaches ground. */

@@ -17,6 +17,8 @@ export interface KittyTerminal {
   readonly wasmTerm?: { isAlternateScreen(): boolean; getScrollbackLength(): number };
   /** Whether painting waits for the app's synchronized update to end (mode 2026, ADR 067). */
   renderHeld?(now: number): boolean;
+  /** Fires when a synchronized update was painted as it ended, between frames (ADR 067). */
+  readonly onUpdatePainted?: (listener: () => void) => { dispose(): void };
 }
 
 /** A cell's size in CSS pixels, with ghostty-web's defaults before the renderer exists. */

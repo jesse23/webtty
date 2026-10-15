@@ -1,7 +1,7 @@
 // The canvas kitty images are drawn on, laid over the terminal's own (view, ADR 032): it
 // repaints on the frame after anything changed, follows the terminal's scroll, size and
-// pixel ratio, holds while the app sends a synchronized update (ADR 067), and frees its
-// backing store while there is nothing to draw.
+// pixel ratio, holds while the app sends a synchronized update and paints with the text when
+// one ends (ADR 067), and frees its backing store while there is nothing to draw.
 
 import { TERMINAL_CANVAS_UNDER_OVERLAY, terminalCanvas } from '../../../layout/terminal-canvas';
 import { DisposableStore, listen, toDisposable } from '../../../vendor/ghostty-web';
@@ -55,6 +55,9 @@ export class OverlayCanvas {
     this.store.add(toDisposable(() => canvas.remove()));
     this.frame = deps.window.requestAnimationFrame(this.tick);
     this.store.add(toDisposable(() => deps.window.cancelAnimationFrame(this.frame)));
+    // The text was painted at the end of an update, between frames: the images in it too
+    const painted = term.onUpdatePainted?.(() => this.paint());
+    if (painted) this.store.add(painted);
     // Chromium can discard a canvas's contents while its tab is hidden. The
     // overlay's geometry does not change when the tab comes back, so nothing
     // else would make it repaint.
@@ -83,10 +86,15 @@ export class OverlayCanvas {
 
   private readonly tick = (now: number): void => {
     this.frame = this.deps.window.requestAnimationFrame(this.tick);
-    if (this.source.placements.size === 0 && !this.canvas.width) return;
     // An app that redraws its images deletes every placement and places them again in
     // one synchronized update; painting in between would blink them (ADR 067).
     if (this.term.renderHeld?.(now)) return;
+    this.paint();
+  };
+
+  /** Repaints if anything changed: placements, bitmaps, the scroll, the size or the scale. */
+  private paint(): void {
+    if (this.source.placements.size === 0 && !this.canvas.width) return;
     const canvas = terminalCanvas(this.container, TERMINAL_CANVAS_UNDER_OVERLAY);
     if (!canvas) return;
     const cell = cellSize(this.term);
@@ -106,7 +114,7 @@ export class OverlayCanvas {
     this.dirty = false;
     this.lastSignature = signature;
     this.draw(canvas, cell);
-  };
+  }
 
   private draw(canvas: HTMLCanvasElement, cell: CellSize): void {
     const dpr = this.deps.window.devicePixelRatio || 1;

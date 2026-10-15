@@ -124,6 +124,22 @@ describe('SyncHold', () => {
   });
 });
 
+describe('SyncHold paint point', () => {
+  test('only after a held frame: past the last update that ends, until the terminal paints', () => {
+    const { hold } = standIn();
+    const data = `${BEGIN}1${END}${BEGIN}2`;
+    expect(hold.paintPoint(data)).toBe(-1);
+    hold.frameHeld();
+    expect(hold.paintPoint(data)).toBe(BEGIN.length + 1 + END.length);
+    expect(hold.paintPoint(`${BEGIN}still drawing`)).toBe(-1);
+    hold.painted();
+    expect(hold.paintPoint(data)).toBe(-1);
+    hold.frameHeld();
+    hold.reset();
+    expect(hold.paintPoint(data)).toBe(-1);
+  });
+});
+
 describe('Terminal.renderHeld', () => {
   test("follows the app's CSI ? 2026 h / l; the render loop paints nothing until the update ends", async () => {
     const h = await openTerminal();
@@ -137,10 +153,12 @@ describe('Terminal.renderHeld', () => {
       clock.frame();
       clock.frame();
       expect(render).not.toHaveBeenCalled();
+      // Frames were held, so the update is painted as it ends, without a frame's wait
       term.write(` drawn${END}`);
       expect(term.renderHeld(clock.now())).toBe(false);
-      clock.frame();
       expect(render).toHaveBeenCalledTimes(1);
+      clock.frame();
+      expect(render).toHaveBeenCalledTimes(2);
     } finally {
       h.close();
     }
@@ -167,6 +185,30 @@ describe('Terminal.renderHeld', () => {
       h.container.dispatch(keydown('b'));
       render.mockClear();
       term.write('b');
+      expect(render).toHaveBeenCalledTimes(1);
+    } finally {
+      h.close();
+    }
+  });
+
+  test('after a held frame, an update is painted as it ends, before the next one is written', async () => {
+    const h = await openTerminal();
+    try {
+      const { term, clock } = h;
+      const render = spyOn(rendererOf(term), 'render');
+      const painted: number[] = [];
+      term.onUpdatePainted(() => painted.push(render.mock.calls.length));
+      term.write(`${BEGIN}first`);
+      render.mockClear();
+      clock.frame();
+      expect(render).not.toHaveBeenCalled();
+      // Back to back: the first ends and the second begins in one write
+      term.write(` drawn${END}${BEGIN}second`);
+      expect(render).toHaveBeenCalledTimes(1);
+      expect(painted).toEqual([1]);
+      expect(term.renderHeld(clock.now())).toBe(true);
+      // Painted at that end, nothing waits until a frame is held again
+      term.write(` drawn${END}${BEGIN}third`);
       expect(render).toHaveBeenCalledTimes(1);
     } finally {
       h.close();

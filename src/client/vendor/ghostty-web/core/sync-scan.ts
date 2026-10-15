@@ -1,11 +1,14 @@
 // webtty (ADR 067), not from upstream.
 // The synchronized-update scanner (util): finds where the app begins a synchronized update
 // (`CSI ? 2026 h`, alone or among other modes) in output, carrying an unfinished sequence
-// across output chunks, as the cursor blink scanner does (engine/cursor-blink.ts). Bytes
-// are searched as bytes: only a chunk with `2026` in it is decoded whole.
+// across output chunks, as the cursor blink scanner does (engine/cursor-blink.ts), and
+// where the last update in a chunk ends. Bytes are searched as bytes: only a chunk with
+// `2026` in it is decoded whole.
 
 /** A DEC private mode set whose modes include 2026. */
 const SYNC_BEGIN_SEQ = /\x1b\[\?(?:\d*;)*2026(?:;\d*)*h/;
+/** A DEC private mode reset whose modes include 2026, the end of an update. */
+const SYNC_END_SEQ = /\x1b\[\?(?:\d*;)*2026(?:;\d*)*l/g;
 /** The start of a DEC private mode set or reset, still open at the end of a chunk. */
 const MODE_SET_PREFIX = /^\x1b(?:\[(?:\?[\d;]*)?)?$/;
 /** Longest tail kept as carry: a mode list longer than this is not an app's begin. */
@@ -66,4 +69,18 @@ export function scanSyncBeginBytes(
     tail = carry + LATIN1.decode(data);
   }
   return { begun, carry: MODE_SET_PREFIX.test(tail) ? tail : '' };
+}
+
+/**
+ * Where the last synchronized update that ends in `data` ends: the index just past its
+ * `CSI ? 2026 l`, in UTF-16 units for a string and bytes for bytes, or -1 if none ends in
+ * it. An end split across chunks is not found; the update then paints on the next frame.
+ */
+export function lastSyncEnd(data: string | Uint8Array): number {
+  if (typeof data !== 'string' && !has2026(data)) return -1;
+  const text = typeof data === 'string' ? data : LATIN1.decode(data);
+  if (typeof data === 'string' && !text.includes('2026')) return -1;
+  let end = -1;
+  for (const match of text.matchAll(SYNC_END_SEQ)) end = match.index + match[0].length;
+  return end;
 }

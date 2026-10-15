@@ -159,6 +159,13 @@ export interface WriteHost {
   pinView(): boolean;
   /** After the write, moves the view to where the pin went with its text (Viewport.unpin). */
   unpinView(): void;
+  /**
+   * Where to paint inside output about to be written: just past the synchronized update a
+   * held frame waits for, or -1 (SyncHold.paintPoint).
+   */
+  syncPaintPoint(data: string | Uint8Array): number;
+  /** Paints now, at the end of the update a held frame waited for, and says so. */
+  paintUpdate(): void;
   /** The output just written, which may begin a synchronized update (SyncHold.wrote). */
   wroteOutput(data: string | Uint8Array): void;
   /**

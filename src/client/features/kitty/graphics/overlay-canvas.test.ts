@@ -31,7 +31,7 @@ function setup(withTerminalCanvas = true) {
     }
     container.append(canvas);
   }
-  const sync = { held: false, at: [] as number[] };
+  const sync = { held: false, at: [] as number[], painted: new Set<() => void>() };
   const term = {
     write: () => {},
     buffer: { active: { cursorX: 0, cursorY: 0 } },
@@ -40,6 +40,10 @@ function setup(withTerminalCanvas = true) {
     renderHeld: (now: number) => {
       sync.at.push(now);
       return sync.held;
+    },
+    onUpdatePainted: (listener: () => void) => {
+      sync.painted.add(listener);
+      return { dispose: () => sync.painted.delete(listener) };
     },
   } satisfies KittyTerminal;
   const placements = new Placements();
@@ -164,6 +168,19 @@ describe('OverlayCanvas', () => {
     s.sync.held = false;
     s.clock.frame();
     expect([s.repaints(), s.draws.length]).toEqual([1, 1]);
+  });
+
+  test('paints with the text when an update is painted as it ends, between held frames (ADR 067)', () => {
+    const s = setup();
+    s.bitmaps.set(1, fakeBitmap(4, 4));
+    s.place(1);
+    s.sync.held = true;
+    s.clock.frame();
+    expect(s.repaints()).toBe(0);
+    for (const listener of s.sync.painted) listener();
+    expect([s.repaints(), s.draws.length]).toEqual([1, 1]);
+    s.overlay.dispose();
+    expect(s.sync.painted.size).toBe(0);
   });
 
   test('a tab coming back to the foreground repaints; hiding it does not', () => {
