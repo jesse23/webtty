@@ -100,7 +100,7 @@ export class InputHandler {
     store.add(listen(container, 'mousedown', (e) => this.mouse.down(e)));
     store.add(listen(mouseTarget, 'mouseup', (e) => this.mouse.up(e as MouseEvent)));
     store.add(listen(mouseTarget, 'mousemove', (e) => this.mouse.move(e as MouseEvent)));
-    // Wheel input is the terminal's alone (Terminal.handleWheel, paced). A listener here
+    // Wheel input is the terminal's alone (the WheelController, paced). A listener here
     // also fired for a wheel over the padding, where the container itself is the target,
     // and sent that tick a second time, unpaced. (webtty)
   }

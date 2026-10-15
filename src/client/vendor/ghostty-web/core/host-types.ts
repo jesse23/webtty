@@ -8,7 +8,11 @@ import type {
   GhosttyTerminal,
   SearchState,
 } from '../engine/engine-types';
+import type { MouseEventReport } from '../input/mouse-report';
+import type { ILink } from '../link-types';
+import type { RightClickBehavior } from '../mouse-route';
 import type { SearchHighlights } from '../search';
+import type { ViewportLinkRange } from './terminal-geometry';
 
 /**
  * What SelectionManager needs from the terminal: its size, the copyOnSelect option, the
@@ -160,4 +164,91 @@ export interface RenderLoopHost {
   drainReplies(): void;
   /** Keeps the input textarea on the cursor cell. */
   anchorTextarea(): void;
+}
+
+/**
+ * The timeouts the mouse-move throttle runs on, injected so tests run them by hand;
+ * production passes the browser's (`browserTimeouts` in mouse-controller.ts).
+ */
+export interface TimeoutScheduler {
+  setTimeout(callback: () => void, ms: number): number;
+  clearTimeout(id: number | undefined): void;
+}
+
+/** The engine calls the mouse makes: the row mapping, mouse tracking and the encoder (ADR 049). */
+export type MouseEngine = Pick<
+  GhosttyTerminal,
+  'getScrollbackLength' | 'hasMouseTracking' | 'setMouseGeometry' | 'encodeMouse'
+>;
+
+/**
+ * What the MouseController reads of the renderer: the cell size, how far row 0 sits below
+ * the canvas top (ADR 043), and the hovered link's underline.
+ */
+export interface MouseRenderer {
+  readonly charWidth: number;
+  readonly charHeight: number;
+  readonly scrollOffset: number;
+  getMetrics(): { width: number; height: number };
+  setHoveredLinkRange(range: ViewportLinkRange | null): void;
+}
+
+/** The link under a cell (LinkDetector), in absolute buffer rows. */
+export interface LinkSource {
+  getLinkAt(col: number, row: number): Promise<ILink | undefined>;
+}
+
+/** The selection calls a right-click makes (SelectionManager, ADR 051). */
+export interface MenuSelection {
+  getSelection(): string;
+  copySelection(): boolean;
+  clearSelection(): void;
+  /** Readies the textarea under the pointer so the browser menu offers Copy. */
+  prepareContextMenu(e: MouseEvent): void;
+}
+
+/**
+ * What the MouseController reads of the terminal, each call made when an event arrives:
+ * the parts open() creates (undefined before it and after dispose()), the grid and view,
+ * the device cell size, the right-click option, the scrollbar drag that takes a move
+ * first, and where a right-click paste goes (onPasteRequest).
+ */
+export interface MouseHost {
+  element(): HTMLElement | undefined;
+  canvas(): HTMLCanvasElement | undefined;
+  engine(): MouseEngine | undefined;
+  renderer(): MouseRenderer | undefined;
+  links(): LinkSource | undefined;
+  selection(): MenuSelection | undefined;
+  rows(): number;
+  cols(): number;
+  viewportY(): number;
+  /** The renderer's cell in whole device pixels, or null before open() (ADR 042). */
+  cellPixelSize(): { width: number; height: number } | null;
+  rightClickBehavior(): RightClickBehavior;
+  /** Moves a scrollbar drag in progress; true when there was one and the move is used up. */
+  dragScrollbar(e: MouseEvent): boolean;
+  requestPaste(): void;
+}
+
+/** The engine calls wheel routing makes: mouse tracking, the screen, and DECCKM. */
+export type WheelEngine = Pick<
+  GhosttyTerminal,
+  'hasMouseTracking' | 'isAlternateScreen' | 'getMode'
+>;
+
+/**
+ * What the WheelController reads of the terminal when a wheel event arrives: the engine,
+ * the cell height (undefined before open()), whether the canvas exists, the grid's rows,
+ * the scroll speed option, the mouse encoder, and where ticks and arrows go (onData).
+ */
+export interface WheelHost {
+  engine(): WheelEngine | undefined;
+  cellHeight(): number | undefined;
+  hasCanvas(): boolean;
+  rows(): number;
+  mouseScrollSpeed(): number;
+  /** A mouse report at a client position, or '' (MouseController.encode). */
+  encodeMouse(event: MouseEventReport): string;
+  send(data: string): void;
 }

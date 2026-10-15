@@ -6,10 +6,9 @@
 import { BufferNamespace } from './buffer';
 import { FindController } from './core/find-controller';
 import { FocusTracker } from './core/focus-tracker';
+import { MouseController } from './core/mouse-controller';
 import { RenderLoop } from './core/render-loop';
 import {
-  APP_CURSOR_KEYS_MODE,
-  MOUSE_MOVE_THROTTLE_MS,
   SCROLLBAR_FADE_DURATION_MS,
   SCROLLBAR_HIDE_DELAY_MS,
 } from './core/terminal-constants';
@@ -22,14 +21,11 @@ import {
 import {
   cursorCellOffset,
   deviceCellPixels,
-  linkViewportRange,
   mouseCursorFor,
-  mouseSurface,
-  pointerCell,
   setStylePx,
-  viewportRowToBufferRow,
 } from './core/terminal-geometry';
 import { Viewport } from './core/viewport';
+import { WheelController } from './core/wheel-controller';
 import { WritePipeline } from './core/write-pipeline';
 import { EventEmitter } from './event-emitter';
 import type {
@@ -39,14 +35,8 @@ import type {
   GhosttyTerminal,
   SearchState,
 } from './ghostty';
-import { AT_ONCE, type Pace } from './glide';
-import {
-  InputHandler,
-  type MouseEventReport,
-  type MouseTrackingConfig,
-  mouseMods,
-} from './input-handler';
-import { mouseReportText } from './input/mouse-report';
+import type { Pace } from './glide';
+import { InputHandler, type MouseTrackingConfig } from './input-handler';
 import type {
   IBufferNamespace,
   IEvent,
@@ -55,7 +45,6 @@ import type {
   ITerminalOptions,
 } from './interfaces';
 import { LinkDetector } from './link-detector';
-import { MenuSource, rightClickAction } from './mouse-route';
 import { OSC8LinkProvider } from './providers/osc8-link-provider';
 import { UrlRegexProvider } from './providers/url-regex-provider';
 import { CanvasRenderer } from './renderer';
@@ -67,14 +56,6 @@ import {
   scrollbarTrackHeight,
 } from './render/scrollbar-geometry';
 import { SelectionManager } from './selection-manager';
-import type { ILink } from './types';
-import {
-  TickPacer,
-  type WheelAccumulator,
-  wheelArrowKey,
-  wheelArrows,
-  wheelTicks,
-} from './wheel';
 
 // The facade's former contents, re-exported so deep imports keep working (ADR 061)
 export { TERMINAL_DEFAULTS, toEngineConfig } from './core/options-proxy';
@@ -110,9 +91,6 @@ export class Terminal implements ITerminalCore {
 
   // Link detection system
   private linkDetector?: LinkDetector;
-  private currentHoveredLink?: ILink;
-  private mouseMoveThrottleTimeout?: number;
-  private pendingMouseMove?: MouseEvent;
 
   // Event emitters
   private dataEmitter = new EventEmitter<string>();
@@ -220,14 +198,39 @@ export class Terminal implements ITerminalCore {
     scrolled: (viewportY) => this.scrollEmitter.fire(viewportY),
     showScrollbar: () => this.showScrollbar(),
   });
-  private customWheelEventHandler?: (event: WheelEvent) => boolean;
-  private wheelAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
-  // Whether a contextmenu came from a button or the keyboard (webtty, ADR 051)
-  private readonly menuSource = new MenuSource();
-  private arrowAccumulator: WheelAccumulator = { accum: 0, dir: 0 };
-  private wheelPace?: (event: WheelEvent) => Pace;
+
+  // Link hover and clicks, the mouse report encoder and the right-click route (ADR 049, ADR 051)
+  private readonly mouse = new MouseController({
+    element: () => this.element,
+    canvas: () => this.canvas,
+    engine: () => this.wasmTerm,
+    renderer: () => this.renderer,
+    links: () => this.linkDetector,
+    selection: () => this.selectionManager,
+    rows: () => this.rows,
+    cols: () => this.cols,
+    viewportY: () => this.getViewportY(),
+    cellPixelSize: () => this.cellPixelSize(),
+    rightClickBehavior: () => this.options.rightClickBehavior,
+    dragScrollbar: (e) => {
+      if (!this.isDraggingScrollbar) return false;
+      this.processScrollbarDrag(e);
+      return true;
+    },
+    requestPaste: () => this.pasteRequestEmitter.fire(),
+  });
+
+  // Wheel events to the embedder, or to the app as ticks or arrows (ADR 045, ADR 049)
+  private readonly wheel = new WheelController({
+    engine: () => this.wasmTerm,
+    cellHeight: () => this.renderer?.getMetrics()?.height,
+    hasCanvas: () => !!this.canvas,
+    rows: () => this.rows,
+    mouseScrollSpeed: () => this.options.mouseScrollSpeed,
+    encodeMouse: (event) => this.mouse.encode(event),
+    send: (data) => this.dataEmitter.fire(data),
+  });
   private beforeRender?: (now: number) => void;
-  private readonly tickPacer = new TickPacer((data) => this.dataEmitter.fire(data));
 
   // Scrollbar interaction state
   private isDraggingScrollbar: boolean = false;
@@ -446,7 +449,7 @@ export class Terminal implements ITerminalCore {
       // Create mouse tracking configuration. Reports are encoded by Ghostty (webtty, ADR 049)
       const mouseConfig: MouseTrackingConfig = {
         hasMouseTracking: () => this.wasmTerm?.hasMouseTracking() ?? false,
-        encode: (event) => this.encodeMouse(event),
+        encode: (event) => this.mouse.encode(event),
       };
 
       // Create input handler
@@ -482,24 +485,16 @@ export class Terminal implements ITerminalCore {
       // URL regex second (fallback for plain text URLs)
       this.linkDetector.registerProvider(new UrlRegexProvider(this));
 
-      // Setup mouse event handling for links and scrollbar
-      // Use capture phase to intercept scrollbar clicks before SelectionManager
+      // Scrollbar clicks, in the capture phase to intercept them before SelectionManager
       parent.addEventListener('mousedown', this.handleMouseDown, { capture: true });
-      parent.addEventListener('mousemove', this.handleMouseMove);
-      parent.addEventListener('mouseleave', this.handleMouseLeave);
-      parent.addEventListener('click', this.handleClick);
-
-      // Every right-click and keyboard menu goes through handleContextMenu (webtty, ADR 051)
-      parent.addEventListener('mousedown', this.handleMenuPress, { capture: true });
-      parent.addEventListener('keydown', this.handleMenuKey, { capture: true });
-      parent.addEventListener('contextmenu', this.handleContextMenu, { capture: true });
+      // Link hover and clicks, then the right-click route (webtty, ADR 051)
+      this.mouse.attach(parent);
 
       // Setup document-level mouseup for scrollbar drag (so drag works even outside canvas)
       document.addEventListener('mouseup', this.handleMouseUp);
 
-      // Setup wheel event handling for scrolling
-      // Use capture phase to ensure we get the event before browser scrolling
-      parent.addEventListener('wheel', this.handleWheel, { passive: false, capture: true });
+      // Wheel events, in the capture phase before the browser scrolls
+      this.wheel.attach(parent);
 
       // Render initial blank screen (force full redraw)
       this.renderer.render(this.wasmTerm, true, this.viewportY, this, this.scrollbarOpacity);
@@ -774,7 +769,7 @@ export class Terminal implements ITerminalCore {
   public attachCustomWheelEventHandler(
     customWheelEventHandler?: (event: WheelEvent) => boolean
   ): void {
-    this.customWheelEventHandler = customWheelEventHandler;
+    this.wheel.setCustomHandler(customWheelEventHandler);
   }
 
   /**
@@ -783,7 +778,7 @@ export class Terminal implements ITerminalCore {
    * Called once for each such event. (webtty, ADR 045)
    */
   public attachWheelPace(pace?: (event: WheelEvent) => Pace): void {
-    this.wheelPace = pace;
+    this.wheel.setPace(pace);
   }
 
   /**
@@ -831,15 +826,6 @@ export class Terminal implements ITerminalCore {
 
     // Stop render loop
     this.renderLoop.cancel();
-
-    this.tickPacer.cancel();
-
-    // Clear mouse move throttle timeout
-    if (this.mouseMoveThrottleTimeout) {
-      clearTimeout(this.mouseMoveThrottleTimeout);
-      this.mouseMoveThrottleTimeout = undefined;
-    }
-    this.pendingMouseMove = undefined;
 
     // Dispose addons
     for (const addon of this.addons) {
@@ -966,19 +952,13 @@ export class Terminal implements ITerminalCore {
       this.textarea = undefined;
     }
 
-    // Remove event listeners
+    // Remove event listeners; the wheel's queued ticks and the mouse's throttled move go
+    // with theirs
+    this.wheel.dispose();
+    this.mouse.dispose();
     if (this.element) {
-      this.element.removeEventListener('wheel', this.handleWheel, { capture: true });
       this.element.removeEventListener('mousedown', this.handleMouseDown, { capture: true });
-      this.element.removeEventListener('mousemove', this.handleMouseMove);
-      this.element.removeEventListener('mouseleave', this.handleMouseLeave);
-      this.element.removeEventListener('click', this.handleClick);
       this.focusTracker.dispose();
-      this.element.removeEventListener('mousedown', this.handleMenuPress, { capture: true });
-      this.element.removeEventListener('keydown', this.handleMenuKey, { capture: true });
-      this.element.removeEventListener('contextmenu', this.handleContextMenu, {
-        capture: true,
-      });
 
       // Remove contenteditable and accessibility attributes added in open()
       this.element.removeAttribute('contenteditable');
@@ -1030,264 +1010,6 @@ export class Terminal implements ITerminalCore {
   }
 
   /**
-   * Handle mouse move for link hover detection and scrollbar dragging
-   * Throttled to avoid blocking scroll events (except when dragging scrollbar)
-   */
-  private handleMouseMove = (e: MouseEvent): void => {
-    if (!this.canvas || !this.renderer || !this.wasmTerm) return;
-
-    // If dragging scrollbar, handle immediately without throttling
-    if (this.isDraggingScrollbar) {
-      this.processScrollbarDrag(e);
-      return;
-    }
-
-    if (!this.linkDetector) return;
-
-    // Throttle to ~60fps (16ms) to avoid blocking scroll/other events
-    if (this.mouseMoveThrottleTimeout) {
-      this.pendingMouseMove = e;
-      return;
-    }
-
-    this.processMouseMove(e);
-
-    this.mouseMoveThrottleTimeout = window.setTimeout(() => {
-      this.mouseMoveThrottleTimeout = undefined;
-      if (this.pendingMouseMove) {
-        const pending = this.pendingMouseMove;
-        this.pendingMouseMove = undefined;
-        this.processMouseMove(pending);
-      }
-    }, MOUSE_MOVE_THROTTLE_MS);
-  };
-
-  /**
-   * Process mouse move for link detection (internal, called by throttled handler)
-   */
-  private processMouseMove(e: MouseEvent): void {
-    if (!this.canvas || !this.renderer || !this.linkDetector || !this.wasmTerm) return;
-
-    // The cell under the pointer, as an absolute buffer row (scrollback included), which
-    // the link detector works in
-    const { x, y } = pointerCell(
-      e.clientX,
-      e.clientY,
-      this.canvas.getBoundingClientRect(),
-      this.renderer
-    );
-    const bufferRow = viewportRowToBufferRow(
-      y,
-      this.wasmTerm.getScrollbackLength(),
-      this.getViewportY()
-    );
-
-    // Make async call non-blocking - don't await
-    this.linkDetector
-      .getLinkAt(x, bufferRow)
-      .then((link) => {
-        // Update hover state for cursor changes and click handling
-        if (link !== this.currentHoveredLink) {
-          // Notify old link we're leaving
-          this.currentHoveredLink?.hover?.(false);
-
-          // Update current link
-          this.currentHoveredLink = link;
-
-          // Notify new link we're entering
-          link?.hover?.(true);
-
-          // Update cursor style on both container and canvas
-          const cursorStyle = mouseCursorFor(link);
-          if (this.element) {
-            this.element.style.cursor = cursorStyle;
-          }
-          if (this.canvas) {
-            this.canvas.style.cursor = cursorStyle;
-          }
-
-          // Update renderer for underline: the link's own range, OSC 8 or regex, while
-          // any of it is in view (webtty)
-          if (this.renderer) {
-            this.renderer.setHoveredLinkRange(
-              link
-                ? linkViewportRange(
-                    link.range,
-                    this.wasmTerm?.getScrollbackLength() || 0,
-                    this.getViewportY(),
-                    this.rows
-                  )
-                : null
-            );
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn('Link detection error:', err);
-      });
-  }
-
-  /**
-   * Handle mouse leave to clear link hover
-   */
-  private handleMouseLeave = (): void => {
-    // Clear the link underline
-    if (this.renderer && this.wasmTerm) {
-      this.renderer.setHoveredLinkRange(null);
-    }
-
-    if (this.currentHoveredLink) {
-      // Notify link we're leaving
-      this.currentHoveredLink.hover?.(false);
-
-      // Clear hovered link
-      this.currentHoveredLink = undefined;
-
-      // Reset cursor
-      if (this.element) {
-        this.element.style.cursor = mouseCursorFor(undefined);
-        if (this.canvas) {
-          this.canvas.style.cursor = mouseCursorFor(undefined);
-        }
-      }
-    }
-  };
-
-  /**
-   * Handle mouse click for link activation
-   */
-  private handleClick = async (e: MouseEvent): Promise<void> => {
-    // For more reliable clicking, detect the link at click time
-    // rather than relying on cached hover state (avoids async races)
-    if (!this.canvas || !this.renderer || !this.linkDetector || !this.wasmTerm) return;
-
-    // The clicked cell as an absolute buffer row, as for a hover
-    const { x, y } = pointerCell(
-      e.clientX,
-      e.clientY,
-      this.canvas.getBoundingClientRect(),
-      this.renderer
-    );
-    const bufferRow = viewportRowToBufferRow(
-      y,
-      this.wasmTerm.getScrollbackLength(),
-      this.getViewportY()
-    );
-
-    // Get the link at this position
-    const link = await this.linkDetector.getLinkAt(x, bufferRow);
-
-    if (link) {
-      // Activate link
-      link.activate(e);
-
-      // Prevent default action if modifier key held
-      if (e.ctrlKey || e.metaKey) {
-        e.preventDefault();
-      }
-    }
-  };
-
-  /**
-   * Handle wheel events for scrolling
-   */
-  private handleWheel = (e: WheelEvent): void => {
-    // Cancel only pinch and ctrl+wheel, which would zoom the page. A cancelled wheel
-    // event makes Chrome hold the gesture's next event until the page has handled it,
-    // which put scrolling about a frame behind native; nothing else on the page scrolls,
-    // and overscroll-behavior stops rubber-banding and swipe-back. (webtty, ADR 045)
-    if (e.ctrlKey) e.preventDefault();
-    e.stopPropagation();
-
-    // Allow custom handler to override
-    if (this.customWheelEventHandler && this.customWheelEventHandler(e)) {
-      return;
-    }
-
-    // App tracks the mouse (e.g. vim `set mouse=a`): report scroll ticks as mouse
-    // buttons 4/5 (SGR 64/65) at the cell under the pointer, on either screen.
-    if (this.wasmTerm?.hasMouseTracking()) {
-      const metrics = this.renderer?.getMetrics();
-      if (!metrics || !this.canvas) return;
-      const pace = this.wheelPace?.(e) ?? AT_ONCE;
-      const ticks = wheelTicks(
-        this.wheelAccumulator,
-        e,
-        metrics.height,
-        this.options.mouseScrollSpeed
-      );
-      if (ticks === 0) return;
-      // One tick, a press of button 4 (up) or 5 (down) at the pointer's cell as Ghostty
-      // encodes it, repeated by the pacer. Nothing in X10 mode 9. (webtty, ADR 049)
-      const tick = this.encodeMouse({
-        action: 'press',
-        button: ticks < 0 ? 'four' : 'five',
-        mods: mouseMods(e),
-        clientX: e.clientX,
-        clientY: e.clientY,
-        anyButtonPressed: false,
-      });
-      if (tick) this.tickPacer.push(tick, Math.sign(ticks), Math.abs(ticks), pace);
-      return;
-    }
-
-    // Check if in alternate screen mode (vim, less, htop, etc.)
-    const isAltScreen = this.wasmTerm?.isAlternateScreen() ?? false;
-
-    if (isAltScreen) {
-      // Alternate screen: send arrow keys to the application, one per line of
-      // travel, paced like the SGR ticks above (webtty, ADR 045)
-      const pace = this.wheelPace?.(e) ?? AT_ONCE;
-      const lines = wheelArrows(
-        this.arrowAccumulator,
-        e,
-        this.renderer?.getMetrics()?.height ?? 20,
-        this.rows
-      );
-      if (lines !== 0) {
-        const dir = Math.sign(lines);
-        const key = wheelArrowKey(
-          dir,
-          this.wasmTerm?.getMode(APP_CURSOR_KEYS_MODE, false) ?? false
-        );
-        this.tickPacer.push(key, dir, Math.abs(lines), pace);
-      }
-    }
-    // The normal screen's scrollback is scrolled by the custom handler (webtty's
-    // SmoothScroll, ADR 040, ADR 045); upstream's easing here is removed.
-  };
-
-  /**
-   * A mouse report at a client position, encoded by Ghostty's mouse encoder in the
-   * app's tracking mode and format (`mouseSurface`, `mouseReportText`), or '' when the
-   * app does not get one. (webtty, ADR 049)
-   */
-  private encodeMouse(event: MouseEventReport): string {
-    const px = this.cellPixelSize();
-    if (!this.wasmTerm || !this.renderer || !this.canvas || !this.element || !px) return '';
-    const metrics = this.renderer.getMetrics();
-    const rect = this.canvas.getBoundingClientRect();
-    const { geometry, x, y } = mouseSurface(
-      event.clientX,
-      event.clientY,
-      {
-        left: rect.left,
-        // Viewport row 0 starts the scroll offset below the canvas top (ADR 043)
-        top: rect.top + this.renderer.scrollOffset,
-        cols: this.cols,
-        rows: this.rows,
-        cellWidth: metrics.width,
-        cellHeight: metrics.height,
-      },
-      this.element.getBoundingClientRect(),
-      px
-    );
-    this.wasmTerm.setMouseGeometry(geometry);
-    const { clientX: _x, clientY: _y, ...input } = event;
-    return mouseReportText(this.wasmTerm.encodeMouse({ ...input, x, y }));
-  }
-
-  /**
    * Input from the InputHandler. Keys and text clear the selection and scroll to the
    * bottom; a mouse report leaves both alone, so a Shift selection outlives the app's
    * hover and clicks. (webtty, ADR 051, ADR 055)
@@ -1302,43 +1024,6 @@ export class Terminal implements ITerminalCore {
     }
     this.writes.awaitEcho();
     this.dataEmitter.fire(data);
-  };
-
-  private handleMenuPress = (e: MouseEvent): void => {
-    this.menuSource.press(e);
-  };
-
-  private handleMenuKey = (): void => {
-    this.menuSource.key();
-  };
-
-  /**
-   * The one place a right-click or a keyboard menu is handled. A right button the app
-   * takes (it tracks the mouse, Shift is up) is the app's: its press and release were
-   * reported, and the menu is cancelled. Otherwise `rightClickBehavior` decides: the
-   * browser menu, copy and clear the selection, paste, or nothing. (webtty: upstream
-   * always showed the menu, from the selection manager, ADR 051)
-   */
-  private handleContextMenu = (e: MouseEvent): void => {
-    const behavior = this.options.rightClickBehavior;
-    const action = rightClickAction({
-      tracking: this.wasmTerm?.hasMouseTracking() ?? false,
-      shiftKey: e.shiftKey,
-      fromKeyboard: this.menuSource.fromKeyboard(e),
-      behavior,
-      hasSelection: behavior === 'copyPaste' && this.getSelection() !== '',
-    });
-    if (action === 'menu') {
-      this.selectionManager?.prepareContextMenu(e);
-      return;
-    }
-    e.preventDefault();
-    if (action === 'copy') {
-      this.copySelection();
-      this.clearSelection();
-    } else if (action === 'paste') {
-      this.pasteRequestEmitter.fire();
-    }
   };
 
   /**

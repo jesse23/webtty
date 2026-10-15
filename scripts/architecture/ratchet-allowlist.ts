@@ -5,7 +5,6 @@
 
 import type { Allowlist } from './ratchet';
 
-const VENDOR_TESTS = 'vendor tests split with their facades into vendor/tests/ (ADR 061, ADR 064)';
 const SERVER_HARNESS =
   'server track: src/utils.test.ts becomes src/test-support/server-harness.ts (ADR 064)';
 const CLI_COMMANDS = 'server track: CLI command modules (ADR 063)';
@@ -17,10 +16,9 @@ export const RATCHET_ALLOWLIST: Allowlist = {
     'src/cli/commands.test.ts': { lines: 1020, step: CLI_COMMANDS },
     'src/cli/commands.ts': { lines: 369, step: CLI_COMMANDS },
     'src/client/vendor/ghostty-web/terminal.ts': {
-      lines: 1563,
+      lines: 1248,
       step: 'vendor terminal split into core/ (ADR 061)',
     },
-    'src/client/vendor/tests/terminal.test.ts': { lines: 847, step: VENDOR_TESTS },
     'src/config.ts': { lines: 369, step: 'server track: src/config/ split (ADR 062)' },
     'src/server/routes.ts': { lines: 485, step: 'server track: routes/ and http/ (ADR 062)' },
   },

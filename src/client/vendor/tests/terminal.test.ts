@@ -1,72 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import type { TerminalEffects } from '../ghostty-web/ghostty';
 import { InputHandler } from '../ghostty-web/input-handler';
-import { LinkDetector } from '../ghostty-web/link-detector';
-import { OSC8LinkProvider } from '../ghostty-web/providers/osc8-link-provider';
 import { Terminal } from '../ghostty-web/terminal';
 import { loadGhostty } from './support/wasm';
-
-describe('Terminal wheel in mouse-tracking apps', () => {
-  // A 10 px x 20 px CSS cell at DPR 1, the grid at (5, 5) in a container at (0, 0).
-  async function wheelTerm(modes: string) {
-    const ghostty = await loadGhostty();
-    const wasmTerm = ghostty.createTerminal(40, 10);
-    wasmTerm.write(modes);
-    const term = new Terminal({ ghostty: {} as never, cols: 40, rows: 10 });
-    const internals = term as unknown as {
-      wasmTerm: unknown;
-      renderer: unknown;
-      canvas: unknown;
-      element: unknown;
-      handleWheel(e: object): void;
-    };
-    internals.wasmTerm = wasmTerm;
-    internals.renderer = {
-      getMetrics: () => ({ width: 10, height: 20, baseline: 15 }),
-      scrollOffset: 0,
-    };
-    internals.canvas = { getBoundingClientRect: () => ({ left: 5, top: 5 }) };
-    internals.element = {
-      getBoundingClientRect: () => ({ left: 0, top: 0, right: 410, bottom: 210 }),
-    };
-    const sent: string[] = [];
-    term.onData((data) => sent.push(data));
-    const wheel = (deltaY: number, clientX: number, clientY: number, mods: object = {}) =>
-      internals.handleWheel({
-        deltaY,
-        deltaMode: 1,
-        clientX,
-        clientY,
-        shiftKey: false,
-        altKey: false,
-        ctrlKey: false,
-        metaKey: false,
-        preventDefault: () => {},
-        stopPropagation: () => {},
-        ...mods,
-      });
-    return { sent, wheel, free: () => wasmTerm.free() };
-  }
-
-  test('sends buttons 4/5 at the pointer cell in SGR, with modifiers', async () => {
-    const { sent, wheel, free } = await wheelTerm('\x1b[?1000h\x1b[?1006h');
-    wheel(-3, 5 + 10 * 6 + 1, 5 + 20 * 3 + 1);
-    wheel(3, 5 + 10 * 6 + 1, 5 + 20 * 3 + 1, { altKey: true });
-    expect(sent).toEqual(['\x1b[<64;7;4M', '\x1b[<73;7;4M']);
-    free();
-  });
-
-  test('follows the format: X10 bytes without 1006, nothing in X10 mode 9', async () => {
-    const x10 = await wheelTerm('\x1b[?1000h');
-    x10.wheel(3, 6, 6);
-    expect(x10.sent).toEqual(['\x1b[Ma!!']);
-    x10.free();
-    const mode9 = await wheelTerm('\x1b[?9h');
-    mode9.wheel(3, 6, 6);
-    expect(mode9.sent).toEqual([]);
-    mode9.free();
-  });
-});
 
 describe('Terminal options', () => {
   // The configured cursor shape is the engine's default, which DECSCUSR Ps 0 and RIS
@@ -109,6 +45,10 @@ describe('Terminal options', () => {
       80,
       24,
     ]);
+  });
+
+  test('a right-click defaults to contextMenu', () => {
+    expect(new Terminal({ ghostty: {} as never }).options.rightClickBehavior).toBe('contextMenu');
   });
 });
 
@@ -620,177 +560,6 @@ describe('Terminal input and the selection', () => {
     expect(sent[2]).toBe('a');
     expect(selection).toBe('');
     handler.dispose();
-  });
-});
-
-describe('Terminal link hover', () => {
-  // The engine's hyperlink_id is a 1-bit "has a link" flag, so every OSC 8 cell carries
-  // the same value: the hover is the hovered link's range, never an id.
-  test('hovering an OSC 8 link gives the renderer that link range only', async () => {
-    const ghostty = await loadGhostty();
-    const wasmTerm = ghostty.createTerminal(30, 4);
-    wasmTerm.write('\x1b]8;;https://a/\x1b\\first\x1b]8;;\x1b\\\r\n');
-    wasmTerm.write('xx \x1b]8;;https://b/\x1b\\second\x1b]8;;\x1b\\');
-    const term = new Terminal({ ghostty: {} as never, cols: 30, rows: 4 });
-    const calls: [string, unknown][] = [];
-    const renderer = new Proxy(
-      { charWidth: 8, charHeight: 16, scrollOffset: 0 },
-      {
-        get: (t, k) =>
-          k in t ? t[k as keyof typeof t] : (arg: unknown) => calls.push([String(k), arg]),
-      },
-    );
-    const internals = term as unknown as {
-      wasmTerm: unknown;
-      renderer: unknown;
-      canvas: unknown;
-      linkDetector: LinkDetector;
-      processMouseMove(e: { clientX: number; clientY: number }): void;
-    };
-    internals.wasmTerm = wasmTerm;
-    internals.renderer = renderer;
-    internals.canvas = { getBoundingClientRect: () => ({ left: 0, top: 0 }), style: {} };
-    internals.linkDetector = new LinkDetector(term);
-    internals.linkDetector.registerProvider(new OSC8LinkProvider(term));
-
-    // Over "second", on row 1
-    internals.processMouseMove({ clientX: 5 * 8 + 1, clientY: 16 + 1 });
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(calls).toEqual([['setHoveredLinkRange', { startX: 3, startY: 1, endX: 8, endY: 1 }]]);
-    wasmTerm.free();
-  });
-});
-
-describe('Terminal wheel events', () => {
-  // A cancelled wheel event makes Chrome hold the gesture's next one until the page has
-  // handled it: only zooming (pinch, ctrl+wheel) is cancelled (ADR 045).
-  const wheel = (ctrlKey: boolean) => {
-    let cancelled = false;
-    const e = {
-      ctrlKey,
-      deltaX: 0,
-      deltaY: 10,
-      deltaMode: 0,
-      preventDefault: () => {
-        cancelled = true;
-      },
-      stopPropagation: () => {},
-    };
-    const term = new Terminal({ ghostty: {} as never }) as unknown as {
-      handleWheel: (e: unknown) => void;
-    };
-    term.handleWheel(e);
-    return cancelled;
-  };
-
-  test('a scroll is not cancelled', () => {
-    expect(wheel(false)).toBe(false);
-  });
-
-  test('pinch and ctrl+wheel are cancelled, so the page does not zoom', () => {
-    expect(wheel(true)).toBe(true);
-  });
-});
-
-describe('Terminal right-click', () => {
-  // Every contextmenu goes through one handler: the app's right button cancels the menu,
-  // and otherwise rightClickBehavior decides (ADR 051).
-  async function setup(rightClickBehavior: 'contextMenu' | 'copyPaste' | 'paste' | 'none') {
-    const ghostty = await loadGhostty();
-    const wasmTerm = ghostty.createTerminal(20, 2);
-    wasmTerm.write('hello');
-    const term = new Terminal({ ghostty: {} as never, rightClickBehavior });
-    const calls: string[] = [];
-    let selection = '';
-    const internals = term as unknown as {
-      wasmTerm: unknown;
-      selectionManager: unknown;
-      handleMenuPress(e: object): void;
-      handleMenuKey(): void;
-      handleContextMenu(e: object): void;
-    };
-    internals.wasmTerm = wasmTerm;
-    internals.selectionManager = {
-      getSelection: () => selection,
-      copySelection: () => {
-        calls.push(`copy ${selection}`);
-        return true;
-      },
-      clearSelection: () => {
-        calls.push('clear');
-        selection = '';
-      },
-      prepareContextMenu: () => calls.push('menu'),
-    };
-    term.onPasteRequest(() => calls.push('paste'));
-    /** A right-click (press, then menu), or a keyboard menu; whether the menu was cancelled. */
-    const menu = (opts: { shiftKey?: boolean; keyboard?: boolean } = {}) => {
-      let cancelled = false;
-      if (opts.keyboard) internals.handleMenuKey();
-      else internals.handleMenuPress({ button: 2, ctrlKey: false });
-      internals.handleContextMenu({
-        button: opts.keyboard ? 0 : 2,
-        shiftKey: opts.shiftKey ?? false,
-        clientX: 1,
-        clientY: 1,
-        preventDefault: () => {
-          cancelled = true;
-        },
-      });
-      return cancelled;
-    };
-    return {
-      menu,
-      calls,
-      select: (text: string) => {
-        selection = text;
-      },
-      track: (on: boolean) => wasmTerm.write(on ? '\x1b[?1000h' : '\x1b[?1000l'),
-      free: () => wasmTerm.free(),
-    };
-  }
-
-  test('contextMenu shows the menu; while the app tracks the mouse only Shift or the keyboard do', async () => {
-    const t = await setup('contextMenu');
-    expect(t.menu()).toBe(false);
-    t.track(true);
-    expect(t.menu()).toBe(true);
-    expect(t.menu({ shiftKey: true })).toBe(false);
-    expect(t.menu({ keyboard: true })).toBe(false);
-    expect(t.calls).toEqual(['menu', 'menu', 'menu']);
-    t.free();
-  });
-
-  test('copyPaste copies and clears a selection, or shows the menu without one', async () => {
-    const t = await setup('copyPaste');
-    expect(t.menu()).toBe(false);
-    t.select('hello');
-    expect(t.menu()).toBe(true);
-    expect(t.calls).toEqual(['menu', 'copy hello', 'clear']);
-    t.track(true);
-    t.select('hello');
-    expect(t.menu()).toBe(true);
-    expect(t.calls.length).toBe(3);
-    t.free();
-  });
-
-  test('paste asks for a paste with no menu; none does nothing', async () => {
-    const p = await setup('paste');
-    expect(p.menu()).toBe(true);
-    p.track(true);
-    expect(p.menu()).toBe(true);
-    expect(p.menu({ shiftKey: true })).toBe(true);
-    expect(p.calls).toEqual(['paste', 'paste']);
-    p.free();
-    const n = await setup('none');
-    expect(n.menu()).toBe(true);
-    expect(n.menu({ keyboard: true })).toBe(true);
-    expect(n.calls).toEqual([]);
-    n.free();
-  });
-
-  test('defaults to contextMenu', () => {
-    expect(new Terminal({ ghostty: {} as never }).options.rightClickBehavior).toBe('contextMenu');
   });
 });
 
