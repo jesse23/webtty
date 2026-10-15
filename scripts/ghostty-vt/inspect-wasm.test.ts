@@ -4,7 +4,7 @@ import path from 'node:path';
 import { VENDOR_DIR } from '../update-ghostty-vt';
 import { inspectWasm } from './inspect-wasm';
 import type { Sidecar } from './sidecar';
-import { EMPTY_WASM, tinyWasm } from './test-support/tiny-wasm';
+import { EMPTY_WASM, IMPORTING_WASM, tinyWasm } from './test-support/tiny-wasm';
 
 describe('inspectWasm', () => {
   test('reads the vendored wasm as its sidecar records it, offline', async () => {
@@ -34,6 +34,7 @@ describe('inspectWasm', () => {
 
   test.each([
     ['bytes that are not wasm', new Uint8Array([1, 2, 3]), 'wasm: WebAssembly.validate failed'],
+    ['a module that needs imports', IMPORTING_WASM, 'wasm: unexpected imports env.f:function'],
     ['a module without the exports', EMPTY_WASM, 'wasm: missing exports memory, __indirect'],
     ['a failing ghostty_build_info', tinyWasm(1), 'wasm: ghostty_build_info(4) returned 1'],
   ])('rejects %s', async (_name, bytes, message) => {

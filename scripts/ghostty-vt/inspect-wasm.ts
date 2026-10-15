@@ -80,11 +80,14 @@ function readBuildInfo(ex: BuildInfoExports): WasmBuildInfo {
 /**
  * Instantiates the wasm, checks the exports the binding needs and reads `ghostty_build_info`.
  *
- * @throws If the module does not validate or lacks a required export.
+ * @throws If the module does not validate, needs imports or lacks a required export.
  */
 export async function inspectWasm(bytes: Uint8Array<ArrayBuffer>): Promise<WasmInfo> {
   if (!WebAssembly.validate(bytes)) throw new Error('wasm: WebAssembly.validate failed');
   const mod = new WebAssembly.Module(bytes);
+  // The binding instantiates the wasm with no imports, so a module that needs any is refused.
+  const imports = WebAssembly.Module.imports(mod).map((i) => `${i.module}.${i.name}:${i.kind}`);
+  if (imports.length) throw new Error(`wasm: unexpected imports ${imports.join(', ')}`);
   const exports = WebAssembly.Module.exports(mod);
   const names = new Set(exports.map((e) => e.name));
   const missing = REQUIRED_EXPORTS.filter((n) => !names.has(n));
@@ -93,7 +96,7 @@ export async function inspectWasm(bytes: Uint8Array<ArrayBuffer>): Promise<WasmI
   const ex = instance.exports as BuildInfoExports;
   const buildInfo = readBuildInfo(ex);
   return {
-    imports: WebAssembly.Module.imports(mod).map((i) => `${i.module}.${i.name}:${i.kind}`),
+    imports,
     exportCount: exports.length,
     functionExports: exports.filter((e) => e.kind === 'function').length,
     nonFunctionExports: exports

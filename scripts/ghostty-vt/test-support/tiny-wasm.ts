@@ -44,3 +44,10 @@ export function tinyWasm(result: number): Uint8Array<ArrayBuffer> {
 
 /** The smallest valid module: no exports at all. */
 export const EMPTY_WASM = new Uint8Array([...MAGIC_AND_VERSION]);
+
+/** A module with one imported function, `env.f`, and no exports. */
+export const IMPORTING_WASM = new Uint8Array([
+  ...MAGIC_AND_VERSION,
+  ...section(1, [1, 0x60, 0, 0]),
+  ...section(2, [1, 3, ...Buffer.from('env'), 1, ...Buffer.from('f'), FUNC, 0]),
+]);
