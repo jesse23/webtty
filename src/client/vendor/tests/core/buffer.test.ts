@@ -1,0 +1,71 @@
+import { describe, expect, test } from 'bun:test';
+import { type BufferEngine, BufferNamespace } from '../../ghostty-web/buffer';
+import { loadGhostty } from '../support/wasm';
+
+// The buffer API is what the link providers and the kitty graphics read: the
+// cursor, the line count, and each cell's codepoint and hyperlink id.
+describe('BufferNamespace', () => {
+  test('reads the cursor, scrollback and screen lines, codepoints and links', async () => {
+    const ghostty = await loadGhostty();
+    const wasmTerm = ghostty.createTerminal(10, 2);
+    wasmTerm.write('old\r\nmid\r\n\x1b]8;;https://a.b\x1b\\ln\x1b]8;;\x1b\\k');
+    const buffer = new BufferNamespace({ wasmTerm });
+    const active = buffer.active;
+    expect(active.type).toBe('normal');
+    expect(active.length).toBe(3);
+    expect([active.cursorX, active.cursorY]).toEqual([3, 1]);
+    const text = (y: number) => {
+      const line = active.getLine(y);
+      if (!line) return undefined;
+      return Array.from({ length: 3 }, (_, x) =>
+        String.fromCodePoint(line.getCell(x)?.getCodepoint() || 32),
+      ).join('');
+    };
+    expect([text(0), text(1), text(2), text(3)]).toEqual(['old', 'mid', 'lnk', undefined]);
+    const links = Array.from({ length: 3 }, (_, x) =>
+      active.getLine(2)?.getCell(x)?.getHyperlinkId(),
+    );
+    expect(links.map((id) => (id ?? 0) > 0)).toEqual([true, true, false]);
+    expect(active.getLine(2)?.getCell(10)).toBeUndefined();
+    wasmTerm.write('\x1b[?1049h');
+    expect(buffer.active.type).toBe('alternate');
+    expect(buffer.active.length).toBe(2);
+    wasmTerm.free();
+  });
+
+  test('reads an empty normal screen before open() and after dispose()', () => {
+    const buffer = new BufferNamespace({});
+    const active = buffer.active;
+    expect(active.type).toBe('normal');
+    expect([active.cursorX, active.cursorY, active.length]).toEqual([0, 0, 0]);
+    expect(active.getLine(0)).toBeUndefined();
+    // The two buffers are made once and kept
+    expect(buffer.normal).toBe(active);
+    expect(buffer.alternate).toBe(buffer.alternate);
+  });
+
+  test('a cell past the end of the decoded row is blank, inside the line length', async () => {
+    const ghostty = await loadGhostty();
+    const wasmTerm = ghostty.createTerminal(10, 2);
+    wasmTerm.write('ab');
+    // An engine that decodes only the first two cells of the row
+    const engine: BufferEngine = {
+      cols: 10,
+      rows: 2,
+      isAlternateScreen: () => false,
+      getCursor: () => wasmTerm.getCursor(),
+      getScrollbackLength: () => 0,
+      getScrollbackLine: () => null,
+      getLine: (y) => wasmTerm.getLine(y)?.slice(0, 2) ?? null,
+    };
+    const buffer = new BufferNamespace({ wasmTerm: engine });
+    const line = buffer.active.getLine(0);
+    expect(line?.length).toBe(10);
+    expect([line?.getCell(1)?.getCodepoint(), line?.getCell(5)?.getCodepoint()]).toEqual([
+      'b'.codePointAt(0),
+      0,
+    ]);
+    expect([line?.getCell(-1), line?.getCell(10)]).toEqual([undefined, undefined]);
+    wasmTerm.free();
+  });
+});

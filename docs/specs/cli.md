@@ -1,6 +1,6 @@
 # SPEC: CLI
 
-**Last Updated:** 2026-09-20 (amended: --version flag, help formatting, ls filter, restart removed, at/mv commands, isServerRunning validation, stop-on-last-rm)
+**Last Updated:** 2026-10-14 (amended: code structure section, ADR 063)
 
 ---
 
@@ -53,6 +53,10 @@ This makes the welcome banner's call-to-action (`Run \`bunx webtty help\` for mo
 3. Spawn the editor with the config path, inheriting stdio so the terminal is fully handed off
 
 The command exits when the editor exits.
+
+## Code structure
+
+`src/cli/index.ts` is the entry and `main.ts` the composition root; each command is a module under `src/cli/commands/` that takes its dependencies (`CliDeps`: the API client, config, output, exit, version, server control, browser opener, editor and TTY) as an argument ([ADR 063](../adrs/063.cli.command-modules.md)). See the [architecture SPEC](architecture.md) for the repo-wide layout and conventions.
 
 ## Features
 

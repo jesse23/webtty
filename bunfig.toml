@@ -1,0 +1,4 @@
+# Bun's coverage threshold is one global setting, so this is the common floor of the
+# per-layer targets; scripts/check-coverage.ts enforces each layer (architecture SPEC, ADR 064).
+[test]
+coverageThreshold = { line = 0.85, function = 0.80 }

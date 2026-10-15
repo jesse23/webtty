@@ -1,6 +1,6 @@
 # SPEC: Key Bindings
 
-**Last Updated:** 2026-03-29
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -27,6 +27,8 @@ User entries are **merged with defaults by `(key, mods)` identity**:
 - A user entry whose `(key, mods)` matches a default replaces that default.
 - All other defaults are preserved.
 - To consume a key without sending anything, set `"chars": ""`.
+
+Bindings also win over webtty's built-in copy, paste and clear-screen keys (Ctrl+Shift+C, Ctrl+Insert, Shift+Insert and Ctrl+V; Cmd+K on macOS), find keys (Ctrl+Shift+F; Cmd+F, Cmd+Shift+F, Cmd+G and Cmd+Shift+G on macOS; Escape while the find bar is open) and jump-to-prompt keys (Ctrl+Shift+↑ / ↓; Cmd+↑ / ↓ and Cmd+Shift+↑ / ↓ on macOS): a binding for one of them sends its `chars` instead, and `"chars": ""` turns the key off. See [ADR 054](../adrs/054.client.copy-paste-clear-keys.md), [ADR 055](../adrs/055.client.find-in-scrollback.md) and [ADR 057](../adrs/057.client.shell-integration-prompt-jumps.md). Bindings do not apply in the find bar's field. Font-size zoom keys are not overridable.
 
 ## Defining `chars`
 

@@ -1,6 +1,6 @@
 # SPEC: webtty
 
-**Last Updated:** 2026-09-20
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -8,7 +8,7 @@
 
 webtty runs CLI/TUI applications in a browser tab. Point a browser at a running webtty server and you get a full terminal — colors, cursor, resize, keyboard input — backed by a real PTY on the host machine.
 
-The goal is zero client-side installation and full TUI support on any platform. webtty uses `ghostty-web` as the terminal renderer (WASM-backed, same API as xterm.js) and `@lydell/node-pty` for cross-platform PTY support.
+The goal is zero client-side installation and full TUI support on any platform. webtty emulates the terminal with Ghostty's official libghostty-vt (WebAssembly, vendored and signature-checked), draws it with a canvas renderer and input layer derived from ghostty-web (vendored and maintained in this repo; see ADR 041 and ADR 047), and uses `@lydell/node-pty` for cross-platform PTY support.
 
 **Persona:** Developers who want shell or TUI app access from any browser tab.
 
@@ -46,6 +46,20 @@ interface Session {
 
 Sessions survive client disconnects — the PTY keeps running while idle. Multiple clients can attach to the same session simultaneously; PTY output is broadcast to all.
 
+### Output flow control
+
+PTY output is paced per client by acknowledgements (ADR 048). A client that connects with `?flow=1` sends `{"type":"ack","chars":<total>}` as it parses output: the running count of characters (UTF-16 code units) since it connected, every 64 Ki characters and 100 ms after output stops.
+
+| Rule | Value |
+|------|-------|
+| Client blocked (new output queued in order) | 2 Mi characters unacknowledged |
+| Client unblocked (queue sent, coalesced into ≤ 64 Ki-character messages) | 512 Ki characters unacknowledged |
+| PTY paused | while every client is blocked, if the PTY can pause (node-pty; `Bun.Terminal` cannot) |
+| Client closed with `4003` (fell behind; it reconnects and gets the replay) | queue over 16 Mi characters |
+| Legacy client (no `?flow=1`) | sent straight through; closed with `4003` once `bufferedAmount` passes 8 MB (under Bun the close frame is stuck behind the shim's 16 MB backlog and the tab sees `1006`; either way it reconnects to the replay) |
+
+Scrollback replay and the banner count against the same window, sent in pieces of up to 64 Ki characters; what the replay queues is allowed on top of the 16 Mi limit. When the shell exits, each client is sent what is still queued for it, as its acknowledgements allow, before it is closed with `4001`; one that sends no acknowledgement for 2 s is closed at once. Frames are text frames.
+
 Session IDs appear directly in the URL path (`/s/:id`), so they must be valid URL path segments:
 
 - Allowed characters: `a-z`, `0-9`, `-`, `_`, `.`
@@ -72,6 +86,10 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | `GET` | `/api/server/status` | Server status; responds `200` with `{ version }` — the `package.json` version (`0.0.0-development` in dev checkouts) |
 | `POST` | `/api/server/stop` | Graceful shutdown — kills all PTYs, closes WebSocket server, exits |
 
+## Code structure
+
+The server, PTY, CLI and config code is organised as the [architecture SPEC](architecture.md) describes: `src/server/app.ts` (`createServer`) wires a `SessionStore`, an ordered route table and the WebSocket channels ([ADR 062](../adrs/062.server.composition.md)); the layers, dependency rules, size limits and test conventions for the whole repo are there ([ADR 059](../adrs/059.architecture.code-organisation.md)).
+
 ## Features
 
 | Feature | Description | ADR | Done? |
@@ -83,3 +101,4 @@ Session IDs appear directly in the URL path (`/s/:id`), so they must be valid UR
 | Config file | Shell, port, font, theme from `~/.config/webtty/config.json`; hot-reload on tab reload | [ADR 008](../adrs/008.webtty.config.md) | ✅ |
 | Client integration (CLI → Web) | `POST /s/:id/publish` (one-shot or streaming JSON) + `ws /ws/:id/events` subscribe; channel active only while PTY is running; no extra process or port | [ADR 025](../adrs/025.server.channel.md) | ✅ |
 | Session base directory | `POST /api/sessions` accepts `baseDir` (absolute path); PTY shell spawns there instead of `homedir()`; CLI `webtty [go] [id] --dir <path>` resolves and forwards it; ignored when attaching to an existing session | [ADR 028](../adrs/028.session.base-dir.md) | ✅ |
+| Output flow control | Output paced per client by acknowledgements: in order at any client speed, bounded server buffers, PTY paused while every client is behind (node-pty), a client that falls 16 Mi characters behind is closed with `4003` and reconnects to the replay; avoids Bun's `ws` shim reordering and duplicating messages past 16 MB | [ADR 048](../adrs/048.webtty.output-flow-control.md) | ✅ |

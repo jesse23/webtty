@@ -1,0 +1,62 @@
+// Derived from coder/ghostty-web lib/index.ts (MIT, see LICENSE and PROVENANCE.md in ghostty-web/).
+// The vendored layer's public barrel: the only path webtty's app code imports vendor code
+// through (ADR 060, ADR 061). It follows xterm.js' naming, and its runtime names are
+// pinned by vendor/tests/barrel.test.ts.
+
+// Main Terminal class
+export { Terminal } from './terminal';
+
+// xterm.js-compatible interfaces
+export type {
+  ITerminalOptions,
+  ITheme,
+  ITerminalAddon,
+  ITerminalCore,
+  IDisposable,
+  IEvent,
+} from './interfaces';
+
+// Ghostty WASM components (for advanced usage)
+export {
+  Ghostty,
+  OfficialTerminal,
+  CellFlags,
+  DirtyState,
+  KeyEncoderOption,
+} from './ghostty';
+export type {
+  DesktopNotification,
+  GhosttyTerminal,
+  KeyEncoder,
+  TerminalEffects,
+} from './ghostty';
+export { Key, KeyAction, Mods } from './input/key-types';
+export type { KeyEvent } from './input/key-types';
+export type { GhosttyCell } from './engine/cell-types';
+
+// Low-level components (for custom integrations)
+export { CanvasRenderer } from './renderer';
+export type { RendererOptions } from './renderer';
+export type { FontMetrics } from './render/font-metrics';
+export type { IRenderable } from './render/renderable';
+export { InputHandler } from './input-handler';
+export { EventEmitter } from './event-emitter';
+export { SelectionManager } from './selection-manager';
+export type { SelectionCoordinates } from './selection-manager';
+
+// Addons
+export { FitAddon } from './addons/fit';
+export type { ITerminalDimensions } from './addons/fit';
+
+// Link providers
+export { OSC8LinkProvider } from './providers/osc8-link-provider';
+export { UrlRegexProvider } from './providers/url-regex-provider';
+export { LinkDetector } from './link-detector';
+export type { ILink, ILinkProvider, IBufferCellPosition } from './link-types';
+
+// webtty's scrolling motion (ADR 045), DPR tracking (ADR 039) and teardown (ADR 065)
+export { AT_ONCE, easeOutCubic, FRAME_MS, Glide, linear } from './glide';
+export type { Ease, Pace } from './glide';
+export { watchDevicePixelRatio } from './render/device-pixel-ratio';
+export { DisposableStore, listen, toDisposable } from './lifecycle/disposable-store';
+export type { Disposable, ListenerTarget } from './lifecycle/disposable-store';

@@ -1,6 +1,6 @@
 # SPEC: Kitty Graphics
 
-**Last Updated:** 2026-09-20
+**Last Updated:** 2026-10-14
 
 ---
 
@@ -8,9 +8,10 @@
 
 Display images from PTY programs using the
 [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/),
-which ghostty-web's WASM core does not implement. The client intercepts the
-protocol's APC sequences before they reach ghostty-web, decodes the images
-itself, and draws them on an overlay canvas above the terminal canvas.
+which the wasm32 libghostty-vt build leaves out ([ADR 041](../adrs/041.client.libghostty-vt.md)).
+The client intercepts the protocol's APC sequences before they reach the
+terminal, decodes the images itself, and draws them on an overlay canvas above
+the terminal canvas.
 
 Primary target for the POC: full-window streaming apps such as
 [terminal-browser](https://github.com/zenbu-labs/terminal-browser) (standalone
@@ -23,7 +24,7 @@ the rejected alternatives.
 ```
 PTY ──► server ──► WebSocket ──► ws.onmessage
                                     │
-                        KittyGraphics.feed(data)   (src/client/kitty.ts splitter)
+                        KittyGraphics.feed(data)   (features/kitty/graphics/kitty-graphics.ts)
                           │            │
                      text segments   APC commands
                           │            │
@@ -31,9 +32,12 @@ PTY ──► server ──► WebSocket ──► ws.onmessage
                           ▲            │                    │
                           └─ cursor ───┘                    ▼
                           advance / reply                overlay canvas
-                                                       (src/client/graphics.ts)
-replies (a=q OK, CSI 14t/16t/18t) ──► ws.send ──► PTY
+                                         (features/kitty/graphics/overlay-canvas.ts)
+replies (a=q OK) ──► ws.send ──► PTY
 ```
+
+Size queries (`CSI 14t/16t/18t`) are text: they reach the terminal, and Ghostty
+answers them (see Replies).
 
 Text before an APC is written first, so the cursor position read when the
 command is handled is exact.
@@ -66,11 +70,14 @@ Written back to the PTY over the WebSocket:
 - `ESC _ G i=<id>[,p=<pid>] ; OK ESC \` — success, when the command carried an
   image id (`i` or `I`) and `q` did not suppress it.
 - `ESC _ G i=<id> ; E<CODE>:<message> ESC \` — failure.
-- `CSI 4 ; <h> ; <w> t` (answer to `CSI 14 t`) — text-area size in pixels.
-- `CSI 6 ; <ch> ; <cw> t` (answer to `CSI 16 t`) — cell size in pixels.
-- `CSI 8 ; <rows> ; <cols> t` (answer to `CSI 18 t`) — text-area size in cells.
 
-Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
+Window size queries are answered by Ghostty, not by the client: `CSI 14 t`,
+`16 t`, `18 t` and `19 t` and mode 2048, from the cell size `terminal.ts` passes
+it (`OPT_SIZE`, [ADR 042](../adrs/042.client.official-vt-engine.md)). Until
+[ADR 047](../adrs/047.client.official-engine-only.md) the client answered
+`14/16/18 t` itself on the Coder engine.
+
+Pixel sizes are device pixels, matching what kitty and Ghostty report. The cell size is `round(cssCell × devicePixelRatio)` (`deviceCellPixels`, the same as `deviceCellSize` in `features/kitty/protocol/cell-geometry.ts` that frames are scaled by) and the text-area size is `cols × cell`, so the numbers a program derives always agree with each other, including at fractional ratios.
 
 ## Limits
 
@@ -118,19 +125,40 @@ reuses the same image id.
 
 ```
 src/client/
-  kitty.ts        ← pure: APC splitter, key=value parser, reply builders (unit tested)
-  kitty.test.ts
-  graphics.ts     ← browser: decode, placement table, overlay canvas, scroll tracking
-  graphics.test.ts ← state handling against a stubbed DOM and image decoder
-  index.ts        ← wires ws.onmessage through KittyGraphics
+  features/kitty/
+    protocol/        ← pure, one concern per file, each with its x.test.ts (100% lines):
+      apc-splitter.ts      APC sequences out of the PTY stream, with the size limit
+      apc-command.ts       key=value parser (parseKittyApc) and num()
+      chunk-assembler.ts   m=1 chunk reassembly, with the transmission cap
+      kitty-reply.ts       the reply builder, honouring q=1 / q=2
+      png-size.ts          PNG IHDR width and height, from bytes or base64
+      cell-geometry.ts     device cell size, per-axis scale, cells an image covers
+      control-scanner.ts   sequences that clear placements, across chunk boundaries
+    graphics/        ← browser side, one part per file, each with its x.test.ts:
+      kitty-graphics.ts    the facade: feed(), command routing, replies, reset/clear/dispose
+      kitty-limits.ts      image count, pixel, byte and transmission limits
+      kitty-error.ts       the error a refused command is answered with
+      kitty-terminal.ts    the slice of the terminal it reads: cell size, scrollback, scale
+      image-decoder.ts     pre-decode checks and base64 / zlib / PNG / raw decode (deps injected)
+      image-store.ts       images by id in recency order, the byte budget, eviction
+      placements.ts        the placement table
+      placement-geometry.ts  placement record, cursor advance, draw rectangle (pure)
+      overlay-canvas.ts    the overlay canvas, its frame loop and repaint rules, dispose()
+      test-support/        graphics-harness.ts: fake terminal and decoder, happy-dom container
+    kitty-feature.ts ← installKitty: KittyGraphics on the container, its replies sent
+                       through the connection (ADR 060)
+  connection/output-pipeline.ts ← the per-message order: replay window, KittyGraphics.feed
+                       (which writes to the terminal), ack after the parse, smooth scroll
+  app/start-client.ts ← installs the kitty feature at step 3; app/connect-pty.ts builds the
+                       pipeline around it and resets it when a socket opens
 ```
 
 ## Known limitations
 
 - **Placements stop following the text once the scrollback is full.** A placement
   is anchored to the number of scrollback lines plus its row when it was made.
-  That number stops growing when the scrollback reaches its limit (3277 lines
-  with the default `scrollback`), while output keeps pushing rows off the top,
+  That number stops growing when the scrollback reaches its limit (about 10,000
+  lines with the default `scrollbackLines`, ADR 046), while output keeps pushing rows off the top,
   so from then on a main-screen placement stays at its screen row instead of
   scrolling away with its text. The emulator exposes no count of rows it has
   evicted, so the client cannot correct for it. The alternate screen has no
@@ -156,10 +184,10 @@ src/client/
 
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
-| APC splitter | Stateful across chunks; strips APC from text handed to ghostty-web | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
+| APC splitter | Stateful across chunks; strips APC from text handed to the terminal | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
 | Direct-transmission decode | `t=d`, `f=24/32/100`, `o=z`, chunked | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
 | Overlay canvas + placements | Anchored to scrollback rows, cleared on screen clear / alt switch | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
-| Query and size replies | `a=q`, `CSI 14t` / `16t` / `18t` | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
+| Query and size replies | `a=q` from the client; `CSI 14t` / `16t` / `18t` from Ghostty since ADR 047 | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md), [ADR 047](../adrs/047.client.official-engine-only.md) | ✅ |
 | terminal-browser (standalone) works | Verified end to end in a browser tab on macOS (HiDPI) | [ADR 032](../adrs/032.client.kitty-graphics-overlay.md) | ✅ |
 | Scrollback APC stripping (server) | Keep image payloads out of `session.scrollback` | — | ⬜ |
 | Unicode placeholders | `U=1`, needed for tmux and terminal-browser embedded mode | — | ⬜ |

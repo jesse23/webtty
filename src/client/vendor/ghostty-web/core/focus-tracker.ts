@@ -1,0 +1,169 @@
+// webtty (ADR 053, ADR 061), not from upstream.
+// Where keyboard focus is (object): it keeps focus off the container, follows it into and
+// out of the terminal, and sends Ghostty's focus reports while the app has mode 1004 on
+// (ADR 053). Moved out of terminal.ts (ADR 061); every listener and timer it adds is
+// released by dispose() (ADR 065).
+
+import {
+  type Disposable,
+  DisposableStore,
+  type ListenerTarget,
+  listen,
+  toDisposable,
+} from '../lifecycle/disposable-store';
+import type { FocusHost, TimeoutScheduler } from './host-types';
+import { browserTimeouts } from './mouse-controller';
+import { FOCUS_EVENT_MODE } from './terminal-constants';
+
+/** The window and document the tracker listens on and reads, injected so tests pass fakes. */
+export interface FocusEnv {
+  readonly window: ListenerTarget;
+  readonly document: ListenerTarget & Pick<Document, 'activeElement' | 'visibilityState' | 'hasFocus'>;
+}
+
+/** The page's own window and document, read when the terminal opens. */
+export function browserFocusEnv(): FocusEnv {
+  return { window, document };
+}
+
+/**
+ * Terminal focus for mode 1004: keyboard focus inside the container in a focused window.
+ * A report goes out on each change while the mode is on, and once when a write turns it on.
+ */
+export class FocusTracker implements Disposable {
+  private focused = false;
+  // Whether mode 1004 was on after the last write
+  private reporting = false;
+  private env?: FocusEnv;
+  private listeners?: DisposableStore;
+
+  /** `timeouts` runs focusContainer()'s second try. */
+  constructor(
+    private readonly host: FocusHost,
+    private readonly timeouts: TimeoutScheduler = browserTimeouts,
+  ) {}
+
+  /**
+   * Adds the focus listeners, in the order Terminal.open() always added them: the
+   * container's redirect, the window's, then the four that follow focus.
+   */
+  attach(container: HTMLElement, env: FocusEnv = browserFocusEnv()): void {
+    this.env = env;
+    const listeners = new DisposableStore();
+    this.listeners = listeners;
+    // Never let the container hold focus, or the browser writes IME composition
+    // text into it; input goes to the textarea. This covers clicks in the padding,
+    // tab focus and focus(). (webtty)
+    listeners.add(listen(container, 'focusin', this.redirect));
+    // focus() on a background window moves activeElement without a focusin; catch
+    // the container still holding focus when the window comes back. (webtty)
+    listeners.add(listen(env.window, 'focus', this.windowFocused));
+    // Terminal focus for mode 1004: a window blur or focus usually reaches the focused
+    // element as focusout / focusin too, but Chrome switching tabs only changes the
+    // page's visibility, so blur and visibility are watched as well. (webtty, ADR 053)
+    listeners.add(listen(container, 'focusin', this.gained));
+    listeners.add(listen(container, 'focusout', this.lost));
+    listeners.add(listen(env.window, 'blur', this.windowBlurred));
+    listeners.add(listen(env.document, 'visibilitychange', this.visibilityChanged));
+  }
+
+  /**
+   * Removes the container's, the window's and the document's listeners and cancels a
+   * pending refocus (ADR 065). Calling it again does nothing.
+   */
+  dispose(): void {
+    this.listeners?.dispose();
+  }
+
+  /**
+   * Focuses the container now and once more after the DOM settles, which some browsers
+   * need for the focus to stick. The container passes it on to the textarea.
+   */
+  focusContainer(): void {
+    const element = this.host.element();
+    const listeners = this.listeners;
+    if (!element || !listeners) return;
+    element.focus();
+    // The second try is cancelled by dispose(), and forgets itself once it has run
+    let pending: Disposable | undefined;
+    const id = this.timeouts.setTimeout(() => {
+      if (pending) listeners.delete(pending);
+      this.host.element()?.focus();
+    }, 0);
+    pending = listeners.add(toDisposable(() => this.timeouts.clearTimeout(id)));
+  }
+
+  /** After a write: Ghostty reports the focus when the app turns mode 1004 on. */
+  followMode(): void {
+    const reporting = this.host.engine()!.getMode(FOCUS_EVENT_MODE);
+    if (reporting && !this.reporting) this.report();
+    this.reporting = reporting;
+  }
+
+  /** A new engine starts with mode 1004 off. */
+  reset(): void {
+    this.reporting = false;
+  }
+
+  /**
+   * Sends the current focus if mode 1004 is on, for a new connection to the app: reports
+   * sent while there was none were dropped.
+   */
+  resync(): void {
+    if (this.host.engine()?.getMode(FOCUS_EVENT_MODE)) this.report();
+  }
+
+  /** Sends focus that lands on the container itself to the textarea. (webtty) */
+  private readonly redirect = (e: FocusEvent): void => {
+    if (e.target === this.host.element()) this.host.textarea()?.focus();
+  };
+
+  private readonly windowFocused = (): void => {
+    const element = this.host.element();
+    if (element && this.env!.document.activeElement === element) this.host.textarea()?.focus();
+  };
+
+  /** Focus came into the container, or its window got focus back. */
+  private readonly gained = (): void => {
+    this.setFocused(true);
+  };
+
+  /**
+   * Focus left the container, or its window lost focus (no `relatedTarget`). A move
+   * inside it, the container passing focus on to the textarea, is not a change.
+   */
+  private readonly lost = (e: FocusEvent): void => {
+    const next = e.relatedTarget as Node | null;
+    if (next && this.host.element()?.contains(next)) return;
+    this.setFocused(false);
+  };
+
+  /** The window lost focus: the terminal has none, whatever element is active. */
+  private readonly windowBlurred = (): void => {
+    this.setFocused(false);
+  };
+
+  /**
+   * The tab was hidden or shown. Chrome fires no blur or focus for a tab switch, so the
+   * focus is read again here.
+   */
+  private readonly visibilityChanged = (): void => {
+    const doc = this.env!.document;
+    const shown = doc.visibilityState === 'visible' && doc.hasFocus();
+    this.setFocused(shown && !!this.host.element()?.contains(doc.activeElement));
+  };
+
+  private setFocused(focused: boolean): void {
+    if (focused === this.focused) return;
+    this.focused = focused;
+    if (this.host.engine()?.getMode(FOCUS_EVENT_MODE)) this.report();
+  }
+
+  /** Sends `CSI I` or `CSI O` for the current focus, encoded by Ghostty. */
+  private report(): void {
+    const engine = this.host.engine();
+    if (this.host.disableStdin() || !engine) return;
+    const report = new TextDecoder().decode(engine.encodeFocus(this.focused));
+    if (report) this.host.send(report);
+  }
+}

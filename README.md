@@ -7,7 +7,7 @@
 [![npm version](https://img.shields.io/npm/v/webtty)](https://www.npmjs.com/package/webtty)
 [![CI](https://github.com/jesse23/webtty/actions/workflows/ci.yml/badge.svg)](https://github.com/jesse23/webtty/actions/workflows/ci.yml)
 
-Terminal UI in the browser. Run CLI/TUI applications in a browser tab, across platforms. Powered by [ghostty-web](https://github.com/coder/ghostty-web).
+Terminal UI in the browser. Run CLI/TUI applications in a browser tab, across platforms. Terminal emulation by [Ghostty](https://ghostty.org)'s official [libghostty-vt](https://github.com/ghostty-org/ghostty), with a renderer and input layer derived from [ghostty-web](https://github.com/coder/ghostty-web).
 
 - [Why webtty?](docs/awesome-web.md#terminal)
 

@@ -1,0 +1,141 @@
+#!/usr/bin/env bun
+// The scroll benchmark (CLI entry): for each server, scenario, input profile and run it
+// creates a fresh session, opens it in an already running Chrome, starts the scenario's
+// app, scrolls with the input while recording the screencast, prints one JSON line of
+// numbers and deletes the session; then a markdown table of the medians over the runs.
+// A scroll run in which nothing moved (the app never started or never took the wheel) is
+// run once more. A run that fails prints an error line and the benchmark goes on with the
+// next; the servers take turns going first, so none is always measured after the others.
+//
+// Start Chrome or Chromium yourself; the benchmark never launches or closes a browser:
+//
+//   "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new \
+//     --remote-debugging-port=9333 --user-data-dir=/tmp/scroll-bench-chrome \
+//     --window-size=1400,800 --no-first-run about:blank
+//
+// Start each webtty build to compare on its own port, then:
+//
+//   bun run bench:scroll --base before=http://localhost:2401 --base after=http://localhost:2400 \
+//     --scenarios my-scenarios.json --inputs trackpad,wheel,trackpoint --runs 2
+//
+// Scenarios live in a JSON file of your own (scenarios.example.json shows the fields), so
+// commands that resume a personal pi or Claude Code session stay out of the repo. A dark
+// theme is assumed: the stream test finds the bottom by stream.sh's bright inverse bar.
+
+import path from 'node:path';
+import { type BenchArgs, basesForRun, parseBenchArgs, USAGE } from './bench-args';
+import { type Cdp, connectCdp, sleep } from './cdp';
+import { writeDump } from './dump';
+import { INPUT_PROFILES, type InputName } from './inputs';
+import { measureScroll, measureStream, type RecordSink, startScenario } from './measure';
+import { nothingMoved } from './metrics';
+import { loadScenarios, type Scenario } from './scenarios';
+import { benchSessionId, createSession, deleteSession } from './session-api';
+import { type Result, resultLine, summaryTable } from './summary';
+
+/** Runs one scenario with one input in a fresh session and returns its result. */
+async function runOne(
+  cdp: Cdp,
+  base: { label: string; url: string },
+  scenario: Scenario,
+  input: InputName,
+  run: number,
+  dump?: string,
+): Promise<Result> {
+  const id = benchSessionId([base.label, scenario.name, input, run]);
+  const sink: RecordSink | undefined = dump ? (record) => writeDump(dump, id, record) : undefined;
+  const session = await createSession(base.url, id);
+  try {
+    await startScenario(cdp, session.url, scenario);
+    const key = {
+      base: base.label,
+      scenario: scenario.name,
+      screen: scenario.screen,
+      input,
+      direction: scenario.direction,
+      run,
+    };
+    const profile = INPUT_PROFILES[input];
+    if (scenario.kind === 'stream') {
+      return {
+        kind: 'stream',
+        ...key,
+        ...(await measureStream(cdp, profile, key.direction, scenario.pointer, sink)),
+      };
+    }
+    return {
+      kind: 'scroll',
+      ...key,
+      ...(await measureScroll(cdp, profile, key.direction, scenario.pointer, sink)),
+    };
+  } finally {
+    // Leave the page first so the session's socket closes, but delete the session even
+    // when the browser fails, so its app does not keep running.
+    await cdp.navigate('about:blank').catch(() => {});
+    await deleteSession(session);
+  }
+}
+
+async function main(argv: readonly string[]): Promise<number> {
+  if (argv.includes('--help') || argv.includes('-h')) {
+    console.log(USAGE);
+    return 0;
+  }
+  let args: BenchArgs;
+  try {
+    args = parseBenchArgs(argv);
+  } catch (error) {
+    console.error(`${error instanceof Error ? error.message : error}\n\n${USAGE}`);
+    return 2;
+  }
+  const scenarios = loadScenarios(args.scenariosFile, {
+    repo: path.resolve(import.meta.dir, '../..'),
+    bench: import.meta.dir,
+  });
+  const cdp = await connectCdp(args.cdpPort);
+  const results: Result[] = [];
+  let failed = 0;
+  try {
+    for (const scenario of scenarios) {
+      for (const input of args.inputs) {
+        for (let run = 1; run <= args.runs; run++) {
+          for (const base of basesForRun(args.bases, run)) {
+            try {
+              let result = await runOne(cdp, base, scenario, input, run, args.dump);
+              if (result.kind === 'scroll' && nothingMoved(result)) {
+                console.error(
+                  `# retried ${base.label} ${scenario.name} ${input} run ${run}: nothing moved`,
+                );
+                result = await runOne(cdp, base, scenario, input, run, args.dump);
+              }
+              results.push(result);
+              console.log(resultLine(result));
+            } catch (error) {
+              failed++;
+              const message = error instanceof Error ? error.message : String(error);
+              console.error(
+                `# failed ${base.label} ${scenario.name} ${input} run ${run}: ${message}`,
+              );
+            }
+            await sleep(500);
+          }
+        }
+      }
+    }
+  } finally {
+    cdp.close();
+  }
+  console.log(`\n${summaryTable(results)}`);
+  if (failed) console.error(`# ${failed} run(s) failed; the table leaves them out`);
+  return failed ? 1 : 0;
+}
+
+if (import.meta.main) {
+  main(process.argv.slice(2)).then(
+    (code) => process.exit(code),
+    (error: unknown) => {
+      console.error(error instanceof Error ? error.message : error);
+      process.exit(1);
+    },
+  );
+}

@@ -1,69 +1,50 @@
-import fs from 'node:fs';
-import http from 'node:http';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+// The server entry (dist/server/index.js): reads the environment and the config, builds the
+// server with createServer, listens, and installs the process handlers. A thin entry; the
+// wiring is in app.ts (ADR 062).
 import { loadConfig } from '../config';
-import { handleRequest } from './routes';
-import { findGhosttyWeb } from './static';
-import { closeAllSessions, createWebSocketServer, setLastSessionClosedHandler } from './websocket';
+import { createServer, type WebttyServer } from './app';
+import { resolvePathsOrExit } from './server-paths';
+import { SessionStore } from './sessions/session-store';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/** Starts webtty on the configured (or `PORT`) host and port. */
+function main(): void {
+  const config = loadConfig();
+  const port = Number(process.env.PORT) || config.port;
+  // PORT is consumed for our own listen port above; clear it so it doesn't leak
+  // into PTY shells and `/execute` invocations, which inherit process.env.
+  delete process.env.PORT;
+  // 'localhost' resolves to ::1 (IPv6) on modern macOS/Node; bind to 127.0.0.1 instead
+  // but keep 'localhost' as the display host so browser URLs use it as intended.
+  const displayHost = config.host;
+  const host = config.host === 'localhost' ? '127.0.0.1' : config.host;
 
-const config = loadConfig();
-const HTTP_PORT = Number(process.env.PORT) || config.port;
-// PORT is consumed for our own listen port above; clear it so it doesn't leak
-// into PTY shells and `/execute` invocations, which inherit process.env.
-delete process.env.PORT;
-// 'localhost' resolves to ::1 (IPv6) on modern macOS/Node; bind to 127.0.0.1 instead
-// but keep 'localhost' as the display host so browser URLs use it as intended.
-const HTTP_HOST_DISPLAY = config.host;
-const HTTP_HOST = config.host === 'localhost' ? '127.0.0.1' : config.host;
+  const paths = resolvePathsOrExit();
 
-const { distPath, wasmPath } = findGhosttyWeb();
-const projectRoot = path.resolve(__dirname, '..', '..');
-const builtDistPath = path.join(projectRoot, 'dist');
-const srcClientPath = path.join(projectRoot, 'src', 'client');
-const clientDistPath = fs.existsSync(path.join(builtDistPath, 'client.html'))
-  ? builtDistPath
-  : srcClientPath;
+  // The one registry of sessions. Once the last shell exits the server stops itself.
+  const store = new SessionStore({ onEmpty: () => server.shutdown() });
 
-function shutdown() {
-  closeAllSessions();
-  wss.close();
-  const exit = () => process.exit(0);
-  const shutdownTimeout = setTimeout(exit, 1000);
-  httpServer.close(() => {
-    clearTimeout(shutdownTimeout);
-    exit();
+  process.on('uncaughtException', (err) => {
+    console.error('[webtty] uncaughtException:', err);
+  });
+  process.on('unhandledRejection', (reason) => {
+    console.error('[webtty] unhandledRejection:', reason);
+  });
+
+  const server: WebttyServer = createServer({
+    loadConfig,
+    store,
+    paths,
+    onStop: () => process.exit(0),
+  });
+
+  process.on('SIGINT', () => {
+    console.log('\n\nShutting down...');
+    server.shutdown();
+  });
+
+  server.httpServer.listen(port, host, () => {
+    console.log(`listening on http://${displayHost}:${port}`);
   });
 }
 
-process.on('uncaughtException', (err) => {
-  console.error('[webtty] uncaughtException:', err);
-});
-process.on('unhandledRejection', (reason) => {
-  console.error('[webtty] unhandledRejection:', reason);
-});
-
-const httpServer = http.createServer((req, res) => {
-  handleRequest(req, res, distPath, wasmPath, clientDistPath, shutdown).catch((err) => {
-    console.error('[webtty] unhandled route error:', err);
-    if (!res.headersSent) {
-      res.writeHead(500);
-      res.end('Internal Server Error');
-    }
-  });
-});
-
-const wss = createWebSocketServer(httpServer);
-setLastSessionClosedHandler(shutdown);
-
-process.on('SIGINT', () => {
-  console.log('\n\nShutting down...');
-  shutdown();
-});
-
-httpServer.listen(HTTP_PORT, HTTP_HOST, () => {
-  console.log(`listening on http://${HTTP_HOST_DISPLAY}:${HTTP_PORT}`);
-});
+main();

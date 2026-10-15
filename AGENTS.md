@@ -11,8 +11,10 @@ Follow [docs/development.md](docs/development.md) — Spec & ADR Driven Developm
 ```
 webtty/
 ├── docs/
-│   ├── specs/                   # living architecture specs
+│   ├── specs/                   # living specs; specs/architecture.md maps the code
 │   └── adrs/                    # architecture decision records
+├── src/                         # cli/, server/, pty/, config/, client/ (tree in specs/architecture.md)
+├── scripts/                     # build, architecture and coverage checks, ghostty-vt updater
 └── README.md
 ```
 

@@ -1,9 +1,16 @@
+// Tests for the package version: the walk up to package.json on a temporary tree, and the
+// bundled CLI and server entries reporting the version of the package they ship in (ADR 062).
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { cleanupTmpHome, getFreePort, makeTmpHome, waitForServer } from './utils.test';
-import { getVersion } from './version';
+import {
+  cleanupTmpHome,
+  getFreePort,
+  makeTmpHome,
+  waitForServer,
+} from './test-support/server-harness';
+import { findPackageVersion, getVersion } from './version';
 
 const REPO_ROOT = path.resolve(import.meta.dir, '..');
 const FAKE_VERSION = '9.9.9';
@@ -13,6 +20,48 @@ describe('getVersion', () => {
   test('matches the version in package.json', () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8'));
     expect(getVersion()).toBe(pkg.version);
+  });
+
+  test('a second call returns the cached version', () => {
+    expect(getVersion()).toBe(getVersion());
+  });
+});
+
+describe('findPackageVersion', () => {
+  let root: string;
+  let leaf: string;
+
+  beforeAll(() => {
+    root = makeTmpHome('version-walk');
+    leaf = path.join(root, 'pkg', 'nested', 'deeper');
+    fs.mkdirSync(leaf, { recursive: true });
+    // Walking up from `leaf`: a broken file, then another package, then webtty.
+    fs.writeFileSync(path.join(root, 'pkg', 'nested', 'deeper', 'package.json'), '{not json');
+    fs.writeFileSync(
+      path.join(root, 'pkg', 'nested', 'package.json'),
+      JSON.stringify({ name: 'other', version: '1.0.0' }),
+    );
+    fs.writeFileSync(
+      path.join(root, 'pkg', 'package.json'),
+      JSON.stringify({ name: 'webtty', version: '2.3.4' }),
+    );
+  });
+
+  afterAll(() => cleanupTmpHome(root));
+
+  test('skips unreadable and unrelated package.json files on the way up', () => {
+    expect(findPackageVersion(leaf)).toBe('2.3.4');
+  });
+
+  test('a webtty package.json without a version does not count', () => {
+    const bare = path.join(root, 'bare');
+    fs.mkdirSync(bare);
+    fs.writeFileSync(path.join(bare, 'package.json'), JSON.stringify({ name: 'webtty' }));
+    expect(findPackageVersion(bare)).toBe(findPackageVersion(root));
+  });
+
+  test("is 'unknown' when the walk reaches the root without a webtty package", () => {
+    expect(findPackageVersion(root)).toBe('unknown');
   });
 });
 
@@ -33,7 +82,7 @@ describe('getVersion — bundled dist', () => {
       path.join(pkgRoot, 'package.json'),
       JSON.stringify({ name: 'webtty', version: FAKE_VERSION }),
     );
-    // Externals (ws, node-pty, ghostty-web) resolve at runtime from the package root.
+    // Externals (ws, node-pty) resolve at runtime from the package root.
     fs.symlinkSync(
       path.join(REPO_ROOT, 'node_modules'),
       path.join(pkgRoot, 'node_modules'),
@@ -48,9 +97,14 @@ describe('getVersion — bundled dist', () => {
       outdir: path.join(pkgRoot, 'dist'),
       target: 'node',
       format: 'esm',
-      external: ['@lydell/node-pty', 'ws', 'ghostty-web'],
+      external: ['@lydell/node-pty', 'ws'],
     });
     if (!result.success) throw new Error(`bundle failed: ${result.logs.join('\n')}`);
+    // The server needs the wasm at startup; the published package ships it in dist/.
+    fs.copyFileSync(
+      path.join(REPO_ROOT, 'src/client/vendor/ghostty-vt/ghostty-vt-small.wasm'),
+      path.join(pkgRoot, 'dist/ghostty-vt-small.wasm'),
+    );
     cliEntry = path.join(pkgRoot, 'dist/cli/index.js');
     serverEntry = path.join(pkgRoot, 'dist/server/index.js');
   });
