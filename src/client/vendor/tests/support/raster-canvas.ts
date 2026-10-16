@@ -81,9 +81,6 @@ export function rasterCanvas(log: DrawLog = { rows: [], copies: 0 }) {
   let stack: State[] = [];
   let path: Rect | null = null;
   let line: number[] = [];
-  // The row whose own clear was the last row-sized clear outside save(); its next text,
-  // outside save() too, makes it a painted line (a cursor's text is drawn inside save())
-  let pendingRow: number | null = null;
   const reset = () => {
     pixels = new Array(width * height).fill('');
     st = fresh();
@@ -118,16 +115,14 @@ export function rasterCanvas(log: DrawLog = { rows: [], copies: 0 }) {
         st.m = [a, d, e, f];
       },
       clearRect: (x: number, y: number, w: number, h: number) => {
-        if (stack.length === 0 && x === 0 && h === CELL_HEIGHT) pendingRow = y / CELL_HEIGHT;
+        // A row repaint starts with the row's own clear, outside save() (a cursor draws inside
+        // it); a blank row draws no text after it
+        if (stack.length === 0 && x === 0 && h === CELL_HEIGHT) log.rows.push(y / CELL_HEIGHT);
         paint(device(x, y, w, h), '');
       },
       fillRect: (x: number, y: number, w: number, h: number) =>
         paint(device(x, y, w, h), ink(st.fillStyle)),
       fillText: (text: string, x: number, y: number) => {
-        if (stack.length === 0 && pendingRow === Math.floor(y / CELL_HEIGHT)) {
-          log.rows.push(pendingRow);
-          pendingRow = null;
-        }
         const cell = device(x, y - 11, 8, 15);
         if (st.clip && (cell[3] <= st.clip[1] || cell[1] >= st.clip[3])) return;
         const up = text.includes('́') ? 4 : 0;

@@ -78,6 +78,16 @@ export const LINK_UNDERLINE_COLOR = '#4A90E2';
  * instead of swapping the renderer's. (webtty, ADR 043, ADR 061)
  */
 export class CellPainter implements RowPainter, CellTextPainter {
+  /**
+   * The font and colour the line being drawn last set, so a run of cells in the same style
+   * sets neither again: setting either makes the canvas parse it. Null outside a line's text
+   * pass, where something else may have set them. (webtty)
+   */
+  private lineFont: string | null = null;
+  private lineFill: string | null = null;
+  /** The four font strings (plain, italic, bold, bold italic) for `fontsFor`. */
+  private fonts: { fontSize: number; fontFamily: string; list: string[] } | null = null;
+
   constructor(
     private readonly settings: PaintSettings,
     private readonly frame: FrameDecorations,
@@ -147,11 +157,15 @@ export class CellPainter implements RowPainter, CellTextPainter {
 
     // PASS 2: Draw all cell text and decorations
     // Now text can safely extend beyond cell boundaries (for complex scripts)
+    this.lineFont = '';
+    this.lineFill = '';
     for (let x = 0; x < line.length; x++) {
       const cell = line[x];
       if (cell.width === 0) continue; // Skip spacer cells for wide characters
       this.paintCellText(ctx, cell, x, y, undefined, grapheme);
     }
+    this.lineFont = null;
+    this.lineFill = null;
   }
 
   /**
@@ -186,15 +200,22 @@ export class CellPainter implements RowPainter, CellTextPainter {
     const cellX = x * metrics.width;
     const cellY = y * metrics.height;
     const cellWidth = metrics.width * cell.width;
+    const lines = cell.flags & (CellFlags.UNDERLINE | CellFlags.STRIKETHROUGH);
+    const linked = cellInRange(this.frame.link, x, y);
+    // A blank cell draws no glyph, and its background is the first pass': with no line
+    // over it, there is nothing to draw (webtty)
+    const blank = cell.grapheme_len === 0 && (cell.codepoint === 0 || cell.codepoint === 32);
+    if (blank && !lines && !linked) return;
 
     // Set text style
-    let fontStyle = '';
-    if (cell.flags & CellFlags.ITALIC) fontStyle += 'italic ';
-    if (cell.flags & CellFlags.BOLD) fontStyle += 'bold ';
-    ctx.font = `${fontStyle}${this.settings.fontSize}px ${this.settings.fontFamily}`;
+    const font = this.fontsFor()[(cell.flags & CellFlags.ITALIC ? 1 : 0) | (cell.flags & CellFlags.BOLD ? 2 : 0)];
+    if (font !== this.lineFont) {
+      ctx.font = font;
+      if (this.lineFont !== null) this.lineFont = font;
+    }
 
     // Set text color - use override, selection foreground, search or normal color
-    ctx.fillStyle =
+    const fill =
       colorOverride ||
       cellForeground(
         cell,
@@ -202,6 +223,10 @@ export class CellPainter implements RowPainter, CellTextPainter {
         highlightAt(this.frame.searchSpans[y], x),
         theme
       );
+    if (fill !== this.lineFill) {
+      ctx.fillStyle = fill;
+      if (this.lineFill !== null) this.lineFill = fill;
+    }
 
     // Apply faint effect
     const faint = cell.flags & CellFlags.FAINT;
@@ -209,8 +234,10 @@ export class CellPainter implements RowPainter, CellTextPainter {
 
     // A cell with extra codepoints draws its whole grapheme cluster, a simple cell its
     // one codepoint (a space if null)
-    const char = cell.grapheme_len > 0 ? grapheme(x) : String.fromCodePoint(cell.codepoint || 32);
-    ctx.fillText(char, cellX, cellY + metrics.baseline);
+    if (!blank) {
+      const char = cell.grapheme_len > 0 ? grapheme(x) : String.fromCodePoint(cell.codepoint);
+      ctx.fillText(char, cellX, cellY + metrics.baseline);
+    }
 
     // Reset alpha
     if (faint) ctx.globalAlpha = 1.0;
@@ -223,9 +250,20 @@ export class CellPainter implements RowPainter, CellTextPainter {
     }
     // Draw the hovered link's underline (OSC 8 or plain text URL), in canvas rows
     // (webtty, ADR 043)
-    if (cellInRange(this.frame.link, x, y)) {
+    if (linked) {
       drawLine(ctx, LINK_UNDERLINE_COLOR, cellX, cellX + cellWidth, cellY + metrics.baseline + 2);
     }
+  }
+
+  /** The cell fonts for the current size and family, by ITALIC (1) and BOLD (2). */
+  private fontsFor(): string[] {
+    const { fontSize, fontFamily } = this.settings;
+    const fonts = this.fonts;
+    if (fonts?.fontSize === fontSize && fonts.fontFamily === fontFamily) return fonts.list;
+    const base = `${fontSize}px ${fontFamily}`;
+    const list = [base, `italic ${base}`, `bold ${base}`, `italic bold ${base}`];
+    this.fonts = { fontSize, fontFamily, list };
+    return list;
   }
 }
 
