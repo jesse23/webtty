@@ -162,6 +162,39 @@ describe('CellPainter', () => {
       `strokeStyle=${LINK_UNDERLINE_COLOR}`,
     ]);
   });
+
+  test('a blank cell draws no text, but keeps its underline, strike and link line', () => {
+    const link = { startCol: 2, startRow: 0, endCol: 2, endRow: 0 };
+    const t = painter({ link });
+    const space = (flags = 0) => cell(flags, { codepoint: 32 });
+    t.p.paintRow(t.ctx, 0, 4, {
+      line: [space(), cell(0, { codepoint: 0 }), space(), space(CellFlags.UNDERLINE)],
+      grapheme: () => '?',
+    });
+    expect(t.calls.filter((c) => c.startsWith('fillText'))).toEqual([]);
+    expect(t.calls.filter((c) => c.startsWith('moveTo'))).toEqual([
+      'moveTo(16,13)',
+      'moveTo(24,13)',
+    ]);
+  });
+
+  test('a run of cells in one style sets the font and colour once, and a lone cell each time', () => {
+    const t = painter();
+    const bold = cell(CellFlags.BOLD);
+    t.p.paintRow(t.ctx, 0, 5, { line: [cell(), cell(), bold, bold, cell()], grapheme: () => '?' });
+    const text = t.calls.slice(t.calls.indexOf('fillText(A,0,11)') - 2);
+    expect(text.filter((c) => !c.startsWith('fillText'))).toEqual([
+      'font=15px mono',
+      'fillStyle=rgb(200, 0, 0)',
+      'font=bold 15px mono',
+      'font=15px mono',
+    ]);
+    // Outside a line, as for the cursor's cell, nothing is assumed of the context
+    t.calls.length = 0;
+    t.p.paintCellText(t.ctx, cell(), 0, 0, undefined, () => '');
+    t.p.paintCellText(t.ctx, cell(), 1, 0, undefined, () => '');
+    expect(t.calls.filter((c) => c.startsWith('font='))).toHaveLength(2);
+  });
 });
 
 describe('cells drawn through the renderer', () => {
@@ -185,9 +218,10 @@ describe('cells drawn through the renderer', () => {
     renderer.render(term, true, 3, provider);
     // Below the overscan row, canvas rows 1-3 show the last three scrollback lines
     // (line i is the i-th written); rows 4-6 the top of the screen.
+    // Blank cells draw no text, so a row's text is its glyphs run together.
     for (let row = 0; row < 3; row++) {
-      expect(drawn.get(row + 1)).toContain('é');
-      expect(drawn.get(row + 1)?.join('')).toContain(` ${sb - 3 + row} `);
+      const i = sb - 3 + row;
+      expect(drawn.get(row + 1)?.join('')).toBe(`${'x'.repeat(i % 7)}é${i}`);
     }
     expect(drawn.get(4)).toContain('é');
     term.free();
