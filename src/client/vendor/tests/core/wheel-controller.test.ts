@@ -37,6 +37,7 @@ function wheelOn(options: Options = {}) {
     push: (seq: string, dir: number, count: number, pace: Pace) =>
       pushed.push([seq, dir, count, pace]),
     cancel: () => log.push('cancel'),
+    answered: () => log.push('answered'),
   };
   const controller = new WheelController(host, pacer);
   controller.attach(container as unknown as HTMLElement);
@@ -227,8 +228,11 @@ describe('WheelController in mouse-tracking apps', () => {
       encodeMouse: (event) => mouse.encode(event),
       send: (data) => sent.push(data),
     });
-    const send = (deltaY: number, clientX: number, clientY: number, mods: object = {}) =>
+    // The app answers each event's ticks at once, so the next ones go (ADR 069)
+    const send = (deltaY: number, clientX: number, clientY: number, mods: object = {}) => {
       wheel.handle(wheelEvent(deltaY, { clientX, clientY, ...mods }).event);
+      wheel.answered();
+    };
     return { sent, send, free: () => wasmTerm.free() };
   }
 

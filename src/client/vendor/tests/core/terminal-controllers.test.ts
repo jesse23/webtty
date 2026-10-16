@@ -211,6 +211,7 @@ function world() {
     (e) => void log.push(`unpin ${(e as unknown) === parts.engine}`),
   );
   spyOn(core.sync, 'wrote').mockImplementation((data) => void log.push(`wrote ${data}`));
+  spyOn(core.wheel, 'answered').mockImplementation(() => void log.push('answered'));
   spyOn(core.scrollbar, 'drag').mockImplementation(() => true);
   spyOn(core.mouse, 'encode').mockImplementation(() => 'report');
   return { log, parts, term, inner, core, sync };
@@ -290,10 +291,21 @@ describe('TerminalControllers hosts', () => {
       'pin true',
       'unpin true',
       'wrote o',
+      'answered',
       'render false undefined',
       'render false undefined',
       'update painted',
     ]);
+  });
+
+  test("output answers the app's scroll ticks once no synchronized update is open (ADR 069)", () => {
+    const { log, term, inner, core, sync } = world();
+    const host = writeHost(term, inner, core);
+    sync.on = true;
+    host.wroteOutput('begun');
+    sync.on = false;
+    host.wroteOutput('ended');
+    expect(log).toEqual(['wrote begun', 'wrote ended', 'answered']);
   });
 
   test("sync hold: the engine's mode 2026, read and turned off", () => {

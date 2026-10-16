@@ -32,7 +32,7 @@ export class WheelController implements Disposable {
   /** `pacer` sends the ticks and arrows over frames; by default to `host.send`. */
   constructor(
     private readonly host: WheelHost,
-    private readonly pacer: Pick<TickPacer, 'push' | 'cancel'> = new TickPacer((data) =>
+    private readonly pacer: Pick<TickPacer, 'push' | 'cancel' | 'answered'> = new TickPacer((data) =>
       host.send(data),
     ),
   ) {}
@@ -56,6 +56,11 @@ export class WheelController implements Disposable {
     this.listeners.add(
       listen(container, 'wheel', this.handle, { passive: false, capture: true }),
     );
+  }
+
+  /** The app's output arrived: ticks held for its answer may go (ADR 069). */
+  answered(): void {
+    this.pacer.answered();
   }
 
   /** Removes the listener and drops the queued ticks. Calling it again does nothing. */
