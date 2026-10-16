@@ -74,6 +74,11 @@ export class SyncHold {
     return this.host.active() && (this.since === null || now - this.since < SYNC_HOLD_MAX_MS);
   }
 
+  /** The app's synchronized update is still open: the output written so far began one that has not ended. */
+  inUpdate(): boolean {
+    return this.host.active();
+  }
+
   /** The render loop held a frame's paint. */
   frameHeld(): void {
     this.waiting = true;

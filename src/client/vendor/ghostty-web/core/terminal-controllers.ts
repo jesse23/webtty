@@ -235,7 +235,12 @@ export function writeHost(term: ControllersHost, inner: Inner, core: TerminalCon
       paint(inner, core);
       inner.emit.updatePainted.fire();
     },
-    wroteOutput: (data) => core.sync.wrote(data),
+    wroteOutput: (data) => {
+      core.sync.wrote(data);
+      // The app's answer to the scroll ticks it was sent: its output, once a synchronized
+      // update in it has ended, so the next ticks do not reach it mid-frame (ADR 069)
+      if (!core.sync.inUpdate()) core.wheel.answered();
+    },
     // Not inside a synchronized update: the frame after it ends paints (ADR 067)
     renderEcho: () => {
       if (!core.sync.held()) paint(inner, core);
