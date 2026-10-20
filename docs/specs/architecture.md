@@ -98,6 +98,7 @@ src/
       session.ts                object: Session (PTY lifecycle, scrollback ring, close, broadcast)
       session-id.ts             util: ID_RE, isValidId, generateId
       session-banner.ts         util (pure): sessionBanner(runner)
+      input-modes.ts            object: InputModes (input modes the output set, restored before the replay)
     ws/
       close-codes.ts            constants: WS_CLOSE
       ws-upgrade.ts             wiring: noServer upgrade router

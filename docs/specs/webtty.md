@@ -1,6 +1,6 @@
 # SPEC: webtty
 
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-15
 
 ---
 
@@ -102,3 +102,4 @@ The server, PTY, CLI and config code is organised as the [architecture SPEC](arc
 | Client integration (CLI → Web) | `POST /s/:id/publish` (one-shot or streaming JSON) + `ws /ws/:id/events` subscribe; channel active only while PTY is running; no extra process or port | [ADR 025](../adrs/025.server.channel.md) | ✅ |
 | Session base directory | `POST /api/sessions` accepts `baseDir` (absolute path); PTY shell spawns there instead of `homedir()`; CLI `webtty [go] [id] --dir <path>` resolves and forwards it; ignored when attaching to an existing session | [ADR 028](../adrs/028.session.base-dir.md) | ✅ |
 | Output flow control | Output paced per client by acknowledgements: in order at any client speed, bounded server buffers, PTY paused while every client is behind (node-pty), a client that falls 16 Mi characters behind is closed with `4003` and reconnects to the replay; avoids Bun's `ws` shim reordering and duplicating messages past 16 MB | [ADR 048](../adrs/048.webtty.output-flow-control.md) | ✅ |
+| Input modes on replay | A joining client is sent the input modes the output last set (bracketed paste, mouse and focus reporting, application cursor keys) ahead of the scrollback, so a reloaded tab still pastes into a full-screen app as one bracketed paste | [ADR 070](../adrs/070.webtty.replay-input-modes.md) | ✅ |
