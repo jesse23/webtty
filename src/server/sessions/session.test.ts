@@ -98,6 +98,21 @@ describe('Session.ensurePty', () => {
     expect(second.sent).toEqual([`${sessionBanner('bunx')}hello`]);
   });
 
+  test('a later client is put back in the input modes the trimmed scrollback no longer sets (ADR 070)', () => {
+    const { deps, host, session, pty } = fixture(8);
+    const first = new FakeSocket();
+    session.attach(first, false);
+    session.ensurePty(first, 80, 24, deps, host);
+    pty.emitData('\x1b[?2004h\x1b[?1000;1006h');
+    pty.emitData('0123456789');
+    expect(session.scrollback).toBe('23456789');
+
+    const second = new FakeSocket();
+    session.attach(second, false);
+    session.ensurePty(second, 80, 24, deps, host);
+    expect(second.sent).toEqual(['\x1b[?1000;1006;2004h23456789']);
+  });
+
   test('a later client with no scrollback is only resized', () => {
     const { log, deps, host, session } = fixture();
     session.pty = new FakePty(log);

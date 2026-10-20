@@ -7,6 +7,7 @@ import type { Config } from '../../config';
 import type { PtyProcess, SpawnPty } from '../../pty';
 import { type FlowSocket, OutputPacer } from '../output-pacer';
 import { WS_CLOSE } from '../ws/close-codes';
+import { InputModes } from './input-modes';
 import { sessionBanner } from './session-banner';
 
 /** What {@link Session.ensurePty} needs to start a shell, injected so tests need no real PTY. */
@@ -39,6 +40,8 @@ export class Session {
   readonly subscribers = new Set<FlowSocket>();
   /** The last `config.scrollback` characters of output, replayed when a client joins. */
   scrollback = '';
+  /** The input modes the output last set, restored ahead of the replay (ADR 070). */
+  readonly inputModes = new InputModes();
   /** Paces PTY output to the clients by their acknowledgements (ADR 048). */
   readonly output = new OutputPacer(() => this.pty);
 
@@ -70,7 +73,8 @@ export class Session {
   /**
    * Greets a newly attached client. The first client spawns the shell and is sent the
    * banner, which starts the scrollback, then the shell is sent a newline so it prints a
-   * prompt. A later client is sent the scrollback first and only then resizes the PTY.
+   * prompt. A later client is sent the input modes the output has set (ADR 070), then the
+   * scrollback, and only then resizes the PTY.
    *
    * @param ws - The client just passed to {@link attach}.
    * @param cols - The client's width, used for the spawn or the resize.
@@ -86,7 +90,8 @@ export class Session {
     host: SessionExitHost,
   ): void {
     if (this.pty) {
-      if (this.scrollback) this.output.send(ws, this.scrollback);
+      const replay = this.inputModes.restore() + this.scrollback;
+      if (replay) this.output.send(ws, replay);
       this.pty.resize(cols, rows);
       return;
     }
@@ -102,9 +107,11 @@ export class Session {
       env: config.env,
     });
     this.pty = pty;
-    // The per-chunk hot path: append to the ring and hand the chunk to the pacer, nothing more.
+    // The per-chunk hot path: append to the ring, note the input modes (a scan that returns
+    // at once for a chunk with no ESC), and hand the chunk to the pacer.
     pty.onData((data: string) => {
       this.scrollback = (this.scrollback + data).slice(-limit);
+      this.inputModes.observe(data);
       this.output.broadcast(data);
     });
     pty.onExit(() => this.handleExit(host));
