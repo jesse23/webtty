@@ -136,14 +136,14 @@ All status messages written to the terminal share a consistent style:
 
 ## Keyboard Bindings
 
-Browser `KeyboardEvent` objects do not carry terminal escape sequences — the browser has no knowledge of the Alacritty/Ghostty custom-binding convention that maps modifier+key combos to specific byte sequences. As a result, keys like Shift+Enter arrive at ghostty-web as a plain `keydown` with `shiftKey=true`, and ghostty-web sends the same `\r` it would for unmodified Enter — not the `\x1b\r` (ESC CR) that TUI apps such as opencode expect.
+Browser `KeyboardEvent` objects do not carry terminal escape sequences — the browser has no knowledge of the Alacritty/Ghostty custom-binding convention that maps modifier+key combos to specific byte sequences. As a result, keys like Shift+Enter arrive at the terminal's input handler (vendored from ghostty-web, encoding keys with libghostty-vt's key encoder) as a plain `keydown` with `shiftKey=true`, and it sends the same `\r` it would for unmodified Enter — not the `\x1b\r` (ESC CR) that TUI apps such as opencode expect.
 
-A capture-phase `keydown` listener on the terminal container fires before ghostty-web's canvas handlers and intercepts matching bindings:
+A capture-phase `keydown` listener on the terminal container (`features/keyboard/key-dispatcher.ts`) fires before the terminal's input handler and intercepts matching bindings:
 
 1. Walk `config.keyboardBindings` (user-configured entries).
 2. Normalize `event.key` to lowercase and compare against each binding's `key`+`mods`.
-3. On match: call `e.preventDefault()` + `e.stopPropagation()` to suppress ghostty-web's default handling, then send `binding.chars` verbatim over WebSocket to the PTY.
-4. No match: return immediately — ghostty-web handles as normal.
+3. On match: call `e.preventDefault()` + `e.stopPropagation()` to suppress the input handler's default encoding, then send `binding.chars` verbatim over WebSocket to the PTY.
+4. No match: return immediately — the input handler encodes the key as normal.
 
 **`chars` encoding:** The client sends `binding.chars` verbatim. Standard JSON escapes (`\uXXXX`, `\r`, `\n`, `\t`) are resolved by `JSON.parse` at config load — no further processing occurs.
 
@@ -161,7 +161,7 @@ See [key-bindings spec](key-bindings.md) for the binding object schema and examp
 
 Numpad `+`, `-`, and `0` are also recognised.
 
-A capture-phase `keydown` listener on `window` fires first. It calls `preventDefault()` to suppress browser page-zoom and `stopPropagation()` to prevent the key from reaching ghostty-web's PTY input path. Font size is not persisted — reload returns to `config.fontSize`.
+A capture-phase `keydown` listener on `window` fires first. It calls `preventDefault()` to suppress browser page-zoom and `stopPropagation()` to prevent the key from reaching the terminal's input handler and the PTY. Font size is not persisted — reload returns to `config.fontSize`.
 
 See [ADR 023](../adrs/023.client.font-size-zoom.md).
 
@@ -353,7 +353,7 @@ When a session ends (shell exits → WS close code `4001`) or the server stops (
 | Feature | Description | ADR | Done? |
 |---------|-------------|-----|-------|
 | Static asset build | Browser TS compiled by `Bun.build()`; HTML/CSS copied to `dist/`; zero inline script | [ADR 012](../adrs/012.client.static-assets.md) | ✅ |
-| Terminal view | Full-viewport terminal using `ghostty-web`, auto-fit, WebSocket reconnect on disconnect | [ADR 001](../adrs/001.webtty.bootstrap.md) | ✅ |
+| Terminal view | Full-viewport terminal (libghostty-vt engine, renderer and input layer derived from ghostty-web), auto-fit, WebSocket reconnect on disconnect | [ADR 001](../adrs/001.webtty.bootstrap.md) | ✅ |
 | Config endpoint | `GET /api/config` — serves client-relevant config keys; replaces server-side template injection | [ADR 012](../adrs/012.client.static-assets.md) | ✅ |
 | Session support | `GET /s/:id` opens a named session; `GET /` redirects to last-used or creates `main` | [ADR 005](../adrs/005.client.session-support.md) | ✅ |
 | Multi-client | Multiple tabs can attach to the same session; scrollback replayed on reconnect; tab closes when PTY exits | [ADR 007](../adrs/007.webtty.session-client.md) | ✅ |
