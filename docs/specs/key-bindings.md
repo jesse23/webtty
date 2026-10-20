@@ -1,14 +1,14 @@
 # SPEC: Key Bindings
 
-**Last Updated:** 2026-10-14
+**Last Updated:** 2026-10-15
 
 ---
 
 ## Description
 
-Browser `KeyboardEvent` objects carry no terminal escape sequence knowledge. When a user presses Shift+Enter in webtty, ghostty-web receives a `keydown` with `key="Enter"` and `shiftKey=true` — and sends `\r` to the PTY, identical to plain Enter. TUI apps that distinguish modifier+key combos (e.g. opencode expecting Shift+Enter as a "new line" action) never receive the sequence they expect.
+Browser `KeyboardEvent` objects carry no terminal escape sequence knowledge. When a user presses Shift+Enter in webtty, the terminal's input handler (vendored from ghostty-web, encoding keys with libghostty-vt's key encoder) receives a `keydown` with `key="Enter"` and `shiftKey=true` — and sends `\r` to the PTY, identical to plain Enter. TUI apps that distinguish modifier+key combos (e.g. opencode expecting Shift+Enter as a "new line" action) never receive the sequence they expect.
 
-`keyboardBindings` solves this with a config-driven mapping layer. A capture-phase `keydown` listener intercepts matching combos before ghostty-web sees them and sends the configured `chars` directly to the PTY.
+`keyboardBindings` solves this with a config-driven mapping layer. A capture-phase `keydown` listener intercepts matching combos before the input handler sees them and sends the configured `chars` directly to the PTY.
 
 ## Binding schema
 
@@ -119,14 +119,14 @@ Full keycode table: [kitty keyboard protocol — functional key definitions](htt
 
 ## Client implementation
 
-A capture-phase `keydown` listener on the terminal container fires before ghostty-web's canvas handlers and intercepts matching bindings:
+A capture-phase `keydown` listener on the terminal container (`features/keyboard/key-dispatcher.ts`) fires before the terminal's input handler and intercepts matching bindings:
 
 1. Walk `config.keyboardBindings`.
 2. Normalize `event.key` to lowercase and compare against each binding's `key` + `mods`.
-3. On match: call `e.preventDefault()` + `e.stopPropagation()` to suppress ghostty-web's default handling, then send `binding.chars` verbatim over WebSocket to the PTY.
-4. No match: return immediately — ghostty-web handles as normal.
+3. On match: call `e.preventDefault()` + `e.stopPropagation()` to suppress the input handler's default encoding, then send `binding.chars` verbatim over WebSocket to the PTY.
+4. No match: return immediately — the input handler encodes the key as normal.
 
-`stopPropagation` (not `stopImmediatePropagation`) is sufficient: it prevents the event from reaching the canvas so ghostty-web never fires its default handling.
+`stopPropagation` (not `stopImmediatePropagation`) is sufficient: it prevents the event from reaching the input handler, so the key is never encoded and sent a second time.
 
 `chars` is sent verbatim. Standard JSON escapes (`\uXXXX`, `\r`, `\n`, `\t`) are resolved by `JSON.parse` at config load — no further processing occurs at send time.
 
